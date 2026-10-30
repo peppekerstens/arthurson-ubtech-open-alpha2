@@ -430,10 +430,12 @@ public final class WakeController {
 
     private void onFinal(String json) {
         String text;
+        String raw;
         double conf;
         try {
             JSONObject o = new JSONObject(json);
-            text = clean(o.optString("text", ""));
+            raw = o.optString("text", "").replaceAll("\\s+", " ").trim().toLowerCase(Locale.US);
+            text = clean(raw);
             conf = avgConf(o.optJSONArray("result"));
         } catch (Exception e) {
             return;
@@ -444,8 +446,9 @@ public final class WakeController {
         if (conf >= 0 && conf < 0.5) return;
         JSONObject cmds = commandMap();
         // A command must be the whole utterance, with or without a wake word in front
-        // ("alpha sta op" or "sta op"), not a word inside a sentence.
-        String rest = text;
+        // ("alpha sta op" or "sta op"), not a word inside a sentence. The raw result
+        // keeps the [unk] tokens: "[unk] slaap" is a sentence, not a command.
+        String rest = raw;
         for (String w : wakeWords()) {
             if (rest.startsWith(w + " ")) rest = rest.substring(w.length() + 1).trim();
         }
@@ -463,7 +466,11 @@ public final class WakeController {
             if ((" " + text + " ").contains(" " + w + " ")) wake = true;
         }
         long now = System.currentTimeMillis();
-        // "stop" without the wake word only while an action or speech runs.
+        // "stop" also inside a sentence (stopping is safe), but without the wake word
+        // only while an action or speech runs.
+        if (command == null && (" " + text + " ").contains(" stop ") && cmds.has("stop")) {
+            command = "stop";
+        }
         if ("stop".equals(command) && (wake || busy())) {
             runCommand("stop");
             return;
@@ -517,18 +524,18 @@ public final class WakeController {
                     }
                 }
                 if (!bridge.isConnected()) {
-                    say("No connection.");
+                    clip("noconn", "No connection.");
                     return;
                 }
                 // Cue: the robot says "Yes?" before the uplink opens (not sent to the server).
                 if (prefs().getBoolean("cue", true)) {
-                    if ("en".equals(language())) say("Yes?", "en-US"); else say("Ja?", "de-DE");
-                    sleepMs(900);
+                    clip("cue", "Yes?");
+                    sleepMs(200);
                 }
                 String err = bridge.wakeTurnBegin();
                 if (err != null) {
                     lastError = "turn: " + err;
-                    say("No connection.");
+                    clip("noconn", "No connection.");
                     return;
                 }
                 lastSpeechMs = System.currentTimeMillis();
@@ -641,7 +648,7 @@ public final class WakeController {
     private void rest(boolean sleep) {
         if (!playAndWait(SQUAT_FILE)) {
             Log.w(TAG, "squat did not start: the servos stay powered");
-            say("I cannot squat.");
+            clip("nosquat", "I cannot squat.");
             return;
         }
         sleepMs(1000);
@@ -704,11 +711,36 @@ public final class WakeController {
         } catch (Exception ignore) { }
         int target = Math.max(2, Math.min(Math.min(15, max), cur + delta));
         call("audio/volume/set", one("level", String.valueOf(target)));
-        say("Volume " + target + ".");
+        clip("volume-" + target, "Volume " + target + ".");
     }
 
     private void say(String text) {
         say(text, "en-US");
+    }
+
+    /** Plays /sdcard/alpha2/voice/<language>/<name>.wav (made with the same Piper voice as
+     *  the answers, nl_NL-ronnie-medium or en_US-lessac-medium) and waits until it ends.
+     *  Without the file: Android TTS in English (the robot has no Dutch Android voice). */
+    private void clip(String name, String fallback) {
+        java.io.File f = new java.io.File("/sdcard/alpha2/voice/" + language() + "/" + name + ".wav");
+        if (!f.isFile()) {
+            say(fallback);
+            return;
+        }
+        android.media.MediaPlayer mp = new android.media.MediaPlayer();
+        try {
+            mp.setAudioStreamType(android.media.AudioManager.STREAM_MUSIC);
+            mp.setDataSource(f.getPath());
+            mp.prepare();
+            int ms = Math.max(200, Math.min(5000, mp.getDuration()));
+            mp.start();
+            sleepMs(ms + 100);
+        } catch (Exception e) {
+            Log.w(TAG, "clip " + f + ": " + e.getMessage());
+            say(fallback);
+        } finally {
+            try { mp.release(); } catch (Throwable ignore) { }
+        }
     }
 
     /** Android TTS. The robot has no Dutch voice (de, en, es, fr, it only). */
