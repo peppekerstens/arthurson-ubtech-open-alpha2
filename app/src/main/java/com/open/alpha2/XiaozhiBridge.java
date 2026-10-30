@@ -152,8 +152,22 @@ public final class XiaozhiBridge {
             vosk.stopListening();
         }
         releaseMicForAudioIo();
+        // Open the playback first and keep it open in wake mode. On this HAL an
+        // AudioTrack that opens while the AudioRecord runs spoils the input (same
+        // trap as in startXiaozhiMic(): output first, 250 ms, then input).
+        XiaozhiAudioController.StartResult p = xiaozhiAudioController.startPlayback(5000);
+        if (p.error != null) {
+            robot.speech_SetMIC(false);
+            return "playback: " + p.error;
+        }
+        try {
+            Thread.sleep(250);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
         xiaozhiAudioController.setUplink(false);
         xiaozhiAudioController.setPcmTap(tap);
+        currentWakeTap = tap;
         XiaozhiAudioController.StartResult r = xiaozhiAudioController.startCapture(
                 new XiaozhiAudioController.EncodedFrameSink() {
                     @Override
@@ -180,9 +194,11 @@ public final class XiaozhiBridge {
 
     /** Closes the wake-word microphone and gives it back to the robot. */
     public void wakeCaptureStop() {
+        currentWakeTap = null;
         stopXiaozhiMicHoldEnforcer();
         xiaozhiAudioController.setPcmTap(null);
         xiaozhiAudioController.stopCapture();
+        xiaozhiAudioController.stopPlayback();
         xiaozhiAudioController.setUplink(true);
         if (xiaozhiMicHeld) {
             robot.speech_SetMIC(false);
@@ -197,8 +213,7 @@ public final class XiaozhiBridge {
     /** Starts one server turn: playback on, listen start, frames to the server. */
     public String wakeTurnBegin() {
         if (!xiaozhiClient.isOpen()) return "not connected";
-        XiaozhiAudioController.StartResult p = xiaozhiAudioController.startPlayback(5000);
-        if (p.error != null) return p.error;
+        // The playback is already open (wakeCaptureStart). Do not open an output now.
         try {
             xiaozhiClient.sendListenStart();
         } catch (java.io.IOException e) {
@@ -234,7 +249,7 @@ public final class XiaozhiBridge {
                 Log.w(TAG, "wake: listen stop failed: " + e.getMessage());
             }
         }
-        xiaozhiAudioController.stopPlayback();
+        // The playback stays open (see wakeCaptureStart).
     }
 
     /** Stops the answer at once: abort to the server, playback off. */
@@ -250,9 +265,20 @@ public final class XiaozhiBridge {
                 Log.w(TAG, "wake: abort failed: " + e.getMessage());
             }
         }
-        xiaozhiAudioController.stopPlayback();
         LedCenter.stopMouthLedForTts();
+        // Drop the queued answer audio: close the output, and open it again before
+        // the input, in the safe order (capture stop, playback, capture start).
+        XiaozhiAudioController.PcmTap tap = currentWakeTap;
+        if (tap != null) {
+            wakeCaptureStop();
+            String err = wakeCaptureStart(tap);
+            if (err != null) Log.w(TAG, "wake: restart after abort failed: " + err);
+        } else {
+            xiaozhiAudioController.stopPlayback();
+        }
     }
+
+    private volatile XiaozhiAudioController.PcmTap currentWakeTap;
 
     /** Starts the activation and connect flow in the background (same as xiaozhi/connect). */
     public void wakeConnect() {
