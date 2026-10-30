@@ -49,7 +49,8 @@ mappings:
     description: >-
       Play a built-in robot action by Chinese or English name (fuzzy-matched
       server-side, e.g. "跳舞" or "dance"). Call self.robot.list_actions first
-      if unsure of the exact name.
+      if unsure of the exact name. A name that ends in ".ubx" plays that file
+      from /sdcard/actions.
     params:
       - mcp: name
         openapi: name

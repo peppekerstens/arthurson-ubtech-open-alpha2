@@ -45,7 +45,7 @@ public final class McpToolsGenerated {
         {
             JSONObject t = new JSONObject();
             t.put("name", "self.robot.play_action");
-            t.put("description", "Play a built-in robot action by Chinese or English name (fuzzy-matched server-side, e.g. \"跳舞\" or \"dance\"). Call self.robot.list_actions first if unsure of the exact name.");
+            t.put("description", "Play a built-in robot action by Chinese or English name (fuzzy-matched server-side, e.g. \"跳舞\" or \"dance\"). Call self.robot.list_actions first if unsure of the exact name. A name that ends in \".ubx\" plays that file from /sdcard/actions.");
             JSONObject s = new JSONObject();
             s.put("type", "object");
             JSONObject props = new JSONObject();

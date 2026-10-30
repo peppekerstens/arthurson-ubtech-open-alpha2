@@ -521,6 +521,17 @@ public final class ActionDirect {
         if (actionName.isEmpty()) {
             return SonarCenter.McpResult.missingArg("name");
         }
+        // A file name in /sdcard/actions (for example "Squat-myrobot.ubx") plays that file
+        // directly. resolveActionFile() keeps the path inside ACTION_DIR. A server can then
+        // offer only checked action files to the LLM (alpha2-brain#16).
+        if (actionName.toLowerCase(java.util.Locale.US).endsWith(".ubx")) {
+            if (resolveActionFile(actionName) == null) {
+                return SonarCenter.McpResult.err("no action file \"" + actionName + "\" in " + ACTION_DIR);
+            }
+            UbxErrorCode.API_ERROR_CODE fileCode = playActionDirect(actionName);
+            return new SonarCenter.McpResult(!MainActivity.isOk(fileCode),
+                    String.valueOf(fileCode) + " (file \"" + actionName + "\")");
+        }
         String resolvedId = resolveActionId(actionName);
         if (resolvedId == null) {
             return SonarCenter.McpResult.err("no action found matching \"" + actionName
