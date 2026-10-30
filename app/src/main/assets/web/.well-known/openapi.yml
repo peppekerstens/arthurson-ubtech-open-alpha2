@@ -6720,7 +6720,7 @@ paths:
           enum:
           - nl
           - en
-        description: nl (default) or en. Selects the Vosk model and its command list together
+        description: en (default) or nl. Selects the Vosk model and its command list together
       - name: command_window_ms
         in: query
         required: false

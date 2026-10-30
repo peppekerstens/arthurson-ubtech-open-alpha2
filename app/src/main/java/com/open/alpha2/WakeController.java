@@ -154,8 +154,9 @@ public final class WakeController {
         return out;
     }
 
-    /** nl (default, the owner speaks Dutch) or en. Selects the Vosk model and its list. */
-    private String language() { return "en".equals(prefs().getString("language", "nl")) ? "en" : "nl"; }
+    /** en (default, owner decision 2026-10-31: Vosk only for the wake word and the fixed
+     *  English list) or nl. Selects the Vosk model and its list. */
+    private String language() { return "nl".equals(prefs().getString("language", "en")) ? "nl" : "en"; }
 
     private String modelId() { return "en".equals(language()) ? MODEL_EN : MODEL_NL; }
 
