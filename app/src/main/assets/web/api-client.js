@@ -966,6 +966,11 @@ const Alpha2Api = (function() {
     return api('vosk/download_status', params);
   }
 
+  function voskGrammar(params) {
+    // Read or set the stored Vosk grammar (used at the next vosk/start)
+    return api('vosk/grammar', params);
+  }
+
   function voskLoad(params) {
     // 載入指定 Vosk model (背景幾秒，一次一粒)
     return api('vosk/load', params);
@@ -994,6 +999,22 @@ const Alpha2Api = (function() {
   function voskUnload(params) {
     // 卸載 Vosk model (釋放記憶體)
     return api('vosk/unload', params);
+  }
+
+  function wakeGet(params) {
+    // Wake word and local commands - settings
+    return api('wake/get', params);
+  }
+
+  function wakeSet(params) {
+    if (params && params.sleep_mode != null) assertEnum(params.sleep_mode, ['release', 'servo_power', 'power_save'], 'sleep_mode');
+    // Wake word and local commands - change settings (wake mode starts again)
+    return api('wake/set', params);
+  }
+
+  function wakeStatus(params) {
+    // Wake word and local commands - state
+    return api('wake/status', params);
   }
 
   // ── stream ──────────────────────────────────────────────
@@ -1327,12 +1348,16 @@ const Alpha2Api = (function() {
     voskDownload,
     voskDownloadCancel,
     voskDownloadStatus,
+    voskGrammar,
     voskLoad,
     voskModels,
     voskStart,
     voskStatus,
     voskStop,
     voskUnload,
+    wakeGet,
+    wakeSet,
+    wakeStatus,
     systemAuthClear,
     systemAuthSet,
     systemAuthStatus,

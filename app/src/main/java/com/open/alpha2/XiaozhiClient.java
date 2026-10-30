@@ -622,6 +622,7 @@ public class XiaozhiClient {
                 // 區分 server 完全沒收到 audio / 收到但辨識不到 / 辨識到但 llm/tts 無跟上。
                 Log.i(TAG, "STT result: " + msg.optString("text"));
                 EventBus.get().publish(EVT_STT, "{\"text\":\"" + jsonEscape(msg.optString("text")) + "\"}");
+                WakeController.onXiaozhiStt(msg.optString("text"));
                 break;
             case "llm":
                 Log.i(TAG, "LLM response: emotion=" + msg.optString("emotion") + " text=" + msg.optString("text"));

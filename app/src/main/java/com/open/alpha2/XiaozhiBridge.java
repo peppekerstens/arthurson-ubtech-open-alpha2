@@ -118,6 +118,152 @@ public final class XiaozhiBridge {
         xiaozhiAudioController.stopPlayback();
     }
 
+    // -- Wake word (WakeController, alpha2-brain#16) ------------------------------
+    // One AudioRecord for both: the capture feeds the local Vosk grammar (PCM tap),
+    // and sends frames to the server only while the uplink is on.
+
+    /** Closes the microphone and sends listen stop, but keeps the playback on. */
+    private void stopXiaozhiCaptureOnly() {
+        stopXiaozhiMicHoldEnforcer();
+        xiaozhiAudioController.stopCapture();
+        if (xiaozhiClient.isOpen()) {
+            try {
+                xiaozhiClient.sendListenStop();
+            } catch (java.io.IOException e) {
+                Log.w(TAG, "Failed to signal listen-stop: " + e.getMessage());
+            }
+        }
+        if (xiaozhiMicHeld) {
+            robot.speech_SetMIC(false);
+            xiaozhiMicHeld = false;
+            EventBus.get().publish(XIAOZHI_MIC_STATE_EVENT, "{\"held\":false}");
+        }
+    }
+
+    /** Opens the microphone for the wake word. Returns null or an error. */
+    public String wakeCaptureStart(XiaozhiAudioController.PcmTap tap) {
+        if (!XiaozhiClient.isAudioSupported()) return "needs Android 5.0 (API 21)";
+        if (xiaozhiAudioController.isCapturing()) {
+            // An earlier session (auto mode or mic/start) holds the microphone.
+            xiaozhiAutoMode.set(false);
+            stopXiaozhiMic();
+        }
+        if (vosk != null && vosk.isListening()) {
+            vosk.stopListening();
+        }
+        releaseMicForAudioIo();
+        xiaozhiAudioController.setUplink(false);
+        xiaozhiAudioController.setPcmTap(tap);
+        XiaozhiAudioController.StartResult r = xiaozhiAudioController.startCapture(
+                new XiaozhiAudioController.EncodedFrameSink() {
+                    @Override
+                    public void onEncodedFrame(byte[] opusData) {
+                        // A dropped server must not stop the local wake word.
+                        if (!xiaozhiClient.isOpen()) return;
+                        try {
+                            xiaozhiClient.sendAudioFrame(opusData);
+                        } catch (java.io.IOException e) {
+                            Log.w(TAG, "wake: frame not sent: " + e.getMessage());
+                        }
+                    }
+                }, 5000);
+        if (r.error != null) {
+            xiaozhiAudioController.setPcmTap(null);
+            xiaozhiAudioController.setUplink(true);
+            robot.speech_SetMIC(false);
+            return r.error;
+        }
+        xiaozhiMicHeld = true;
+        startXiaozhiMicHoldEnforcer();
+        return null;
+    }
+
+    /** Closes the wake-word microphone and gives it back to the robot. */
+    public void wakeCaptureStop() {
+        stopXiaozhiMicHoldEnforcer();
+        xiaozhiAudioController.setPcmTap(null);
+        xiaozhiAudioController.stopCapture();
+        xiaozhiAudioController.setUplink(true);
+        if (xiaozhiMicHeld) {
+            robot.speech_SetMIC(false);
+            xiaozhiMicHeld = false;
+        }
+    }
+
+    public boolean wakeCaptureRunning() {
+        return xiaozhiAudioController.isCapturing();
+    }
+
+    /** Starts one server turn: playback on, listen start, frames to the server. */
+    public String wakeTurnBegin() {
+        if (!xiaozhiClient.isOpen()) return "not connected";
+        XiaozhiAudioController.StartResult p = xiaozhiAudioController.startPlayback(5000);
+        if (p.error != null) return p.error;
+        try {
+            xiaozhiClient.sendListenStart();
+        } catch (java.io.IOException e) {
+            return e.getMessage();
+        }
+        xiaozhiAudioController.setUplink(true);
+        return null;
+    }
+
+    /** Half duplex: no frames to the server while the robot speaks. */
+    public void wakeUplink(boolean on) {
+        xiaozhiAudioController.setUplink(on);
+    }
+
+    /** Sends listen start again after an answer (follow-up window). */
+    public void wakeListenAgain() {
+        if (!xiaozhiClient.isOpen()) return;
+        try {
+            xiaozhiClient.sendListenStart();
+        } catch (java.io.IOException e) {
+            Log.w(TAG, "wake: listen start failed: " + e.getMessage());
+        }
+        xiaozhiAudioController.setUplink(true);
+    }
+
+    /** Ends the server turn: no frames, listen stop. The playback stops. */
+    public void wakeTurnEnd() {
+        xiaozhiAudioController.setUplink(false);
+        if (xiaozhiClient.isOpen()) {
+            try {
+                xiaozhiClient.sendListenStop();
+            } catch (java.io.IOException e) {
+                Log.w(TAG, "wake: listen stop failed: " + e.getMessage());
+            }
+        }
+        xiaozhiAudioController.stopPlayback();
+    }
+
+    /** Stops the answer at once: abort to the server, playback off. */
+    public void wakeAbort() {
+        xiaozhiAudioController.setUplink(false);
+        if (xiaozhiClient.isOpen()) {
+            try {
+                org.json.JSONObject m = new org.json.JSONObject();
+                m.put("session_id", xiaozhiClient.getSessionId());
+                m.put("type", "abort");
+                xiaozhiClient.sendJson(m);
+            } catch (Exception e) {
+                Log.w(TAG, "wake: abort failed: " + e.getMessage());
+            }
+        }
+        xiaozhiAudioController.stopPlayback();
+        LedCenter.stopMouthLedForTts();
+    }
+
+    /** Starts the activation and connect flow in the background (same as xiaozhi/connect). */
+    public void wakeConnect() {
+        if (xiaozhiClient.isOpen()) return;
+        try {
+            handleXiaozhiApi("connect", new java.util.HashMap<String, String>(), "GET", null);
+        } catch (Throwable t) {
+            Log.w(TAG, "wake: connect failed: " + t.getMessage());
+        }
+    }
+
     /** PIR 入口用：連線先至值得送 detect text。 */
     public boolean isConnected() {
         return xiaozhiClient != null && xiaozhiClient.isOpen();
@@ -634,7 +780,12 @@ public final class XiaozhiBridge {
                 return startXiaozhiMic();
 
             case "mic/stop": {
-                stopXiaozhiMic();
+                // keep_playback=true: close the microphone, but play the rest of the answer.
+                if ("true".equalsIgnoreCase(ApiValidator.optional(query, "keep_playback", "false"))) {
+                    stopXiaozhiCaptureOnly();
+                } else {
+                    stopXiaozhiMic();
+                }
                 return HttpServer.ApiResponse.okTrue();
             }
 
@@ -768,6 +919,10 @@ public final class XiaozhiBridge {
      *  three need the exact same start sequence and error handling, so this is the one
      *  place it's implemented. */
     private HttpServer.ApiResponse startXiaozhiMic() {
+        if (WakeController.isActive()) {
+            // The wake-word capture owns the microphone (single input HAL).
+            return HttpServer.ApiResponse.error("wake mode is on - the wake word opens the microphone");
+        }
         if (!XiaozhiClient.isAudioSupported()) {
             return HttpServer.ApiResponse.error("voice chat is not supported on this Android version (requires 5.0/API 21+)");
         }
@@ -1046,6 +1201,7 @@ public final class XiaozhiBridge {
             xiaozhiClient.setTtsStateListener(new XiaozhiClient.TtsStateListener() {
                 @Override
                 public void onTtsState(String stateValue) {
+                    WakeController.onXiaozhiTts(stateValue);
                     if ("start".equals(stateValue)) {
                         LedCenter.startMouthLedForTts();
                         // random 動作要同 tts 一齊發生，不是說完再做：在 "start"

@@ -81,6 +81,28 @@ public final class VoskApi {
                 + MainActivity.jsonSafe(id) + "\"}");
     }
 
+    /** vosk/grammar: no words = read. words = comma list (for example alpha,robot,[unk]).
+     *  words=none clears it (open vocabulary). Used at the next vosk/start. */
+    public HttpServer.ApiResponse voskGrammar(Map<String, String> query) {
+        HttpServer.ApiResponse need = voskOrError();
+        if (need != null) return need;
+        String words = query == null ? null : query.get("words");
+        if (words != null) {
+            if ("none".equals(words.trim()) || words.trim().isEmpty()) {
+                vosk.setGrammar("");
+            } else {
+                org.json.JSONArray arr = new org.json.JSONArray();
+                for (String w : words.split(",")) {
+                    String t = w.trim().toLowerCase(java.util.Locale.US);
+                    if (!t.isEmpty()) arr.put(t);
+                }
+                vosk.setGrammar(arr.toString());
+            }
+        }
+        String g = vosk.getGrammar();
+        return HttpServer.ApiResponse.ok("{\"ok\":true,\"grammar\":" + (g.isEmpty() ? "null" : g) + "}");
+    }
+
     public HttpServer.ApiResponse voskStatus() {
         HttpServer.ApiResponse need = voskOrError();
         if (need != null) return need;

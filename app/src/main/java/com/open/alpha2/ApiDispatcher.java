@@ -371,6 +371,13 @@ public final class ApiDispatcher {
                 return voskApi.voskDownloadCancel();
             case "vosk/catalog":
                 return voskApi.voskCatalog();
+            case "vosk/grammar":
+                return voskApi.voskGrammar(query);
+            // -- Wake word, local commands, follow-up window (WakeController) --
+            case "wake/status":
+            case "wake/get":
+            case "wake/set":
+                return WakeController.api(path, query);
             // -- Servos -----------------------------------------------------------------
             case "servo/one":
                 return ubxApi.servoOneResponse(query);
