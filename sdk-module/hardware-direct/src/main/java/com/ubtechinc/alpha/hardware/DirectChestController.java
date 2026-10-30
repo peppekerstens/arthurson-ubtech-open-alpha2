@@ -103,6 +103,19 @@ public final class DirectChestController {
         return port.send(RobotWire.CHEST_POWER_SAVE, new byte[]{(byte) (enable ? 1 : 0)});
     }
 
+    /** Power save with both bytes (cmd 0x40, UBTECH SetSavePowerModeOp):
+     *  [enter 0/1, servo power off 0/1]. */
+    public boolean setPowerSave(boolean enter, boolean servoPowerOff) {
+        return port.send(RobotWire.CHEST_POWER_SAVE,
+                new byte[]{(byte) (enter ? 1 : 0), (byte) (servoPowerOff ? 1 : 0)});
+    }
+
+    /** Servo power of all servos (cmd 0x19): false = off (the robot goes limp), true = on.
+     *  Put the robot in a squat first: it falls when the leg servos lose power. */
+    public boolean setServoPower(boolean on) {
+        return port.send(RobotWire.CHEST_SERVO_POWER, new byte[]{(byte) (on ? 1 : 0)});
+    }
+
     /** 讀舵機角度 (cmd 13) - 回幀走 OnFrameListener 解析 */
     public boolean readServo(byte servoId) {
         if (servoId < 1 || servoId > 22) return false;

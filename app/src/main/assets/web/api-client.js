@@ -410,6 +410,19 @@ const Alpha2Api = (function() {
   }
 
   // ── direct ──────────────────────────────────────────────
+  function directChestPowerSave(params) {
+    if (params && params.enter != null) assertRange(Number(params.enter), 0, 1, 'enter');
+    if (params && params.servo_off != null) assertRange(Number(params.servo_off), 0, 1, 'servo_off');
+    // Chest power save (cmd 0x40, two bytes [enter, servo power off])
+    return directApi('chest/power_save', params);
+  }
+
+  function directChestServoPower(params) {
+    if (params && params.True != null) assertRange(Number(params.True), 0, 1, 'True');
+    // Chest servo power (cmd 0x19). Squat first, the robot falls without servo power.
+    return directApi('chest/servo_power', params);
+  }
+
   function directLedHead(params) {
     if (params && params.color != null) assertRange(Number(params.color), 1, 7, 'color');
     // 頭燈直驅（color/mode 留空即預設 3/0）
@@ -967,6 +980,11 @@ const Alpha2Api = (function() {
     return api('vosk/download_status', params);
   }
 
+  function voskGrammar(params) {
+    // Read or set the stored Vosk grammar (used at the next vosk/start)
+    return api('vosk/grammar', params);
+  }
+
   function voskLoad(params) {
     // 載入指定 Vosk model (背景幾秒，一次一粒)
     return api('vosk/load', params);
@@ -995,6 +1013,22 @@ const Alpha2Api = (function() {
   function voskUnload(params) {
     // 卸載 Vosk model (釋放記憶體)
     return api('vosk/unload', params);
+  }
+
+  function wakeGet(params) {
+    // Wake word and local commands - settings
+    return api('wake/get', params);
+  }
+
+  function wakeSet(params) {
+    if (params && params.sleep_mode != null) assertEnum(params.sleep_mode, ['release', 'servo_power', 'power_save'], 'sleep_mode');
+    // Wake word and local commands - change settings (wake mode starts again)
+    return api('wake/set', params);
+  }
+
+  function wakeStatus(params) {
+    // Wake word and local commands - state
+    return api('wake/status', params);
   }
 
   // ── stream ──────────────────────────────────────────────
@@ -1241,6 +1275,8 @@ const Alpha2Api = (function() {
     miscSetUuid,
     status,
     wifiStatus,
+    directChestPowerSave,
+    directChestServoPower,
     directLedHead,
     directLedMouth,
     directLedOff,
@@ -1338,12 +1374,16 @@ const Alpha2Api = (function() {
     voskDownload,
     voskDownloadCancel,
     voskDownloadStatus,
+    voskGrammar,
     voskLoad,
     voskModels,
     voskStart,
     voskStatus,
     voskStop,
     voskUnload,
+    wakeGet,
+    wakeSet,
+    wakeStatus,
     systemAuthClear,
     systemAuthSet,
     systemAuthStatus,

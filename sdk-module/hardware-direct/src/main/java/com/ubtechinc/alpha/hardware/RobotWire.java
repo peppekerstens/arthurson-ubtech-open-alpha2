@@ -51,6 +51,8 @@ public final class RobotWire {
     public static final int CHEST_EVENT_MOTOR_UPGRADE = 134;
     public static final byte CHEST_READ_SID_EEPROM = 55;
     public static final byte CHEST_POWER_SAVE = 64;
+    /** Servo power: param [00] off, [01] on (cmd 0x19, UBTECH SetPowerStateOp). */
+    public static final byte CHEST_SERVO_POWER = 25;
 
     // -- Head microcontroller serial command bytes ----------------------------
     public static final byte LED_EAR = 1;

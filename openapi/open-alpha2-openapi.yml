@@ -674,6 +674,72 @@ paths:
                     head:
                       type: boolean
       operationId: directStatus_get
+  /api/direct/chest/servo_power:
+    get:
+      tags:
+      - direct
+      summary: Chest servo power (cmd 0x19). Squat first, the robot falls without servo power.
+      parameters:
+      - name: on
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 1
+        description: 1 turns the servo power on, 0 turns it off
+      - $ref: '#/components/parameters/PanelToken'
+      responses:
+        '401':
+          description: 面板 token 缺／錯（僅啟用後）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+        '200':
+          description: '{ok} (true when the frame was sent)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+      operationId: directChestServoPower_get
+  /api/direct/chest/power_save:
+    get:
+      tags:
+      - direct
+      summary: Chest power save (cmd 0x40, two bytes [enter, servo power off])
+      parameters:
+      - name: enter
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 1
+        description: 1 enters power save, 0 leaves it
+      - name: servo_off
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 1
+        description: 1 also turns off the servo power (default 0)
+      - $ref: '#/components/parameters/PanelToken'
+      responses:
+        '401':
+          description: 面板 token 缺／錯（僅啟用後）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+        '200':
+          description: '{ok} (true when the frame was sent)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+      operationId: directChestPowerSave_get
   /api/direct/sonar/config:
     get:
       tags:
@@ -1861,6 +1927,33 @@ paths:
               schema:
                 $ref: '#/components/schemas/OkWrapper'
       operationId: voskUnload_get
+  /api/vosk/grammar:
+    get:
+      tags:
+      - speech
+      summary: Read or set the stored Vosk grammar (used at the next vosk/start)
+      parameters:
+      - name: words
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Comma list of phrases, for example alpha,robot,[unk]. none = open vocabulary. Leave out to read.
+      - $ref: '#/components/parameters/PanelToken'
+      responses:
+        '401':
+          description: 面板 token 缺／錯（僅啟用後）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+        '200':
+          description: '{ok, grammar} (grammar = JSON array or null)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+      operationId: voskGrammar_get
   /api/vosk/catalog:
     get:
       tags:
@@ -6643,12 +6736,133 @@ paths:
               schema:
                 $ref: '#/components/schemas/OkWrapper'
       operationId: xiaozhiMicStart_get
+  /api/wake/status:
+    get:
+      tags:
+      - speech
+      summary: Wake word and local commands - state
+      parameters:
+      - $ref: '#/components/parameters/PanelToken'
+      responses:
+        '401':
+          description: 面板 token 缺／錯（僅啟用後）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+        '200':
+          description: '{ok, enabled, mode, words, window_ms, half_duplex, sleep_mode, speech_rms, commands, sleeping, last_heard, error}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+      operationId: wakeStatus_get
+  /api/wake/get:
+    get:
+      tags:
+      - speech
+      summary: Wake word and local commands - settings
+      parameters:
+      - $ref: '#/components/parameters/PanelToken'
+      responses:
+        '401':
+          description: 面板 token 缺／錯（僅啟用後）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+        '200':
+          description: '{ok, enabled, mode, words, window_ms, half_duplex, sleep_mode, speech_rms, commands, sleeping, last_heard, error}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+      operationId: wakeGet_get
+  /api/wake/set:
+    get:
+      tags:
+      - speech
+      summary: Wake word and local commands - change settings (wake mode starts again)
+      parameters:
+      - name: enabled
+        in: query
+        required: false
+        schema:
+          type: boolean
+        description: true starts wake mode (one microphone for Vosk and Xiaozhi), false stops it
+      - name: words
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Wake words, comma list (default alpha,robot)
+      - name: window_ms
+        in: query
+        required: false
+        schema:
+          type: integer
+        description: Follow-up window after an answer, 2000-60000 (default 10000)
+      - name: half_duplex
+        in: query
+        required: false
+        schema:
+          type: boolean
+        description: No microphone frames to the server while the robot speaks (default true)
+      - name: cue
+        in: query
+        required: false
+        schema:
+          type: boolean
+        description: The robot says Yes? after the wake word (default true)
+      - name: sleep_mode
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - release
+          - servo_power
+          - power_save
+        description: release, servo_power (cmd 0x19) or power_save (cmd 0x40)
+      - name: speech_rms
+        in: query
+        required: false
+        schema:
+          type: integer
+        description: Frame level that counts as speech for the window (default 400)
+      - name: commands
+        in: query
+        required: false
+        schema:
+          type: string
+        description: JSON map phrase -> command (stop, stand_up, squat, rest, sleep, volume_up, volume_down). default = the defaults
+      - $ref: '#/components/parameters/PanelToken'
+      responses:
+        '401':
+          description: 面板 token 缺／錯（僅啟用後）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+        '200':
+          description: '{ok, enabled, mode, words, window_ms, half_duplex, sleep_mode, speech_rms, commands, sleeping, last_heard, error}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+      operationId: wakeSet_get
   /api/xiaozhi/mic/stop:
     get:
       tags:
       - xiaozhi
       summary: 關閉小智麥克風並交還給 wake-word 引擎
       parameters:
+      - name: keep_playback
+        in: query
+        required: false
+        schema:
+          type: boolean
+        description: true closes only the microphone and plays the rest of the answer
       - $ref: '#/components/parameters/PanelToken'
       responses:
         '401':

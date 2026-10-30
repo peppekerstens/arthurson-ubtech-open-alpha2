@@ -48,6 +48,8 @@ public final class VoskController {
     public static final float SAMPLE_RATE = 16000.0f;
     private static final String PREFS_NAME = "robotpanel";
     private static final String PREF_MODEL_ID = "vosk_model_id";
+    /** Stored grammar (JSON array of phrases, "[unk]" for other words). Empty = open vocabulary. */
+    private static final String PREF_GRAMMAR = "vosk_grammar";
     /** 對話語言（zh/en/es/fr/ja/de/it/pt/ko/ru）：loadModel 成功時記下，開機還原＋status 顯示用。 */
     private static final String PREF_DIALOGUE_LANG = "vosk_dialogue_lang";
 
@@ -517,10 +519,38 @@ public final class VoskController {
         return "zh";
     }
 
-    /** 起限定文法已移除：而家一律開放式辨識（open vocab），直接回 null。絕不 throw。 */
+    /** The stored grammar (vosk/grammar), or null for open vocabulary. Never throws. */
     private String buildGrammar(String id) {
         stripSpaces = false;
-        return null;
+        try {
+            String g = prefs().getString(PREF_GRAMMAR, "");
+            return g == null || g.trim().isEmpty() ? null : g;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    public String getGrammar() {
+        return prefs().getString(PREF_GRAMMAR, "");
+    }
+
+    /** Stores the grammar. It is used at the next vosk/start. Empty = open vocabulary. */
+    public synchronized void setGrammar(String json) {
+        String g = json == null ? "" : json.trim();
+        prefs().edit().putString(PREF_GRAMMAR, g).apply();
+        grammarJson = g.isEmpty() ? null : g;
+    }
+
+    /** A new grammar recognizer on the loaded model (WakeController feeds it the PCM of
+     *  the Xiaozhi capture). Returns null when no model is loaded. The caller closes it. */
+    public synchronized Recognizer newGrammarRecognizer(String grammar) throws java.io.IOException {
+        if (model == null) return null;
+        Recognizer r = new Recognizer(model, SAMPLE_RATE, grammar);
+        try {
+            r.setWords(true);
+        } catch (Throwable ignore) {
+        }
+        return r;
     }
 
     /** 丟掉個 model（不清 prefs 記住的選擇）。 */
