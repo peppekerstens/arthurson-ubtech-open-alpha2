@@ -11306,6 +11306,28 @@
             "description": "No microphone frames to the server while the robot speaks (default true)"
           },
           {
+            "name": "language",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "nl",
+                "en"
+              ]
+            },
+            "description": "nl (default) or en. Selects the Vosk model and its command list together"
+          },
+          {
+            "name": "command_window_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A local command counts only this long after the wake word, 1000-15000 (default 4000)"
+          },
+          {
             "name": "cue",
             "in": "query",
             "required": false,
@@ -11344,7 +11366,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "JSON map phrase -> command (stop, stand_up, squat, rest, sleep, volume_up, volume_down). default = the defaults"
+            "description": "JSON map phrase -> command (stop, stand_up, squat, rest, sleep, volume_up, volume_down) for the language. default = the defaults"
           },
           {
             "$ref": "#/components/parameters/PanelToken"
