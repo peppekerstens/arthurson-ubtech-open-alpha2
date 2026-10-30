@@ -81,6 +81,9 @@ public final class WakeController {
     private volatile long lastCaptureCheck;
     private volatile long commandUntil;
     private volatile boolean commandRunning;
+    /** Goes up at each new turn and each "stop": a queued motion of an older generation is dropped. */
+    private volatile int motionGeneration;
+    private static final long MOTION_MAX_DELAY_MS = 2000;
     private Thread worker;
     private Recognizer recognizer; // worker thread only
 
@@ -440,11 +443,17 @@ public final class WakeController {
         Log.i(TAG, "heard: " + text + " conf=" + conf + " mode=" + mode);
         if (conf >= 0 && conf < 0.5) return;
         JSONObject cmds = commandMap();
+        // A command must be the whole utterance, with or without a wake word in front
+        // ("alpha sta op" or "sta op"), not a word inside a sentence.
+        String rest = text;
+        for (String w : wakeWords()) {
+            if (rest.startsWith(w + " ")) rest = rest.substring(w.length() + 1).trim();
+        }
         String command = null;
         Iterator<String> it = cmds.keys();
         while (it.hasNext()) {
             String phrase = it.next();
-            if ((" " + text + " ").contains(" " + phrase.toLowerCase(Locale.US) + " ")) {
+            if (rest.equals(phrase.toLowerCase(Locale.US))) {
                 command = cmds.optString(phrase);
                 break;
             }
@@ -469,6 +478,7 @@ public final class WakeController {
         }
         if (wake && mode == Mode.WAKE) {
             commandUntil = now + commandWindowMs();
+            motionGeneration++; // a new turn drops queued motion
             beginTurn();
         }
     }
@@ -498,7 +508,8 @@ public final class WakeController {
     private void beginTurn() {
         commands.execute(new Runnable() {
             @Override public void run() {
-                if (sleeping) wakeBody(true);
+                // The wake word never moves the robot (robot test 2026-10-31: it stood up
+                // after "sleep"). Only "sta op" / "stand up" stands up.
                 if (!bridge.isConnected()) {
                     bridge.wakeConnect();
                     for (int i = 0; i < 30 && !bridge.isConnected(); i++) {
@@ -559,9 +570,17 @@ public final class WakeController {
 
     // -- local commands --------------------------------------------------------------
 
+    private static boolean isMotion(String command) {
+        return "stand_up".equals(command) || "squat".equals(command)
+                || "rest".equals(command) || "sleep".equals(command);
+    }
+
     private void runCommand(final String command) {
         Log.i(TAG, "local command: " + command);
+        final long heardAt = System.currentTimeMillis();
+        final int generation = motionGeneration;
         if ("stop".equals(command)) {
+            motionGeneration++; // drop queued motion
             // At once, not behind a queued command.
             if (mode != Mode.WAKE && mode != Mode.OFF) {
                 bridge.wakeAbort();
@@ -575,6 +594,14 @@ public final class WakeController {
         }
         commands.execute(new Runnable() {
             @Override public void run() {
+                if (isMotion(command)) {
+                    long late = System.currentTimeMillis() - heardAt;
+                    if (late > MOTION_MAX_DELAY_MS || generation != motionGeneration) {
+                        Log.w(TAG, "motion dropped: " + command + " (" + late + " ms late, generation "
+                                + generation + "/" + motionGeneration + ")");
+                        return;
+                    }
+                }
                 commandRunning = true;
                 try {
                     switch (command) {
