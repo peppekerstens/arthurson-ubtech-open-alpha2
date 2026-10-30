@@ -410,6 +410,19 @@ const Alpha2Api = (function() {
   }
 
   // ── direct ──────────────────────────────────────────────
+  function directChestPowerSave(params) {
+    if (params && params.enter != null) assertRange(Number(params.enter), 0, 1, 'enter');
+    if (params && params.servo_off != null) assertRange(Number(params.servo_off), 0, 1, 'servo_off');
+    // Chest power save (cmd 0x40, two bytes [enter, servo power off])
+    return directApi('chest/power_save', params);
+  }
+
+  function directChestServoPower(params) {
+    if (params && params.True != null) assertRange(Number(params.True), 0, 1, 'True');
+    // Chest servo power (cmd 0x19). Squat first, the robot falls without servo power.
+    return directApi('chest/servo_power', params);
+  }
+
   function directLedHead(params) {
     if (params && params.color != null) assertRange(Number(params.color), 1, 7, 'color');
     // 頭燈直驅（color/mode 留空即預設 3/0）
@@ -1217,6 +1230,8 @@ const Alpha2Api = (function() {
     miscSetUuid,
     status,
     wifiStatus,
+    directChestPowerSave,
+    directChestServoPower,
     directLedHead,
     directLedMouth,
     directLedOff,

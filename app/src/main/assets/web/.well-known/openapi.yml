@@ -674,6 +674,72 @@ paths:
                     head:
                       type: boolean
       operationId: directStatus_get
+  /api/direct/chest/servo_power:
+    get:
+      tags:
+      - direct
+      summary: Chest servo power (cmd 0x19). Squat first, the robot falls without servo power.
+      parameters:
+      - name: on
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 1
+        description: 1 turns the servo power on, 0 turns it off
+      - $ref: '#/components/parameters/PanelToken'
+      responses:
+        '401':
+          description: 面板 token 缺／錯（僅啟用後）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+        '200':
+          description: '{ok} (true when the frame was sent)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+      operationId: directChestServoPower_get
+  /api/direct/chest/power_save:
+    get:
+      tags:
+      - direct
+      summary: Chest power save (cmd 0x40, two bytes [enter, servo power off])
+      parameters:
+      - name: enter
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 1
+        description: 1 enters power save, 0 leaves it
+      - name: servo_off
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 1
+        description: 1 also turns off the servo power (default 0)
+      - $ref: '#/components/parameters/PanelToken'
+      responses:
+        '401':
+          description: 面板 token 缺／錯（僅啟用後）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+        '200':
+          description: '{ok} (true when the frame was sent)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+      operationId: directChestPowerSave_get
   /api/direct/sonar/config:
     get:
       tags:

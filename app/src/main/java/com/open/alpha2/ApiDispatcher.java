@@ -884,6 +884,19 @@ public final class ApiDispatcher {
                 boolean ok = localServices.ledMouthBreathe(sp);
                 return HttpServer.ApiResponse.okBool(ok);
             }
+            // Chest servo power (cmd 0x19) and power save (cmd 0x40). Squat first:
+            // the robot falls when the leg servos lose power.
+            case "chest/servo_power": {
+                boolean on = ApiValidator.requireInt(query, "on") != 0;
+                boolean sent = HardwareDirectManager.get(appContext).chest().setServoPower(on);
+                return HttpServer.ApiResponse.okBool(sent);
+            }
+            case "chest/power_save": {
+                boolean enter = ApiValidator.requireInt(query, "enter") != 0;
+                boolean servoOff = ApiValidator.optionalInt(query, "servo_off", 0) != 0;
+                boolean sent = HardwareDirectManager.get(appContext).chest().setPowerSave(enter, servoOff);
+                return HttpServer.ApiResponse.okBool(sent);
+            }
             // Ubx 直播（与 /api/alpha2/ubx/* 同 helper；抢占式：播新自动停旧）。
             case "ubx/list":
                 return ubxApi.ubxListResponse();
