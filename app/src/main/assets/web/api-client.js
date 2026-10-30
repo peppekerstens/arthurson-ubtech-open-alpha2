@@ -1021,6 +1021,7 @@ const Alpha2Api = (function() {
   }
 
   function wakeSet(params) {
+    if (params && params.language != null) assertEnum(params.language, ['nl', 'en'], 'language');
     if (params && params.sleep_mode != null) assertEnum(params.sleep_mode, ['release', 'servo_power', 'power_save'], 'sleep_mode');
     // Wake word and local commands - change settings (wake mode starts again)
     return api('wake/set', params);

@@ -41,16 +41,22 @@ public final class WakeController {
     private static final String PREFS = "alpha2_wake";
 
     private static final String DEFAULT_WORDS = "alpha,robot";
-    private static final String DEFAULT_COMMANDS = "{"
-            + "\"stop\":\"stop\","
-            + "\"stand up\":\"stand_up\","
-            + "\"sit down\":\"squat\","
-            + "\"squat\":\"squat\","
-            + "\"rest\":\"rest\","
-            + "\"sleep\":\"sleep\","
-            + "\"volume up\":\"volume_up\",\"volume higher\":\"volume_up\",\"volume increase\":\"volume_up\","
-            + "\"volume down\":\"volume_down\",\"volume lower\":\"volume_down\",\"volume decrease\":\"volume_down\""
+    // One language per list: the Vosk model and its phrases go together (laptop test,
+    // docs/speech-options.md "Dutch command list"). "hurk" is 4/10 in noise: use "ga hurken".
+    private static final String DEFAULT_COMMANDS_EN = "{"
+            + "\"stop\":\"stop\",\"stand up\":\"stand_up\",\"sit down\":\"squat\",\"squat\":\"squat\","
+            + "\"rest\":\"rest\",\"sleep\":\"sleep\","
+            + "\"volume up\":\"volume_up\",\"louder\":\"volume_up\","
+            + "\"volume down\":\"volume_down\",\"quieter\":\"volume_down\""
             + "}";
+    private static final String DEFAULT_COMMANDS_NL = "{"
+            + "\"stop\":\"stop\",\"sta op\":\"stand_up\",\"ga zitten\":\"squat\",\"ga hurken\":\"squat\","
+            + "\"rust\":\"rest\",\"slaap\":\"sleep\","
+            + "\"volume hoger\":\"volume_up\",\"harder\":\"volume_up\","
+            + "\"volume lager\":\"volume_down\",\"zachter\":\"volume_down\""
+            + "}";
+    private static final String MODEL_EN = "vosk-model-small-en-us-0.15";
+    private static final String MODEL_NL = "vosk-model-small-nl-0.22";
     private static final String SQUAT_FILE = "Squat-myrobot.ubx";
     private static final String STAND_FILE = "StandUp-myrobot.ubx";
 
@@ -73,6 +79,8 @@ public final class WakeController {
     private volatile long lastSpeechMs;
     private volatile long thinkingSince;
     private volatile long lastCaptureCheck;
+    private volatile long commandUntil;
+    private volatile boolean commandRunning;
     private Thread worker;
     private Recognizer recognizer; // worker thread only
 
@@ -143,13 +151,23 @@ public final class WakeController {
         return out;
     }
 
+    /** nl (default, the owner speaks Dutch) or en. Selects the Vosk model and its list. */
+    private String language() { return "en".equals(prefs().getString("language", "nl")) ? "en" : "nl"; }
+
+    private String modelId() { return "en".equals(language()) ? MODEL_EN : MODEL_NL; }
+
     private JSONObject commandMap() {
+        String lang = language();
+        String def = "en".equals(lang) ? DEFAULT_COMMANDS_EN : DEFAULT_COMMANDS_NL;
         try {
-            return new JSONObject(prefs().getString("commands", DEFAULT_COMMANDS));
+            return new JSONObject(prefs().getString("commands_" + lang, def));
         } catch (Exception e) {
-            try { return new JSONObject(DEFAULT_COMMANDS); } catch (Exception e2) { return new JSONObject(); }
+            try { return new JSONObject(def); } catch (Exception e2) { return new JSONObject(); }
         }
     }
+
+    /** A local command counts only this long after the wake word. */
+    private int commandWindowMs() { return prefs().getInt("command_window_ms", 4000); }
 
     private int windowMs() { return prefs().getInt("window_ms", 10000); }
 
@@ -164,6 +182,16 @@ public final class WakeController {
         SharedPreferences.Editor ed = prefs().edit();
         try {
             if (q.containsKey("words")) ed.putString("words", q.get("words"));
+            if (q.containsKey("language")) {
+                String l = q.get("language");
+                if (!"nl".equals(l) && !"en".equals(l)) return "language must be nl or en";
+                ed.putString("language", l);
+            }
+            if (q.containsKey("command_window_ms")) {
+                int v = Integer.parseInt(q.get("command_window_ms").trim());
+                if (v < 1000 || v > 15000) return "command_window_ms must be 1000-15000";
+                ed.putInt("command_window_ms", v);
+            }
             if (q.containsKey("window_ms")) {
                 int v = Integer.parseInt(q.get("window_ms").trim());
                 if (v < 2000 || v > 60000) return "window_ms must be 2000-60000";
@@ -181,11 +209,13 @@ public final class WakeController {
             }
             if (q.containsKey("commands")) {
                 String c = q.get("commands");
+                // The list of the language in the same request, else of the stored language.
+                String l = q.containsKey("language") ? q.get("language") : language();
                 if (c == null || c.trim().isEmpty() || "default".equals(c.trim())) {
-                    ed.remove("commands");
+                    ed.remove("commands_" + l);
                 } else {
                     new JSONObject(c); // must parse
-                    ed.putString("commands", c);
+                    ed.putString("commands_" + l, c);
                 }
             }
         } catch (Exception e) {
@@ -221,6 +251,9 @@ public final class WakeController {
             o.put("ok", true);
             o.put("enabled", prefs().getBoolean("enabled", false));
             o.put("mode", mode.name().toLowerCase(Locale.US));
+            o.put("language", language());
+            o.put("model", modelId());
+            o.put("command_window_ms", commandWindowMs());
             o.put("words", new JSONArray(wakeWords()));
             o.put("window_ms", windowMs());
             o.put("half_duplex", halfDuplex());
@@ -241,8 +274,16 @@ public final class WakeController {
 
     private synchronized String start() {
         if (mode != Mode.OFF) return null;
-        String model = vosk.getModelId();
-        if (model == null) return fail("load a Vosk model first (vosk/load, English small model)");
+        String model = modelId();
+        if (!model.equals(vosk.getModelId())) {
+            String err = vosk.loadModel(model);
+            if (err != null) return fail("model " + model + ": " + err);
+            for (int i = 0; i < 120 && !model.equals(vosk.getModelId()); i++) {
+                if (vosk.getState() == VoskController.State.ERROR) break;
+                sleepMs(500);
+            }
+            if (!model.equals(vosk.getModelId())) return fail("model " + model + " did not load");
+        }
         Recognizer r;
         try {
             r = vosk.newGrammarRecognizer(grammarJson());
@@ -408,21 +449,35 @@ public final class WakeController {
                 break;
             }
         }
-        if ("stop".equals(command)) {
-            runCommand("stop"); // always, also during an answer
+        boolean wake = false;
+        for (String w : wakeWords()) {
+            if ((" " + text + " ").contains(" " + w + " ")) wake = true;
+        }
+        long now = System.currentTimeMillis();
+        // "stop" without the wake word only while an action or speech runs.
+        if ("stop".equals(command) && (wake || busy())) {
+            runCommand("stop");
             return;
         }
-        if (mode != Mode.WAKE) return; // during a turn the server gets the speech
-        if (command != null) {
+        // Other local commands: with the wake word in the same phrase, or a few
+        // seconds after it. This removes the false alarms of normal talk.
+        if (command != null && !"stop".equals(command) && (wake || now < commandUntil)) {
+            commandUntil = 0;
+            if (mode != Mode.WAKE) endTurn();
             runCommand(command);
             return;
         }
-        for (String w : wakeWords()) {
-            if ((" " + text + " ").contains(" " + w + " ")) {
-                beginTurn();
-                return;
-            }
+        if (wake && mode == Mode.WAKE) {
+            commandUntil = now + commandWindowMs();
+            beginTurn();
         }
+    }
+
+    /** True while the robot speaks or moves (an answer, Android TTS, an action, a command). */
+    private boolean busy() {
+        if (mode == Mode.SPEAKING || commandRunning || LedCenter.isMouthTtsActive()) return true;
+        HttpServer.ApiResponse s = direct("ubx/status", null);
+        return s != null && s.body != null && s.body.contains("\"playing\":true");
     }
 
     private static double avgConf(JSONArray arr) {
@@ -456,7 +511,7 @@ public final class WakeController {
                 }
                 // Cue: the robot says "Yes?" before the uplink opens (not sent to the server).
                 if (prefs().getBoolean("cue", true)) {
-                    say("Yes?");
+                    if ("en".equals(language())) say("Yes?", "en-US"); else say("Ja?", "de-DE");
                     sleepMs(900);
                 }
                 String err = bridge.wakeTurnBegin();
@@ -520,6 +575,7 @@ public final class WakeController {
         }
         commands.execute(new Runnable() {
             @Override public void run() {
+                commandRunning = true;
                 try {
                     switch (command) {
                         case "stand_up":
@@ -547,6 +603,8 @@ public final class WakeController {
                     }
                 } catch (Throwable t) {
                     Log.w(TAG, "command " + command + " failed", t);
+                } finally {
+                    commandRunning = false;
                 }
             }
         });
@@ -623,8 +681,13 @@ public final class WakeController {
     }
 
     private void say(String text) {
+        say(text, "en-US");
+    }
+
+    /** Android TTS. The robot has no Dutch voice (de, en, es, fr, it only). */
+    private void say(String text, String lang) {
         Map<String, String> q = one("text", text);
-        q.put("lang", "en");
+        q.put("lang", lang);
         call("speech/tts", q);
     }
 
