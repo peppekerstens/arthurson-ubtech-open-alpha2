@@ -6751,7 +6751,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/OkWrapper'
         '200':
-          description: '{ok, enabled, mode, words, window_ms, half_duplex, sleep_mode, speech_rms, commands, sleeping, last_heard, error}'
+          description: '{ok, enabled, mode, words, window_ms, half_duplex, sleep_mode, speech_rms, stop_while_speaking, stop_conf, commands, sleeping, last_heard, error}'
           content:
             application/json:
               schema:
@@ -6772,7 +6772,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/OkWrapper'
         '200':
-          description: '{ok, enabled, mode, words, window_ms, half_duplex, sleep_mode, speech_rms, commands, sleeping, last_heard, error}'
+          description: '{ok, enabled, mode, words, window_ms, half_duplex, sleep_mode, speech_rms, stop_while_speaking, stop_conf, commands, sleeping, last_heard, error}'
           content:
             application/json:
               schema:
@@ -6808,6 +6808,18 @@ paths:
         schema:
           type: boolean
         description: No microphone frames to the server while the robot speaks (default true)
+      - name: stop_while_speaking
+        in: query
+        required: false
+        schema:
+          type: boolean
+        description: Listen for "stop" while the robot speaks, with a local Vosk grammar of the stop phrases only. A match stops the answer (default true)
+      - name: stop_conf
+        in: query
+        required: false
+        schema:
+          type: number
+        description: Lowest word confidence of "stop" while the robot speaks, 0.3-1.0 (default 0.7). A higher value gives fewer false stops from the echo of the robot voice
       - name: language
         in: query
         required: false
@@ -6860,7 +6872,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/OkWrapper'
         '200':
-          description: '{ok, enabled, mode, words, window_ms, half_duplex, sleep_mode, speech_rms, commands, sleeping, last_heard, error}'
+          description: '{ok, enabled, mode, words, window_ms, half_duplex, sleep_mode, speech_rms, stop_while_speaking, stop_conf, commands, sleeping, last_heard, error}'
           content:
             application/json:
               schema:
