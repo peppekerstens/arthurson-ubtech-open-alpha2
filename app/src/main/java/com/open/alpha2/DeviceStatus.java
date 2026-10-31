@@ -251,6 +251,7 @@ public final class DeviceStatus implements SensorEventListener {
             sensorManager.unregisterListener(this, accelerometerSensor);
         }
         accelerometerEnabled = enabled;
+        if (!enabled) sLatestAccel = null;
     }
 
     // -- SensorEventListener (accelerometer only - see setAccelerometerEnabled()) -------
@@ -259,6 +260,18 @@ public final class DeviceStatus implements SensorEventListener {
     // 直寫＋瀏覽器 DOM 齊塞，掣 event 排幾秒，ANR 死（見實機 InputDispatcher
     // spent 2000ms＋ANR Killing logcat）。圖表 10Hz 足夠，用單調鐘量窗。
     private long lastAccelPublishMs = 0;
+    private static volatile float[] sLatestAccel = null;
+    private static volatile long sLatestAccelAtMs = 0;
+
+    /** The newest accelerometer sample (m/s^2, x y z), or null while the accelerometer is off. */
+    static float[] latestAccel() {
+        return sLatestAccel;
+    }
+
+    /** SystemClock.elapsedRealtime() of {@link #latestAccel()}. */
+    static long latestAccelAtMs() {
+        return sLatestAccelAtMs;
+    }
     private static final long ACCEL_PUBLISH_MIN_INTERVAL_MS = 100;
 
     @Override
@@ -279,6 +292,10 @@ public final class DeviceStatus implements SensorEventListener {
         // browser-side chart/UI is responsible for any smoothing/scaling it wants.
         // 節流後先推（見上面 ANR 註解；用 elapsedRealtime，wall clock 會跳）。
         long tick = android.os.SystemClock.elapsedRealtime();
+        // Newest raw sample for the servo read stream (ServoReadStream, alpha2-rl#3), before the
+        // 10 Hz throttle of the "accel" event.
+        sLatestAccel = new float[]{event.values[0], event.values[1], event.values[2]};
+        sLatestAccelAtMs = tick;
         if (tick - lastAccelPublishMs < ACCEL_PUBLISH_MIN_INTERVAL_MS) return;
         lastAccelPublishMs = tick;
         EventBus.get().publish("accel", "{\"x\":" + event.values[0]

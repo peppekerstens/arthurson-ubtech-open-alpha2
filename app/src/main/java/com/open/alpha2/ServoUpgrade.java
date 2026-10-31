@@ -51,6 +51,9 @@ public final class ServoUpgrade {
     private final ChestQuery chestQuery;
 
     private volatile boolean upgradeInProgress = false;
+
+    /** True while a servo firmware upgrade runs (ServoReadStream pauses then). */
+    public boolean isBusy() { return upgradeInProgress; }
     private volatile int upgradeProgress = 0;
     private volatile int upgradeTotalPages = TOTAL_PAGES;
     private volatile int upgradeCurrentPage = 0;

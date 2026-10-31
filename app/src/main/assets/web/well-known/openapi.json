@@ -4090,6 +4090,346 @@
         "operationId": "servoBackAngleAll_get"
       }
     },
+    "/api/servo/stream/start": {
+      "get": {
+        "tags": [
+          "servo"
+        ],
+        "summary": "Start or renew the servo read stream (cmd 0x17, event servo_reads)",
+        "description": "The app reads the servos `ids` with chest cmd 0x17 at `hz` in its own thread and sends one\n`servo_reads` event on `/ws` for each cycle (see asyncapi.yml). Reads only: no move, no write.\nThe stream stops by itself `ttl_ms` after the last start call. Call start again (for example\neach second) to keep it running. A call while the stream runs changes ids, hz, ttl_ms and raw.\nThe stream pauses during a chest or servo firmware upgrade. With `raw=false` (default) the\nreplies to the stream do not go out as `chest_rcv` events. Limit: ids x hz at most 200.\nalpha2-rl#3.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "description": "Servo ids 1-22 split by commas (default 2,3,5,6,17,18,19,20, the 8 kg servos)",
+            "schema": {
+              "type": "string",
+              "example": "2,3,5,6,17,18,19,20"
+            }
+          },
+          {
+            "name": "hz",
+            "in": "query",
+            "required": false,
+            "description": "Read cycles per second (default 20)",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 25,
+              "default": 20
+            }
+          },
+          {
+            "name": "ttl_ms",
+            "in": "query",
+            "required": false,
+            "description": "The stream stops this long after the last start call (default 5000)",
+            "schema": {
+              "type": "integer",
+              "minimum": 500,
+              "maximum": 10000,
+              "default": 5000
+            }
+          },
+          {
+            "name": "raw",
+            "in": "query",
+            "required": false,
+            "description": "Also send each reply as a chest_rcv event (default false)",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "面板 token 缺／錯（僅啟用後）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Stream status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "running": {
+                          "type": "boolean"
+                        },
+                        "ids": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer"
+                          }
+                        },
+                        "hz": {
+                          "type": "integer"
+                        },
+                        "ttl_ms": {
+                          "type": "integer"
+                        },
+                        "ttl_left_ms": {
+                          "type": "integer",
+                          "description": "Time left before the stream stops by itself (0 when it does not run)"
+                        },
+                        "raw": {
+                          "type": "boolean"
+                        },
+                        "seq": {
+                          "type": "integer",
+                          "description": "Sequence number of the newest servo_reads event"
+                        },
+                        "cycles": {
+                          "type": "integer"
+                        },
+                        "complete_cycles": {
+                          "type": "integer",
+                          "description": "Cycles in which all servos answered"
+                        },
+                        "missed_reads": {
+                          "type": "integer"
+                        },
+                        "paused_cycles": {
+                          "type": "integer",
+                          "description": "Cycles skipped during a firmware upgrade or while the chest port is closed"
+                        },
+                        "late_cycles": {
+                          "type": "integer"
+                        },
+                        "last_read_ms": {
+                          "type": "integer",
+                          "description": "First send to last reply of the newest complete cycle (-1 = none yet)"
+                        },
+                        "max_read_ms": {
+                          "type": "integer"
+                        },
+                        "stop_reason": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "operationId": "servoStreamStart_get"
+      }
+    },
+    "/api/servo/stream/stop": {
+      "get": {
+        "tags": [
+          "servo"
+        ],
+        "summary": "Stop the servo read stream",
+        "description": "Stops the stream at once and sends a `servo_stream` event with `running:false`.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "面板 token 缺／錯（僅啟用後）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Stream status after the stop",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "running": {
+                          "type": "boolean"
+                        },
+                        "ids": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer"
+                          }
+                        },
+                        "hz": {
+                          "type": "integer"
+                        },
+                        "ttl_ms": {
+                          "type": "integer"
+                        },
+                        "ttl_left_ms": {
+                          "type": "integer",
+                          "description": "Time left before the stream stops by itself (0 when it does not run)"
+                        },
+                        "raw": {
+                          "type": "boolean"
+                        },
+                        "seq": {
+                          "type": "integer",
+                          "description": "Sequence number of the newest servo_reads event"
+                        },
+                        "cycles": {
+                          "type": "integer"
+                        },
+                        "complete_cycles": {
+                          "type": "integer",
+                          "description": "Cycles in which all servos answered"
+                        },
+                        "missed_reads": {
+                          "type": "integer"
+                        },
+                        "paused_cycles": {
+                          "type": "integer",
+                          "description": "Cycles skipped during a firmware upgrade or while the chest port is closed"
+                        },
+                        "late_cycles": {
+                          "type": "integer"
+                        },
+                        "last_read_ms": {
+                          "type": "integer",
+                          "description": "First send to last reply of the newest complete cycle (-1 = none yet)"
+                        },
+                        "max_read_ms": {
+                          "type": "integer"
+                        },
+                        "stop_reason": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "operationId": "servoStreamStop_get"
+      }
+    },
+    "/api/servo/stream/status": {
+      "get": {
+        "tags": [
+          "servo"
+        ],
+        "summary": "Status and counters of the servo read stream",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "面板 token 缺／錯（僅啟用後）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Stream status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "running": {
+                          "type": "boolean"
+                        },
+                        "ids": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer"
+                          }
+                        },
+                        "hz": {
+                          "type": "integer"
+                        },
+                        "ttl_ms": {
+                          "type": "integer"
+                        },
+                        "ttl_left_ms": {
+                          "type": "integer",
+                          "description": "Time left before the stream stops by itself (0 when it does not run)"
+                        },
+                        "raw": {
+                          "type": "boolean"
+                        },
+                        "seq": {
+                          "type": "integer",
+                          "description": "Sequence number of the newest servo_reads event"
+                        },
+                        "cycles": {
+                          "type": "integer"
+                        },
+                        "complete_cycles": {
+                          "type": "integer",
+                          "description": "Cycles in which all servos answered"
+                        },
+                        "missed_reads": {
+                          "type": "integer"
+                        },
+                        "paused_cycles": {
+                          "type": "integer",
+                          "description": "Cycles skipped during a firmware upgrade or while the chest port is closed"
+                        },
+                        "late_cycles": {
+                          "type": "integer"
+                        },
+                        "last_read_ms": {
+                          "type": "integer",
+                          "description": "First send to last reply of the newest complete cycle (-1 = none yet)"
+                        },
+                        "max_read_ms": {
+                          "type": "integer"
+                        },
+                        "stop_reason": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "operationId": "servoStreamStatus_get"
+      }
+    },
     "/api/servo/modify-id": {
       "get": {
         "tags": [

@@ -244,6 +244,16 @@ public final class ApiValidatorTest {
         eq(0, ApiValidator.clampServoAngle(99, -5), "clamp.unknownLow");
         eq(255, ApiValidator.clampServoAngle(0, 999), "clamp.unknownHigh");
 
+        // ── servo id list (servo/stream/start) ──
+        final int[] defIds = {2, 3, 5};
+        eq("[2, 3, 5]", java.util.Arrays.toString(ApiValidator.optionalServoIdList(q(), "ids", defIds, 22)), "ids.default");
+        eq("[2, 17, 20]", java.util.Arrays.toString(ApiValidator.optionalServoIdList(q("ids", "20, 2,17,2"), "ids", defIds, 22)), "ids.sortUnique");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalServoIdList(q("ids", "0"), "ids", defIds, 22); } }, "ids.zero");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalServoIdList(q("ids", "23"), "ids", defIds, 22); } }, "ids.high");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalServoIdList(q("ids", "a,b"), "ids", defIds, 22); } }, "ids.bad");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalServoIdList(q("ids", ",,"), "ids", defIds, 22); } }, "ids.empty");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalServoIdList(q("ids", "1,2,3"), "ids", defIds, 2); } }, "ids.tooMany");
+
         // ── 回應 helpers ──
         eq(true, ApiValidator.okTrue().body.contains("\"ok\":true"), "okTrue.body");
         eq(200, ApiValidator.ok("{\"ok\":true}").status, "ok.status");

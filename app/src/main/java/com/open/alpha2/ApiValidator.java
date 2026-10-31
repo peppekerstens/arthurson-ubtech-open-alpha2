@@ -306,6 +306,41 @@ public final class ApiValidator {
     }
 
     // ── 常用組合 (對應 openapi 的具體 constraints) ─────────────────
+    /** Servo ids 1-22 split by commas ("2,3,5"), sorted, without doubles. Missing or empty gives a
+     *  copy of {@code defaultIds}. At most {@code maxCount} ids (servo/stream/start). */
+    public static int[] optionalServoIdList(Map<String, String> q, String key, int[] defaultIds, int maxCount) {
+        String text = q.get(key);
+        if (text == null || text.trim().isEmpty()) return defaultIds.clone();
+        boolean[] seen = new boolean[SERVO_ID_MAX + 1];
+        int n = 0;
+        for (String p : text.split(",")) {
+            String t = p.trim();
+            if (t.isEmpty()) continue;
+            int id;
+            try {
+                id = Integer.parseInt(t);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException(key + " must be servo ids 1-22 split by commas, got: " + text);
+            }
+            if (id < SERVO_ID_MIN || id > SERVO_ID_MAX) {
+                throw new IllegalArgumentException(key + ": servo id must be between 1 and 22, got: " + id);
+            }
+            if (!seen[id]) {
+                seen[id] = true;
+                n++;
+            }
+        }
+        if (n == 0 || n > maxCount) {
+            throw new IllegalArgumentException(key + " must name 1 to " + maxCount + " servos");
+        }
+        int[] out = new int[n];
+        int k = 0;
+        for (int id = 1; id < seen.length; id++) {
+            if (seen[id]) out[k++] = id;
+        }
+        return out;
+    }
+
     public static int requireColor(Map<String, String> q) {
         return requireIntRange(q, "color", 1, 7);
     }

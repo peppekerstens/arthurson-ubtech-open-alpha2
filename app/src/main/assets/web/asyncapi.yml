@@ -89,6 +89,8 @@ components:
               - robot_interrupted
               - robot_uuid
               - semantic_match
+              - servo_reads
+              - servo_stream
               - sonar_obstacle
               - tts_end
               - vosk_download
@@ -131,6 +133,16 @@ components:
           payload:
             type: volume_changed
             data: { volume: 6, max: 15 }
+        - name: servo_reads
+          summary: One cycle of the servo read stream (api/servo/stream/start, alpha2-rl#3). t_ms is SystemClock.elapsedRealtime of the robot. read_ms is first send to last reply (-1 = no reply). A servo that did not answer gives null. accel is the newest accelerometer sample (null while the accelerometer is off).
+          payload:
+            type: servo_reads
+            data: { seq: 42, t_ms: 1234567, read_ms: 9, ids: [2, 3, 5, 6, 17, 18, 19, 20], angles: [201, 149, 96, 123, 106, 116, 158, 119], accel: [0.13, -0.2, 9.4], accel_age_ms: 8 }
+        - name: servo_stream
+          summary: The servo read stream stopped (stop call, no renew within ttl_ms, error or app shutdown).
+          payload:
+            type: servo_stream
+            data: { running: false, reason: "ttl: no renew in 5000 ms" }
     ClientPing:
       name: ClientPing
       payload:

@@ -826,6 +826,23 @@ const Alpha2Api = (function() {
     return api('servo/sonar/get', params);
   }
 
+  function servoStreamStart(params) {
+    if (params && params.hz != null) assertRange(Number(params.hz), 1, 25, 'hz');
+    if (params && params.ttl_ms != null) assertRange(Number(params.ttl_ms), 500, 10000, 'ttl_ms');
+    // Start or renew the servo read stream (cmd 0x17, event servo_reads)
+    return api('servo/stream/start', params);
+  }
+
+  function servoStreamStatus(params) {
+    // Status and counters of the servo read stream
+    return api('servo/stream/status', params);
+  }
+
+  function servoStreamStop(params) {
+    // Stop the servo read stream
+    return api('servo/stream/stop', params);
+  }
+
   function servoUpgrade(params) {
     if (params && params.id != null) assertRange(Number(params.id), 1, 22, 'id');
     // 燒錄單顆舵機韌體（胸 cmd16/17，上行 134 回報；高危）
@@ -1346,6 +1363,9 @@ const Alpha2Api = (function() {
     servoReadAll,
     servoSonar,
     servoSonarGet,
+    servoStreamStart,
+    servoStreamStatus,
+    servoStreamStop,
     servoUpgrade,
     servoUpgradeAbort,
     servoUpgradeStatus,

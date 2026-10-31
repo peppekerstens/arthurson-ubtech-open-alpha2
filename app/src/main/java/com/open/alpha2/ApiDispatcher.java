@@ -422,6 +422,11 @@ public final class ApiDispatcher {
                 return ubxApi.servoHardwareResponse(query);
             case "servo/hardware-all":
                 return ubxApi.servoHardwareAllResponse();
+            // Servo read stream (cmd 0x17 at up to 25 Hz, event servo_reads; body in ServoReadStream).
+            case "servo/stream/start":
+            case "servo/stream/stop":
+            case "servo/stream/status":
+                return ServoReadStream.api(path, query);
             // -- 舵機韌體升級（body 在 ServoUpgrade；薄 delegate，不要在這裡加 logic）--
             case "servo/upgrade":
                 return servoUpgrade.servoUpgradeResponse(query);
