@@ -11414,6 +11414,42 @@
         "operationId": "wakeGet_get"
       }
     },
+    "/api/mic/multi/status": {
+      "get": {
+        "tags": [
+          "speech"
+        ],
+        "summary": "5-mic FPGA capture - state, slot lock and levels",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "面板 token 缺／錯（僅啟用後）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "{ok, running, listeners, device, raw_rate, slot_rate, locked, rotation, confidence, cross_check, relocks, overruns, frames, channels: [{name, raw, rms}], error}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "micMultiStatus_get"
+      }
+    },
     "/api/wake/set": {
       "get": {
         "tags": [
@@ -12253,6 +12289,20 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/PanelToken"
+          },
+          {
+            "name": "channels",
+            "in": "query",
+            "required": false,
+            "description": "Leave out (or 1) for the mono AudioRecord stream. 5 or 8 = the 5-mic FPGA card (card 0) at 16 kHz, 500 ms parts. 5 = m1..m5. 8 = m1..m5, ref1, ref2 (speaker reference), aux. Header X-Mic-Channels gives the order. Runs next to wake mode.",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                1,
+                5,
+                8
+              ]
+            }
           }
         ],
         "responses": {
@@ -12279,6 +12329,88 @@
           }
         },
         "operationId": "streamMic_get"
+      }
+    },
+    "/stream/mic/record": {
+      "get": {
+        "tags": [
+          "stream"
+        ],
+        "summary": "5-mic FPGA card - record one multichannel WAV (16 kHz, 16-bit)",
+        "description": "Records `seconds` from the 5-mic card and returns one WAV (PCM format 1). channels=5 gives m1..m5. channels=8 adds ref1, ref2 (speaker reference) and aux. Header X-Mic-Channels gives the order. Runs next to wake mode, Xiaozhi and /stream/mic (they use the USB card 3). 503 when the card cannot open or the slot lock fails.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          },
+          {
+            "name": "seconds",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60,
+              "default": 5
+            }
+          },
+          {
+            "name": "channels",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "enum": [
+                5,
+                8
+              ],
+              "default": 5
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "WAV file",
+            "content": {
+              "audio/wav": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "seconds out of range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "面板 token 缺／錯（僅啟用後）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "card busy, open failed or capture stalled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "streamMicRecord_get"
       }
     },
     "/ws": {

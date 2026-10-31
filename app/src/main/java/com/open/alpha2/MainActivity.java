@@ -1098,6 +1098,7 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         }
         if (cameraController != null) cameraController.shutdown();
         if (audioController != null) audioController.shutdown();
+        MultiMicController.get().shutdown();
         if (audioPlaybackController != null) audioPlaybackController.shutdown();
         if (ledCenter != null) ledCenter.shutdown();
         if (ringtoneCenter != null) ringtoneCenter.stopRingtonePlayback();
@@ -1214,6 +1215,11 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         }
         if ("camera".equals(path)) {
             cameraApi.handleCameraStream(socket);
+        } else if ("mic".equals(path) && query.containsKey("channels") && !"1".equals(query.get("channels"))) {
+            // 5-mic FPGA card (card 0): channels=5 or 8, see MultiMicController.
+            MultiMicController.get().handleStream(socket, query);
+        } else if ("mic/record".equals(path)) {
+            MultiMicController.get().handleRecord(socket, query);
         } else if ("mic".equals(path)) {
             micCenter.handleMicStream(socket);
         } else {
