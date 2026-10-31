@@ -157,6 +157,29 @@ def main() -> int:
     print(r.stdout, end="")
     if r.stderr:
         print(r.stderr, end="", file=sys.stderr)
+    if r.returncode != 0:
+        shutil.rmtree(tmp, ignore_errors=True)
+        print("FAIL")
+        return r.returncode
+
+    # Suite 4: StopWordMatcherTest (pure java.*, no android stub). alpha2-brain#21.
+    files4 = [
+        str(src / "StopWordMatcher.java"),
+        str(testdir / "StopWordMatcherTest.java"),
+    ]
+    cp4 = [javac, "-encoding", "UTF-8", "-nowarn", "-d", str(tmp)] + files4
+    r = subprocess.run(cp4, capture_output=True, text=True)
+    if r.returncode != 0:
+        print(r.stdout)
+        print(r.stderr)
+        raise SystemExit("compile failed (StopWordMatcherTest)")
+    r = subprocess.run(
+        [java, "-cp", str(tmp), "com.open.alpha2.StopWordMatcherTest"],
+        capture_output=True, text=True,
+    )
+    print(r.stdout, end="")
+    if r.stderr:
+        print(r.stderr, end="", file=sys.stderr)
     shutil.rmtree(tmp, ignore_errors=True)
     print("PASS" if r.returncode == 0 else "FAIL")
     return r.returncode

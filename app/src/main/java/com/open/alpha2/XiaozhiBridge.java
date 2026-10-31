@@ -254,6 +254,9 @@ public final class XiaozhiBridge {
 
     /** Stops the answer at once: abort to the server, playback off. */
     public void wakeAbort() {
+        // The server can still send frames of the stopped answer. Drop them until
+        // the next tts start.
+        dropReplyAudio = true;
         xiaozhiAudioController.setUplink(false);
         if (xiaozhiClient.isOpen()) {
             try {
@@ -279,6 +282,29 @@ public final class XiaozhiBridge {
     }
 
     private volatile XiaozhiAudioController.PcmTap currentWakeTap;
+
+    /** true after wakeAbort(): the sink drops the Opus frames until the next tts start. */
+    private volatile boolean dropReplyAudio = false;
+
+    /** tts start (alpha2-brain#20): opens the playback when it is closed, before the
+     *  first Opus frame. Runs on the read thread of XiaozhiClient. Thus the frames
+     *  after the start message wait in the socket until the playback is open.
+     *  The playback closes after speech/stop, the stop key, a write error or the
+     *  5 min cap outside wake mode. Before this fix only send_text and mic/start
+     *  opened it again. */
+    private void ensureReplyPlayback() {
+        dropReplyAudio = false;
+        if (!"xiaozhi".equals(xiaozhiConfig.getTtsEngine()) || !XiaozhiClient.isAudioSupported()) return;
+        if (xiaozhiAudioController.isPlaybackOpen()) return;
+        long t0 = System.currentTimeMillis();
+        XiaozhiAudioController.StartResult r = xiaozhiAudioController.reopenPlayback(5000);
+        if (r.error != null) {
+            Log.w(TAG, "tts start: playback not opened: " + r.error);
+        } else {
+            Log.i(TAG, "tts start: playback was closed, opened again in "
+                    + (System.currentTimeMillis() - t0) + " ms");
+        }
+    }
 
     /** Starts the activation and connect flow in the background (same as xiaozhi/connect). */
     public void wakeConnect() {
@@ -1227,6 +1253,7 @@ public final class XiaozhiBridge {
                     if (!"xiaozhi".equals(xiaozhiConfig.getTtsEngine())) {
                         return;
                     }
+                    if (dropReplyAudio) return; // the rest of an aborted answer
                     xiaozhiAudioController.onIncomingOpusFrame(opusData);
                 }
             });
@@ -1244,6 +1271,7 @@ public final class XiaozhiBridge {
             xiaozhiClient.setTtsStateListener(new XiaozhiClient.TtsStateListener() {
                 @Override
                 public void onTtsState(String stateValue) {
+                    if ("start".equals(stateValue)) ensureReplyPlayback();
                     WakeController.onXiaozhiTts(stateValue);
                     if ("start".equals(stateValue)) {
                         LedCenter.startMouthLedForTts();

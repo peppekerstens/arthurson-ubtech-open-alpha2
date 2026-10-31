@@ -34,6 +34,13 @@ import java.util.concurrent.TimeUnit;
  * Local commands work without the server (never lock out): stop, stand up, squat,
  * rest, sleep, volume up and down. "stop" also works during an answer.
  *
+ * While the robot speaks (mode SPEAKING), the frames go to a second recognizer with
+ * the stop phrases and [unk] only (alpha2-brain#21). The main grammar waits for
+ * silence, and an answer has no silence: thus "stop" came too late before. A match
+ * needs a word confidence of stop_conf or more (the robot hears its own voice). On a
+ * match: abort to the server, playback off, back to wake mode. "stop" never moves the
+ * robot. The setting stop_while_speaking=false turns this off.
+ *
  * The setting "enabled" is false by default. wake/set?enabled=false stops all of it.
  */
 public final class WakeController {
@@ -86,6 +93,11 @@ public final class WakeController {
     private static final long MOTION_MAX_DELAY_MS = 2000;
     private Thread worker;
     private Recognizer recognizer; // worker thread only
+    /** Stop phrases and [unk] only, for the SPEAKING mode (alpha2-brain#21). */
+    private Recognizer stopRecognizer; // worker thread only
+    private List<String> stopPhrases = new ArrayList<>();
+    /** The mode of the last frame in the worker: a change resets a recognizer. */
+    private Mode fedMode = Mode.OFF;
 
     private WakeController(Context ctx, XiaozhiBridge bridge, VoskController vosk, ApiDispatcher api) {
         this.appContext = ctx.getApplicationContext();
@@ -182,6 +194,32 @@ public final class WakeController {
 
     private int speechRms() { return prefs().getInt("speech_rms", 400); }
 
+    /** alpha2-brain#21: listen for "stop" while the robot speaks. Default on. */
+    private boolean stopWhileSpeaking() { return prefs().getBoolean("stop_while_speaking", true); }
+
+    /** The lowest word confidence of "stop" while the robot speaks (echo guard). */
+    private double stopConf() { return prefs().getFloat("stop_conf", 0.7f); }
+
+    /** The phrases of the command list with the action "stop" (default: "stop"). */
+    private List<String> stopPhraseList() {
+        List<String> out = new ArrayList<>();
+        JSONObject cmds = commandMap();
+        Iterator<String> it = cmds.keys();
+        while (it.hasNext()) {
+            String phrase = it.next();
+            if ("stop".equals(cmds.optString(phrase))) out.add(phrase.trim().toLowerCase(Locale.US));
+        }
+        if (out.isEmpty()) out.add("stop");
+        return out;
+    }
+
+    private String stopGrammarJson(List<String> phrases) {
+        JSONArray g = new JSONArray();
+        for (String p : phrases) g.put(p);
+        g.put("[unk]");
+        return g.toString();
+    }
+
     private String applySettings(Map<String, String> q) {
         SharedPreferences.Editor ed = prefs().edit();
         try {
@@ -204,6 +242,14 @@ public final class WakeController {
             if (q.containsKey("half_duplex")) ed.putBoolean("half_duplex", Boolean.parseBoolean(q.get("half_duplex")));
             if (q.containsKey("cue")) ed.putBoolean("cue", Boolean.parseBoolean(q.get("cue")));
             if (q.containsKey("speech_rms")) ed.putInt("speech_rms", Integer.parseInt(q.get("speech_rms").trim()));
+            if (q.containsKey("stop_while_speaking")) {
+                ed.putBoolean("stop_while_speaking", Boolean.parseBoolean(q.get("stop_while_speaking")));
+            }
+            if (q.containsKey("stop_conf")) {
+                float v = Float.parseFloat(q.get("stop_conf").trim());
+                if (v < 0.3f || v > 1.0f) return "stop_conf must be 0.3-1.0";
+                ed.putFloat("stop_conf", v);
+            }
             if (q.containsKey("sleep_mode")) {
                 String s = q.get("sleep_mode");
                 if (!"release".equals(s) && !"servo_power".equals(s) && !"power_save".equals(s)) {
@@ -264,6 +310,8 @@ public final class WakeController {
             o.put("cue", prefs().getBoolean("cue", true));
             o.put("sleep_mode", sleepMode());
             o.put("speech_rms", speechRms());
+            o.put("stop_while_speaking", stopWhileSpeaking());
+            o.put("stop_conf", stopConf());
             o.put("commands", commandMap());
             o.put("sleeping", sleeping);
             o.put("last_heard", lastHeard);
@@ -296,6 +344,17 @@ public final class WakeController {
         }
         if (r == null) return fail("load a Vosk model first");
         recognizer = r;
+        stopPhrases = stopPhraseList();
+        if (stopWhileSpeaking()) {
+            try {
+                stopRecognizer = vosk.newGrammarRecognizer(stopGrammarJson(stopPhrases));
+            } catch (Throwable t) {
+                // Not fatal: the wake word works without it.
+                stopRecognizer = null;
+                Log.w(TAG, "stop recognizer failed: " + t.getMessage());
+            }
+        }
+        fedMode = Mode.WAKE;
         frames.clear();
         String err = bridge.wakeCaptureStart(tapInstance);
         if (err != null) {
@@ -343,6 +402,11 @@ public final class WakeController {
         if (r != null) {
             try { r.close(); } catch (Throwable ignore) { }
         }
+        Recognizer s = stopRecognizer;
+        stopRecognizer = null;
+        if (s != null) {
+            try { s.close(); } catch (Throwable ignore) { }
+        }
     }
 
     private final XiaozhiAudioController.PcmTap tapInstance = new XiaozhiAudioController.PcmTap() {
@@ -374,7 +438,28 @@ public final class WakeController {
             long now = System.currentTimeMillis();
             if (f != null) {
                 if (rms(f) >= speechRms()) lastSpeechMs = now;
-                Recognizer r = recognizer;
+                Mode m = mode;
+                Recognizer sr = stopRecognizer;
+                boolean speaking = m == Mode.SPEAKING && sr != null;
+                if (m != fedMode) {
+                    // Start each phase clean: the stop recognizer at the start of an
+                    // answer, the main recognizer after it (no echo of the answer).
+                    try {
+                        if (speaking) sr.reset();
+                        else if (fedMode == Mode.SPEAKING && recognizer != null) recognizer.reset();
+                    } catch (Throwable t) {
+                        Log.w(TAG, "recognizer reset: " + t.getMessage());
+                    }
+                    fedMode = m;
+                }
+                Recognizer r = speaking ? null : recognizer;
+                if (speaking) {
+                    try {
+                        feedStop(sr, f);
+                    } catch (Throwable t) {
+                        Log.w(TAG, "stop recognizer: " + t.getMessage());
+                    }
+                }
                 if (r != null) {
                     try {
                         if (r.acceptWaveForm(f, f.length)) {
@@ -390,6 +475,27 @@ public final class WakeController {
             }
             checkTimers(now);
         }
+    }
+
+    /** SPEAKING: one frame to the stop recognizer. A partial with "stop" gets the
+     *  final result at once (with word confidences). Silence does not come. */
+    private void feedStop(Recognizer sr, short[] f) {
+        String result = null;
+        if (sr.acceptWaveForm(f, f.length)) {
+            result = sr.getResult();
+        } else if (StopWordMatcher.partialHasStop(sr.getPartialResult(), stopPhrases)) {
+            result = sr.getFinalResult();
+            sr.reset();
+        }
+        if (result == null) return;
+        double c = StopWordMatcher.stopConfidence(result, stopPhrases);
+        if (c < 0) return; // [unk] only: the answer itself
+        boolean ok = StopWordMatcher.accept(result, stopPhrases, stopConf());
+        Log.i(TAG, "while speaking heard stop conf=" + c + " limit=" + stopConf() + " -> "
+                + (ok ? "stop" : "ignored"));
+        if (!ok || mode != Mode.SPEAKING) return;
+        lastHeard = "stop (while speaking)";
+        runCommand("stop");
     }
 
     private static double rms(short[] f) {
@@ -590,13 +696,16 @@ public final class WakeController {
         if ("stop".equals(command)) {
             motionGeneration++; // drop queued motion
             // At once, not behind a queued command.
+            // speech/stop first: it closes the Xiaozhi playback. wakeAbort() then opens
+            // it again in the safe order (alpha2-brain#20). Before, the playback stayed
+            // closed after a stop during an answer.
+            call("speech/stop", null);
             if (mode != Mode.WAKE && mode != Mode.OFF) {
                 bridge.wakeAbort();
                 bridge.wakeTurnEnd();
                 mode = Mode.WAKE;
                 publish();
             }
-            call("speech/stop", null);
             direct("ubx/stop", null);
             return;
         }
