@@ -199,6 +199,8 @@ def main() -> int:
         ("com.open.alpha2.ServoStreamCoreTest",
          [src / "ServoStreamCore.java", src / "JsonUtil.java", hw / "ChestSafety.java",
           testdir / "ServoStreamCoreTest.java"]),
+        ("com.open.alpha2.ChestReplyMatchTest",
+         [src / "ChestReplyMatch.java", testdir / "ChestReplyMatchTest.java"]),
         ("com.open.alpha2.MicSlotsTest",
          [src / "MicSlots.java", testdir / "MicSlotsTest.java"]),
         ("com.open.alpha2.SleepModePolicyTest",

@@ -228,25 +228,22 @@ public final class ChestQuery {
             modifyIdLatch.countDown();
             return true;
         }
-        // 版本 latch：完整帧优先（isVersionFrame 认 F8 8F），否则按 payload fallback
+        // VERSION latch (cmd 0x33). Take only a frame with command byte 0x33.
+        // Earlier code took any frame that was not a sonar ACK, an obstacle or
+        // a UUID frame. A heartbeat 0x8D or telemetry 0x8B that came first then
+        // became the version (for example "141.2 (hex:8D 02)").
         if (chestVersionLatch != null && chestVersionLatch.getCount() > 0) {
             boolean isVer = isVersionFrame(frame, frame.length, RobotWire.CHEST_READ_VERSION);
-            boolean isFallback = false;
-            if (!isVer) {
-                boolean isSonarAck = (plen == 2 && payload[0] == 4 && payload[1] == 0);
-                boolean isObstacle = (plen >= 2 && payload[0] == (byte) -127);
-                boolean isUuid = (plen >= 1 && payload[0] == RobotWire.CHEST_READ_SID_EEPROM);
-                if (plen >= 1 && !isSonarAck && !isObstacle && !isUuid) {
-                    isFallback = true;
-                }
-            }
-            if (isVer || isFallback) {
+            boolean isStripped = !isVer
+                    && ChestReplyMatch.isReply(null, payload, plen, RobotWire.CHEST_READ_VERSION);
+            if (isVer || isStripped) {
                 if (isVer) {
                     chestVersionRaw = java.util.Arrays.copyOf(frame, frame.length);
                     chestVersionLen = frame.length;
                 } else {
-                    chestVersionRaw = java.util.Arrays.copyOf(payload, plen);
-                    chestVersionLen = plen;
+                    // Remove the command byte. parseVersionFrame takes the rest as the payload.
+                    chestVersionRaw = java.util.Arrays.copyOfRange(payload, 1, plen);
+                    chestVersionLen = plen - 1;
                 }
                 chestVersionLatch.countDown();
                 return true;
@@ -297,21 +294,7 @@ public final class ChestQuery {
      * 為兼容多次連幀或 SDK 預剝 header 的情況，掃描整段 bytes 內任何 F8 8F 窗口。
      */
     private static boolean isVersionFrame(byte[] bytes, int len, byte expectedCmd) {
-        if (bytes == null || len < 8) return false;
-        int n = Math.min(len, bytes.length);
-        for (int i = 0; i + 5 < n; i++) {
-            if ((bytes[i] & 0xFF) == 0xF8 && (bytes[i + 1] & 0xFF) == 0x8F) {
-                if (i + 5 >= n) continue;
-                if (bytes[i + 5] == expectedCmd) {
-                    // 進一步確認：len byte 與實際長度大致相符 (7+payloadLen)
-                    // 不強校驗 checksum，避免韌體差異導致誤判
-                    return true;
-                }
-            }
-        }
-        // 兼容 SDK 已剝頭只剩 payload 的極端情況：單字節就是 cmd 的回顯
-        // 此分支由外層 fallback 邏輯處理，這裡只認標準幀
-        return false;
+        return ChestReplyMatch.hasLongFrame(bytes, len, expectedCmd);
     }
 
     /**
