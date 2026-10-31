@@ -634,6 +634,9 @@ public class XiaozhiClient {
                 Log.i(TAG, "TTS state: " + ttsState + " text=" + msg.optString("text"));
                 EventBus.get().publish(EVT_TTS, "{\"state\":\"" + jsonEscape(ttsState)
                         + "\",\"text\":\"" + jsonEscape(msg.optString("text")) + "\"}");
+                if ("sentence_start".equals(ttsState)) {
+                    WakeController.onXiaozhiTtsSentence(msg.optString("text"));
+                }
                 TtsStateListener listener = ttsStateListener;
                 if (listener != null) {
                     listener.onTtsState(ttsState);

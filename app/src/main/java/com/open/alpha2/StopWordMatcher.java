@@ -110,6 +110,26 @@ public final class StopWordMatcher {
         return best;
     }
 
+    /**
+     * true when an answer sentence (text of the tts sentence_start message) holds a
+     * stop phrase, also as a word form ("stops", "stopped", "Stop."). Then the robot
+     * says the word itself, and the microphone hears it (laptop test 2026-10-31: all
+     * false stops in 55 s of Piper speech were words like "the bus stops").
+     */
+    public static boolean textHasStopWord(String sentence, Collection<String> phrases) {
+        if (sentence == null) return false;
+        List<String> said = words(sentence.toLowerCase(Locale.US).replaceAll("[^\\p{L}\\p{N}]+", " "));
+        for (String p : phrases) {
+            List<String> ph = words(p);
+            if (ph.isEmpty()) continue;
+            String first = ph.get(0);
+            for (String w : said) {
+                if (w.startsWith(first)) return true;
+            }
+        }
+        return false;
+    }
+
     /** The full text of a final result, lower case, or "". */
     static String text(String resultJson) {
         if (resultJson == null) return "";

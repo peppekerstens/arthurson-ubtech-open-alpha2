@@ -96,6 +96,11 @@ public final class WakeController {
     /** Stop phrases and [unk] only, for the SPEAKING mode (alpha2-brain#21). */
     private Recognizer stopRecognizer; // worker thread only
     private List<String> stopPhrases = new ArrayList<>();
+    /** true while the current answer sentence holds "stop" (the robot says it). */
+    private volatile boolean sentenceHasStop;
+    /** No stop match before this time: the audio of a sentence with "stop" can still play. */
+    private volatile long selfStopUntil;
+    private static final long SENTENCE_AUDIO_LAG_MS = 1500;
     /** The mode of the last frame in the worker: a change resets a recognizer. */
     private Mode fedMode = Mode.OFF;
 
@@ -134,6 +139,12 @@ public final class WakeController {
     public static void onXiaozhiTts(String state) {
         WakeController w = instance;
         if (w != null) w.handleTts(state);
+    }
+
+    /** XiaozhiClient: tts sentence_start with the text of the sentence. */
+    public static void onXiaozhiTtsSentence(String text) {
+        WakeController w = instance;
+        if (w != null) w.handleSentence(text);
     }
 
     public static void onXiaozhiStt(String text) {
@@ -311,7 +322,7 @@ public final class WakeController {
             o.put("sleep_mode", sleepMode());
             o.put("speech_rms", speechRms());
             o.put("stop_while_speaking", stopWhileSpeaking());
-            o.put("stop_conf", stopConf());
+            o.put("stop_conf", Math.round(stopConf() * 100) / 100.0);
             o.put("commands", commandMap());
             o.put("sleeping", sleeping);
             o.put("last_heard", lastHeard);
@@ -494,6 +505,10 @@ public final class WakeController {
         Log.i(TAG, "while speaking heard stop conf=" + c + " limit=" + stopConf() + " -> "
                 + (ok ? "stop" : "ignored"));
         if (!ok || mode != Mode.SPEAKING) return;
+        if (sentenceHasStop || System.currentTimeMillis() < selfStopUntil) {
+            Log.i(TAG, "while speaking: stop ignored, the answer itself says stop");
+            return;
+        }
         lastHeard = "stop (while speaking)";
         runCommand("stop");
     }
@@ -660,6 +675,15 @@ public final class WakeController {
         publish();
     }
 
+    private void handleSentence(String text) {
+        boolean has = StopWordMatcher.textHasStopWord(text, stopPhrases);
+        if (sentenceHasStop && !has) {
+            // The audio of the last sentence plays after its message: keep the guard a moment.
+            selfStopUntil = System.currentTimeMillis() + SENTENCE_AUDIO_LAG_MS;
+        }
+        sentenceHasStop = has;
+    }
+
     private void handleStt(String text) {
         if (mode == Mode.LISTEN) {
             mode = Mode.THINKING;
@@ -671,6 +695,8 @@ public final class WakeController {
         Mode m = mode;
         if (m == Mode.OFF || m == Mode.WAKE) return;
         if ("start".equals(state)) {
+            sentenceHasStop = false;
+            selfStopUntil = 0;
             mode = Mode.SPEAKING;
             if (halfDuplex()) bridge.wakeUplink(false);
         } else if ("stop".equals(state)) {
