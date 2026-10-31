@@ -1,7 +1,7 @@
 /* miccap: show the hw ranges of an ALSA capture device, then record N seconds with the max channel count.
- * Raw ALSA ioctls only (the robot has no tinyalsa tools). Usage: miccap /dev/snd/pcmC0D0c SECONDS OUT.raw */
+ * Raw ALSA ioctls only (the robot has no tinyalsa tools). Usage: miccap /dev/snd/pcmC0D0c SECONDS OUT.raw [RATE]
  * Build: $NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang -O2 -o miccap miccap.c
- * Test tool only. The app uses app/src/main/cpp/alpha2mic/alpha2mic.c.
+ * Test tool only. The app uses app/src/main/cpp/alpha2mic/alpha2mic.c. */
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
