@@ -678,7 +678,14 @@ paths:
     get:
       tags:
       - direct
-      summary: Chest servo power (cmd 0x19). Squat first, the robot falls without servo power.
+      summary: Chest cmd 0x19. on=0 is NOT a servo power off, it starts the stock "Sit down" move.
+      description: 'Firmware analysis in Renode (chest V142 and V352, alpha2-brain#24) shows
+        that cmd 0x19 [00] starts the stock "Sit down" move: the chest sends a move to
+        all 20 servos. A standing robot can fall. When the charger flag of the chest is
+        set, it does nothing. cmd 0x19 [01] sets the power on, which is already on from
+        boot. The app refuses on=0 with a 400 unless allow_sit_down=true. To release the
+        servos, squat and read each servo angle (cmd 6, /api/servo/angle). To hold them
+        again, send a move.'
       parameters:
       - name: on
         in: query
@@ -687,9 +694,16 @@ paths:
           type: integer
           minimum: 0
           maximum: 1
-        description: 1 turns the servo power on, 0 turns it off
+        description: 1 sends [01] (power on, already on from boot). 0 sends [00], which starts "Sit down" and needs allow_sit_down=true.
+      - $ref: '#/components/parameters/AllowSitDown'
       - $ref: '#/components/parameters/PanelToken'
       responses:
+        '400':
+          description: on=0 without allow_sit_down=true (sit-down guard), or a bad parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
         '401':
           description: 面板 token 缺／錯（僅啟用後）
           content:
@@ -707,7 +721,10 @@ paths:
     get:
       tags:
       - direct
-      summary: Chest power save (cmd 0x40, two bytes [enter, servo power off])
+      summary: Chest power save (cmd 0x40, two bytes [enter, servo power off]). enter=1 can start "Sit down".
+      description: 'On chest V142, cmd 0x40 [01 ..] runs the stock "Sit down" move
+        (alpha2-brain#24). The app refuses enter=1 with a 400 unless allow_sit_down=true.
+        Squat and release the servos with cmd 6 first. enter=0 needs no flag.'
       parameters:
       - name: enter
         in: query
@@ -716,7 +733,7 @@ paths:
           type: integer
           minimum: 0
           maximum: 1
-        description: 1 enters power save, 0 leaves it
+        description: 1 enters power save (needs allow_sit_down=true), 0 leaves it
       - name: servo_off
         in: query
         required: false
@@ -724,9 +741,16 @@ paths:
           type: integer
           minimum: 0
           maximum: 1
-        description: 1 also turns off the servo power (default 0)
+        description: second byte of cmd 0x40 (default 0). The firmware effect is not known.
+      - $ref: '#/components/parameters/AllowSitDown'
       - $ref: '#/components/parameters/PanelToken'
       responses:
+        '400':
+          description: enter=1 without allow_sit_down=true (sit-down guard), or a bad parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
         '401':
           description: 面板 token 缺／錯（僅啟用後）
           content:
@@ -3628,9 +3652,16 @@ paths:
         schema:
           type: string
           example: f88f08000091019aed
-        description: 完整 wire frame hex
+        description: 完整 wire frame hex. On port=chest, frames with cmd 0x19 [00] or cmd 0x40 [01 ..] start the "Sit down" move (alpha2-brain#24) and need allow_sit_down=true, else 400.
+      - $ref: '#/components/parameters/AllowSitDown'
       - $ref: '#/components/parameters/PanelToken'
       responses:
+        '400':
+          description: a chest frame that starts "Sit down" without allow_sit_down=true, or a bad parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
         '401':
           description: 面板 token 缺／錯（僅啟用後）
           content:
@@ -7095,7 +7126,7 @@ paths:
           - release
           - servo_power
           - power_save
-        description: release, servo_power (cmd 0x19) or power_save (cmd 0x40)
+        description: 'Each mode releases the servos with cmd 6 only (squat first). servo_power and power_save are kept for old clients and act as release: they used cmd 0x19 [00] and cmd 0x40 [01 01], which start the "Sit down" move of the chest (alpha2-brain#24). The app stores release.'
       - name: speech_rms
         in: query
         required: false
@@ -7662,6 +7693,16 @@ components:
         type: integer
         default: 1500
       description: 逾時 ms
+    AllowSitDown:
+      name: allow_sit_down
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: false
+      description: 'Opt-in for the stock "Sit down" move of the chest (chest cmd 0x19 [00]
+        or cmd 0x40 [01 ..], alpha2-brain#24). Without it the app refuses these frames
+        with a 400. Squat first: a standing robot can fall.'
     PanelToken:
       name: panel_token
       in: query

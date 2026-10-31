@@ -907,17 +907,21 @@ public final class ApiDispatcher {
                 boolean ok = localServices.ledMouthBreathe(sp);
                 return HttpServer.ApiResponse.okBool(ok);
             }
-            // Chest servo power (cmd 0x19) and power save (cmd 0x40). Squat first:
-            // the robot falls when the leg servos lose power.
+            // Chest cmd 0x19 and cmd 0x40 (alpha2-brain#24). cmd 0x19 [00] is NOT a servo
+            // power off: it starts the stock "Sit down" move (chest V142, V352). cmd 0x40
+            // enter=1 can do the same. Both need allow_sit_down=true, else 400. To release
+            // the servos, squat and read each servo angle (cmd 6).
             case "chest/servo_power": {
-                boolean on = ApiValidator.requireInt(query, "on") != 0;
-                boolean sent = HardwareDirectManager.get(appContext).chest().setServoPower(on);
+                boolean on = ApiValidator.requireChestServoPower(query);
+                boolean allow = ApiValidator.optionalAllowSitDown(query);
+                boolean sent = HardwareDirectManager.get(appContext).chest().setServoPower(on, allow);
                 return HttpServer.ApiResponse.okBool(sent);
             }
             case "chest/power_save": {
-                boolean enter = ApiValidator.requireInt(query, "enter") != 0;
+                boolean enter = ApiValidator.requireChestPowerSaveEnter(query);
                 boolean servoOff = ApiValidator.optionalInt(query, "servo_off", 0) != 0;
-                boolean sent = HardwareDirectManager.get(appContext).chest().setPowerSave(enter, servoOff);
+                boolean allow = ApiValidator.optionalAllowSitDown(query);
+                boolean sent = HardwareDirectManager.get(appContext).chest().setPowerSave(enter, servoOff, allow);
                 return HttpServer.ApiResponse.okBool(sent);
             }
             // Ubx 直播（与 /api/alpha2/ubx/* 同 helper；抢占式：播新自动停旧）。

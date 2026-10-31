@@ -94,6 +94,9 @@ def main() -> int:
         str(src / "HttpServer.java"),
         str(src / "WebSocketServer.java"),
         str(src / "EventBus.java"),
+        # alpha2-brain#24: ApiValidator uses the chest "Sit down" guard (pure java.*).
+        str(ROOT / "sdk-module" / "hardware-direct" / "src" / "main" / "java" / "com" / "ubtechinc"
+            / "alpha" / "hardware" / "ChestSafety.java"),
         str(test),
     ]
     cp = [javac, "-encoding", "UTF-8", "-nowarn", "-cp", str(jar), "-d", str(tmp)] + files

@@ -1,5 +1,7 @@
 package com.open.alpha2;
 
+import com.ubtechinc.alpha.hardware.ChestSafety;
+
 import java.util.Arrays;
 import java.util.Map;
 
@@ -381,6 +383,37 @@ public final class ApiValidator {
 
     public static String optionalSerialPort(Map<String, String> q) {
         return optionalEnum(q, "port", new String[]{"head","chest"}, "head");
+    }
+
+    // ── Chest "Sit down" guard (alpha2-brain#24, alpha2-python e98d6d1) ──
+    // cmd 0x19 [00] is NOT a servo power off: it starts the stock "Sit down" move.
+    // cmd 0x40 [01 ..] (power save, enter) can do the same. Both need allow_sit_down=true.
+
+    /** allow_sit_down (default false): the explicit opt-in for the chest "Sit down" move. */
+    public static boolean optionalAllowSitDown(Map<String, String> q) {
+        return optionalBoolean(q, "allow_sit_down", false);
+    }
+
+    /** direct/chest/servo_power: on (0/1). on=0 without allow_sit_down=true gives a 400. */
+    public static boolean requireChestServoPower(Map<String, String> q) {
+        boolean on = requireIntRange(q, "on", 0, 1) != 0;
+        if (!on && !optionalAllowSitDown(q)) throw new IllegalArgumentException(ChestSafety.SIT_DOWN_19);
+        return on;
+    }
+
+    /** direct/chest/power_save: enter (0/1). enter=1 without allow_sit_down=true gives a 400. */
+    public static boolean requireChestPowerSaveEnter(Map<String, String> q) {
+        boolean enter = requireIntRange(q, "enter", 0, 1) != 0;
+        if (enter && !optionalAllowSitDown(q)) throw new IllegalArgumentException(ChestSafety.SIT_DOWN_40);
+        return enter;
+    }
+
+    /** debug/serial/send: on port=chest, refuse frames with cmd 0x19 [00] or cmd 0x40 [01 ..]
+     *  unless allow_sit_down=true. The head port is not checked (head cmd 0x19 is another job). */
+    public static void checkSerialSendSitDown(Map<String, String> q, String port, byte[] data) {
+        if (!"chest".equals(port)) return;
+        String why = ChestSafety.checkChestFrames(data, optionalAllowSitDown(q));
+        if (why != null) throw new IllegalArgumentException(why);
     }
 
     public static String optionalUiLang(Map<String, String> q) {

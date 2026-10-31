@@ -200,8 +200,11 @@ public final class WakeController {
 
     private boolean halfDuplex() { return prefs().getBoolean("half_duplex", true); }
 
-    /** release = servos limp only. servo_power = also cmd 0x19 off. power_save = also cmd 0x40. */
-    private String sleepMode() { return prefs().getString("sleep_mode", "release"); }
+    /** Sleep releases the servos with cmd 6 only (a servo angle read per servo).
+     *  The old modes servo_power (cmd 0x19 [00]) and power_save (cmd 0x40 [01 01]) started
+     *  the stock "Sit down" move of the chest (alpha2-brain#24). The settings call still
+     *  accepts them, for old clients, but stores release. An old stored value reads as release. */
+    private String sleepMode() { return "release"; }
 
     private int speechRms() { return prefs().getInt("speech_rms", 400); }
 
@@ -266,7 +269,8 @@ public final class WakeController {
                 if (!"release".equals(s) && !"servo_power".equals(s) && !"power_save".equals(s)) {
                     return "sleep_mode must be release, servo_power or power_save";
                 }
-                ed.putString("sleep_mode", s);
+                // alpha2-brain#24: servo_power and power_save act as release (no sit-down).
+                ed.putString("sleep_mode", "release");
             }
             if (q.containsKey("commands")) {
                 String c = q.get("commands");
@@ -796,30 +800,15 @@ public final class WakeController {
         }
         direct("led/off", null);
         if (!sleep) return;
-        String m = sleepMode();
-        if ("servo_power".equals(m) || "power_save".equals(m)) {
-            direct("chest/servo_power", one("on", "0"));
-        }
-        if ("power_save".equals(m)) {
-            Map<String, String> q = one("enter", "1");
-            q.put("servo_off", "1");
-            direct("chest/power_save", q);
-        }
+        // alpha2-brain#24: no cmd 0x19 [00] and no cmd 0x40 [01 ..] here, in each sleep_mode.
+        // Both start the "Sit down" move of the chest. The cmd 6 release above is the sleep.
         sleeping = true;
         publish();
     }
 
-    /** Leaves chest sleep and turns the servo power on. Then stands up when asked. */
+    /** Ends the sleep. Then stands up when asked. The servos hold again with the next
+     *  move (stand). No cmd 0x19 or cmd 0x40: the sleep did not send them (alpha2-brain#24). */
     private void wakeBody(boolean standUp) {
-        String m = sleepMode();
-        if ("power_save".equals(m)) {
-            direct("chest/power_save", one("enter", "0"));
-            sleepMs(500);
-        }
-        if ("servo_power".equals(m) || "power_save".equals(m)) {
-            direct("chest/servo_power", one("on", "1"));
-            sleepMs(500);
-        }
         sleeping = false;
         publish();
         if (standUp) playAndWait(STAND_FILE);

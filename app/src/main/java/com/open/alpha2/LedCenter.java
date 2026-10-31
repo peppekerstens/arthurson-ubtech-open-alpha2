@@ -1205,9 +1205,13 @@ public final class LedCenter {
         // (ttyS1); hex 是完整 wire frame (f8 ... ed), 我們在 PC 側組好再送出。
         String port = ApiValidator.optionalSerialPort(query);
         byte[] data = parseHexBytes(ApiValidator.require(query, "hex"));
+        // alpha2-brain#24: chest cmd 0x19 [00] and cmd 0x40 [01 ..] start "Sit down".
+        // 400 unless allow_sit_down=true.
+        ApiValidator.checkSerialSendSitDown(query, port, data);
         // pure-direct: 经 DirectSerialPort.sendRaw 透传完整 wire 帧。
         boolean sent = "chest".equals(port)
-                ? HardwareDirectManager.get(appContext).chest().sendRaw(data)
+                ? HardwareDirectManager.get(appContext).chest().sendRaw(data,
+                        ApiValidator.optionalAllowSitDown(query))
                 : HardwareDirectManager.get(appContext).head().sendRaw(data);
         UbxErrorCode.API_ERROR_CODE code = MainActivity.directCode(sent);
         Log.i(TAG, "debug/serial/send port=" + port + " hex=" + MainActivity.toHex(data, data.length)

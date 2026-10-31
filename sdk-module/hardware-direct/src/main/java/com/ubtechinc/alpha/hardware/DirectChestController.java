@@ -98,21 +98,44 @@ public final class DirectChestController {
         return port.send((byte) 72, new byte[]{(byte) (enabled ? 1 : 0)});
     }
 
-    /** 省電模式 */
+    /** Power save, one byte (cmd 0x40). enable=true can start "Sit down" (alpha2-brain#24),
+     *  so it is refused here. Use {@link #setPowerSave(boolean, boolean, boolean)}. */
     public boolean setPowerSave(boolean enable) {
-        return port.send(RobotWire.CHEST_POWER_SAVE, new byte[]{(byte) (enable ? 1 : 0)});
+        return setPowerSave(enable, false, false);
     }
 
     /** Power save with both bytes (cmd 0x40, UBTECH SetSavePowerModeOp):
-     *  [enter 0/1, servo power off 0/1]. */
+     *  [enter 0/1, servo power off 0/1]. enter=true is refused (see below). */
     public boolean setPowerSave(boolean enter, boolean servoPowerOff) {
-        return port.send(RobotWire.CHEST_POWER_SAVE,
-                new byte[]{(byte) (enter ? 1 : 0), (byte) (servoPowerOff ? 1 : 0)});
+        return setPowerSave(enter, servoPowerOff, false);
     }
 
-    /** Servo power of all servos (cmd 0x19): false = off (the robot goes limp), true = on.
-     *  Put the robot in a squat first: it falls when the leg servos lose power. */
+    /** cmd 0x40 [enter, servo power off]. enter=true can start the stock "Sit down" move
+     *  (chest V142, alpha2-brain#24). It is sent only with allowSitDown=true.
+     *  Squat and release the servos with cmd 6 first. enter=false needs no flag. */
+    public boolean setPowerSave(boolean enter, boolean servoPowerOff, boolean allowSitDown) {
+        byte[] p = new byte[]{(byte) (enter ? 1 : 0), (byte) (servoPowerOff ? 1 : 0)};
+        if (!allowSitDown && ChestSafety.checkCommand(RobotWire.CHEST_POWER_SAVE, p) != null) {
+            android.util.Log.w("DirectChest", "refused cmd 0x40 enter=1: " + ChestSafety.SIT_DOWN_40);
+            return false;
+        }
+        return port.send(RobotWire.CHEST_POWER_SAVE, p);
+    }
+
+    /** cmd 0x19. on=true sends [01] (power on, already on from boot).
+     *  on=false is refused: [00] is NOT a power off. It starts the stock "Sit down" move
+     *  (chest V142 and V352, alpha2-brain#24). To release the servos, squat and send a
+     *  cmd 6 read to each servo. Use {@link #setServoPower(boolean, boolean)} for [00]. */
     public boolean setServoPower(boolean on) {
+        return setServoPower(on, false);
+    }
+
+    /** cmd 0x19 [on]. on=false starts "Sit down" and is sent only with allowSitDown=true. */
+    public boolean setServoPower(boolean on, boolean allowSitDown) {
+        if (!on && !allowSitDown) {
+            android.util.Log.w("DirectChest", "refused cmd 0x19 [00]: " + ChestSafety.SIT_DOWN_19);
+            return false;
+        }
         return port.send(RobotWire.CHEST_SERVO_POWER, new byte[]{(byte) (on ? 1 : 0)});
     }
 
@@ -253,7 +276,18 @@ public final class DirectChestController {
 
     /** 原始幀透傳（debug/serial/send、set_uuid、version fallback 用）。pure-direct 下取代 robot.chest_sendRawData。 */
     public boolean sendRaw(byte[] rawFrame) {
+        return sendRaw(rawFrame, false);
+    }
+
+    /** Raw frame pass-through with the "Sit down" guard: frames with cmd 0x19 [00] or
+     *  cmd 0x40 [01 ..] are refused unless allowSitDown=true (alpha2-brain#24). */
+    public boolean sendRaw(byte[] rawFrame, boolean allowSitDown) {
         if (rawFrame == null || rawFrame.length == 0) return false;
+        String why = ChestSafety.checkChestFrames(rawFrame, allowSitDown);
+        if (why != null) {
+            android.util.Log.w("DirectChest", "refused raw chest frame: " + why);
+            return false;
+        }
         return port.sendRaw(rawFrame);
     }
 }

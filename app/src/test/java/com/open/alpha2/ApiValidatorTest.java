@@ -70,6 +70,46 @@ public final class ApiValidatorTest {
         }
     }
 
+    private static byte[] frame(int cmd, int... payload) {
+        int len = 7 + payload.length;
+        byte[] out = new byte[len + 1];
+        out[0] = (byte) 0xF8; out[1] = (byte) 0x8F; out[2] = (byte) len; out[3] = 0x05; out[4] = 0x00;
+        out[5] = (byte) cmd;
+        for (int i = 0; i < payload.length; i++) out[6 + i] = (byte) payload[i];
+        int sum = 0;
+        for (int i = 2; i < len - 1; i++) sum += out[i] & 0xFF;
+        out[len - 1] = (byte) sum;
+        out[len] = (byte) 0xED;
+        return out;
+    }
+
+    private static byte[] shortFrame(int cmd, int... payload) {
+        int len = 1 + payload.length;
+        byte[] out = new byte[len + 5];
+        out[0] = (byte) 0xF8; out[1] = (byte) 0x8F; out[2] = (byte) len; out[3] = (byte) cmd;
+        for (int i = 0; i < payload.length; i++) out[4 + i] = (byte) payload[i];
+        int sum = 0;
+        for (int i = 2; i < out.length - 2; i++) sum += out[i] & 0xFF;
+        out[out.length - 2] = (byte) sum;
+        out[out.length - 1] = (byte) 0xED;
+        return out;
+    }
+
+    private static byte[] concat(byte[]... parts) {
+        int n = 0;
+        for (byte[] p : parts) n += p.length;
+        byte[] out = new byte[n];
+        int o = 0;
+        for (byte[] p : parts) { System.arraycopy(p, 0, out, o, p.length); o += p.length; }
+        return out;
+    }
+
+    private static String hex(byte[] b) {
+        StringBuilder sb = new StringBuilder();
+        for (byte x : b) { if (sb.length() > 0) sb.append(' '); sb.append(String.format("%02x", x & 0xFF)); }
+        return sb.toString();
+    }
+
     public static void main(String[] args) {
         // ── 基礎 ──
         eq("v", ApiValidator.require(q("k", "v"), "k"), "require.ok");
@@ -253,6 +293,60 @@ public final class ApiValidatorTest {
         throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalServoIdList(q("ids", "a,b"), "ids", defIds, 22); } }, "ids.bad");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalServoIdList(q("ids", ",,"), "ids", defIds, 22); } }, "ids.empty");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalServoIdList(q("ids", "1,2,3"), "ids", defIds, 2); } }, "ids.tooMany");
+
+        // ── chest "Sit down" guard (alpha2-brain#24, same rules as alpha2-python e98d6d1) ──
+        eq(true, ApiValidator.requireChestServoPower(q("on", "1")), "sit.servoPower.on");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestServoPower(q("on", "0")); } }, "sit.servoPower.off.refused");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestServoPower(q("on", "0", "allow_sit_down", "false")); } }, "sit.servoPower.off.false");
+        eq(false, ApiValidator.requireChestServoPower(q("on", "0", "allow_sit_down", "true")), "sit.servoPower.off.allowed");
+        eq(false, ApiValidator.requireChestServoPower(q("on", "0", "allow_sit_down", "1")), "sit.servoPower.off.allowed1");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestServoPower(q("on", "2")); } }, "sit.servoPower.range");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestServoPower(q("on", "0", "allow_sit_down", "yes")); } }, "sit.servoPower.badFlag");
+        eq(false, ApiValidator.requireChestPowerSaveEnter(q("enter", "0")), "sit.powerSave.leave");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestPowerSaveEnter(q("enter", "1")); } }, "sit.powerSave.enter.refused");
+        eq(true, ApiValidator.requireChestPowerSaveEnter(q("enter", "1", "allow_sit_down", "true")), "sit.powerSave.enter.allowed");
+
+        // raw frames: F8 8F LEN SRC DST CMD PAYLOAD CHK ED (CHK = sum LEN..PAYLOAD)
+        final byte[] f19off = frame(0x19, 0x00);
+        final byte[] f19on = frame(0x19, 0x01);
+        final byte[] f19empty = frame(0x19);
+        final byte[] f40enter = frame(0x40, 0x01, 0x01);
+        final byte[] f40enterOne = frame(0x40, 0x01);
+        final byte[] f40leave = frame(0x40, 0x00, 0x00);
+        final byte[] f40empty = frame(0x40);
+        final byte[] fRead = frame(0x06, 0x03);
+        eq("f8 8f 08 05 00 19 00 26 ed", hex(f19off), "sit.frame.layout"); // alpha2-python test frame
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", f19off); } }, "sit.raw.19off");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", f19empty); } }, "sit.raw.19empty");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", f40enter); } }, "sit.raw.40enter");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", f40enterOne); } }, "sit.raw.40enterOne");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", f40empty); } }, "sit.raw.40empty");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, f19off)); } }, "sit.raw.batchSecond");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", concat(new byte[]{0x00, (byte) 0xF8}, f19off)); } }, "sit.raw.junkBefore");
+        // the legacy short form F8 8F LEN CMD PAYLOAD CHK ED (LEN counts CMD)
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", shortFrame(0x19, 0x00)); } }, "sit.raw.short19off");
+        // allowed
+        int okBefore = failed;
+        ApiValidator.checkSerialSendSitDown(q(), "chest", f19on);
+        ApiValidator.checkSerialSendSitDown(q(), "chest", f40leave);
+        ApiValidator.checkSerialSendSitDown(q(), "chest", fRead);
+        ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, f19on, f40leave));
+        ApiValidator.checkSerialSendSitDown(q(), "chest", new byte[]{(byte) 0xF8, (byte) 0x8F});
+        ApiValidator.checkSerialSendSitDown(q(), "chest", new byte[0]);
+        ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "chest", f19off);
+        ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "chest", f40enter);
+        ApiValidator.checkSerialSendSitDown(q(), "head", f19off); // head cmd 0x19 is another command
+        eq(okBefore, failed, "sit.raw.allowed");
+        // a bad checksum is no frame (the MCU drops it)
+        final byte[] badSum = f19off.clone();
+        badSum[badSum.length - 2] ^= 0x01;
+        ApiValidator.checkSerialSendSitDown(q(), "chest", badSum);
+        eq(okBefore, failed, "sit.raw.badChecksum");
+        eq(null, com.ubtechinc.alpha.hardware.ChestSafety.checkCommand(0x19, new byte[]{1}), "sit.cmd.19on");
+        eq(com.ubtechinc.alpha.hardware.ChestSafety.SIT_DOWN_19,
+                com.ubtechinc.alpha.hardware.ChestSafety.checkCommand(0x19, new byte[]{0}), "sit.cmd.19off");
+        eq(com.ubtechinc.alpha.hardware.ChestSafety.SIT_DOWN_40,
+                com.ubtechinc.alpha.hardware.ChestSafety.checkCommand(0x40, new byte[]{1, 0}), "sit.cmd.40enter");
 
         // ── 回應 helpers ──
         eq(true, ApiValidator.okTrue().body.contains("\"ok\":true"), "okTrue.body");
