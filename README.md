@@ -183,6 +183,9 @@ brackets):
 - `/stream/camera` (MJPEG), `/stream/mic` (WAV chunks), `/ws` (RFC 6455
   event feed, described by `openapi/asyncapi.yml`), `/` and
   `/blockly.html`.
+- 5-mic capture from the FPGA sound card: `/stream/mic/record` (one 5- or
+  8-channel WAV), `/stream/mic?channels=5|8` and `/api/mic/multi/status`.
+  See [docs/mic-5ch.md](docs/mic-5ch.md).
 
 Self-describing endpoints on the robot (same port):
 

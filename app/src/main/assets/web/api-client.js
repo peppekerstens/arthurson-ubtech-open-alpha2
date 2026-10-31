@@ -871,6 +871,11 @@ const Alpha2Api = (function() {
   }
 
   // ── speech ──────────────────────────────────────────────
+  function micMultiStatus(params) {
+    // 5-mic FPGA capture - state, slot lock and levels
+    return api('mic/multi/status', params);
+  }
+
   function speechCurTtsEngine(params) {
     // 查詢當前 Android TTS 引擎
     return api('speech/cur_tts_engine', params);
@@ -1371,6 +1376,7 @@ const Alpha2Api = (function() {
     servoUpgradeStatus,
     servoVersion,
     servoVersionAll,
+    micMultiStatus,
     speechCurTtsEngine,
     speechCurTtsFollowVosk,
     speechCurTtsLang,

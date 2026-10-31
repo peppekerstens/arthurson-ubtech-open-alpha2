@@ -52,3 +52,8 @@ find_library(log-lib log)
 target_link_libraries( easyopus
                         opus
                         ${log-lib} )
+
+# alpha2mic: raw ALSA capture of the 5-mic FPGA card (card 0), see alpha2mic/alpha2mic.c.
+# Java side: com.open.alpha2.MultiMicNative / MultiMicController. No extra dependency.
+add_library(alpha2mic SHARED alpha2mic/alpha2mic.c)
+target_link_libraries(alpha2mic ${log-lib})

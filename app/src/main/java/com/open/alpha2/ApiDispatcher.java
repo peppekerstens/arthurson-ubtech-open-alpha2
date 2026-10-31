@@ -386,6 +386,9 @@ public final class ApiDispatcher {
             case "wake/get":
             case "wake/set":
                 return WakeController.api(path, query);
+            // -- 5-mic FPGA capture (MultiMicController; audio itself on /stream/mic?channels=) --
+            case "mic/multi/status":
+                return HttpServer.ApiResponse.ok(MultiMicController.get().statusJson());
             // -- Servos -----------------------------------------------------------------
             case "servo/one":
                 return ubxApi.servoOneResponse(query);
