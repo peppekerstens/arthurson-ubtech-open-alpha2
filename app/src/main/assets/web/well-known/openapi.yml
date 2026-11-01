@@ -2472,8 +2472,9 @@ paths:
         in: query
         required: false
         description: Servo ids split by commas (default 2,3,5,6,17,18,19,20, the 8 kg servos). Only
-          the servos that answer cmd 0x17 are allowed (2, 3, 5, 6, 17 to 22). The 20 kg servos 1, 4
-          and 7 to 16 give 400 (alpha2-brain#29).
+          the servos 2, 3, 5, 6 and 17 to 20 answer cmd 0x17. The app also accepts 21 and 22, but
+          these servos are absent on the robot (UbxApi.java). The 20 kg servos 1, 4 and 7 to 16
+          give 400 (alpha2-brain#29).
         schema:
           type: string
           example: 2,3,5,6,17,18,19,20
