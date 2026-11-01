@@ -466,10 +466,12 @@ public final class WakeController {
                 boolean speaking = m == Mode.SPEAKING && sr != null;
                 if (m != fedMode) {
                     // Start each phase clean: the stop recognizer at the start of an
-                    // answer, the main recognizer after it (no echo of the answer).
+                    // answer, the main recognizer after it (no echo of the answer)
+                    // and at the turn open (no echo of the cue).
                     try {
                         if (speaking) sr.reset();
-                        else if (fedMode == Mode.SPEAKING && recognizer != null) recognizer.reset();
+                        else if ((fedMode == Mode.SPEAKING || (fedMode == Mode.WAKE && m == Mode.LISTEN))
+                                && recognizer != null) recognizer.reset();
                     } catch (Throwable t) {
                         Log.w(TAG, "recognizer reset: " + t.getMessage());
                     }
@@ -536,8 +538,7 @@ public final class WakeController {
 
     /** Removes [unk] and extra spaces. */
     private static String clean(String text) {
-        if (text == null) return "";
-        return text.replace("[unk]", " ").replaceAll("\\s+", " ").trim().toLowerCase(Locale.US);
+        return WakeCommandMatch.clean(text);
     }
 
     private void checkTimers(long now) {
@@ -585,40 +586,33 @@ public final class WakeController {
         // A command must be the whole utterance, with or without a wake word in front
         // ("alpha sta op" or "sta op"), not a word inside a sentence. The raw result
         // keeps the [unk] tokens: "[unk] slaap" is a sentence, not a command.
-        String rest = raw;
-        for (String w : wakeWords()) {
-            if (rest.startsWith(w + " ")) rest = rest.substring(w.length() + 1).trim();
-        }
-        String command = null;
-        Iterator<String> it = cmds.keys();
-        while (it.hasNext()) {
-            String phrase = it.next();
-            if (rest.equals(phrase.toLowerCase(Locale.US))) {
-                command = cmds.optString(phrase);
-                break;
-            }
-        }
-        boolean wake = false;
-        for (String w : wakeWords()) {
-            if ((" " + text + " ").contains(" " + w + " ")) wake = true;
-        }
+        // The rules are in WakeCommandMatch (unit test WakeCommandMatchTest).
+        List<String> words = wakeWords();
+        String command = WakeCommandMatch.command(raw, words, phraseMap(cmds));
+        boolean wake = WakeCommandMatch.hasWakeWord(text, words);
         long now = System.currentTimeMillis();
         // "stop" also inside a sentence (stopping is safe), but without the wake word
         // only while an action or speech runs.
-        if (command == null && (" " + text + " ").contains(" stop ") && cmds.has("stop")) {
+        if (command == null && WakeCommandMatch.hasStop(text) && cmds.has("stop")) {
             command = "stop";
         }
         if ("stop".equals(command) && (wake || busy())) {
             runCommand("stop");
             return;
         }
-        // Other local commands: with the wake word in the same phrase, or a few
-        // seconds after it. This removes the false alarms of normal talk.
-        if (command != null && !"stop".equals(command) && (wake || now < commandUntil)) {
+        // Other local commands: with the wake word in the same phrase, or in the
+        // command window after it. This removes the false alarms of normal talk.
+        if (WakeCommandMatch.runsCommand(command, wake, now, commandUntil)) {
             commandUntil = 0;
             if (mode != Mode.WAKE) endTurn();
             runCommand(command);
             return;
+        }
+        if (command != null && !"stop".equals(command)) {
+            Log.i(TAG, "command " + command + " ignored: no wake word, window "
+                    + (commandUntil == 0 ? "not open" : "closed " + (now - commandUntil) + " ms ago"));
+        } else if (command == null && !raw.equals(text)) {
+            Log.i(TAG, "raw: " + raw); // [unk] tokens: a sentence, not a command
         }
         if (wake && mode == Mode.WAKE) {
             commandUntil = now + commandWindowMs();
@@ -626,6 +620,17 @@ public final class WakeController {
             VoiceTiming.get().wake();
             beginTurn();
         }
+    }
+
+    /** The command phrases as a map (phrase to command). */
+    private static Map<String, String> phraseMap(JSONObject cmds) {
+        Map<String, String> out = new java.util.LinkedHashMap<>();
+        Iterator<String> it = cmds.keys();
+        while (it.hasNext()) {
+            String phrase = it.next();
+            out.put(phrase, cmds.optString(phrase));
+        }
+        return out;
     }
 
     /** True while the robot speaks or moves (an answer, Android TTS, an action, a command). */
@@ -678,6 +683,14 @@ public final class WakeController {
                 }
                 lastSpeechMs = System.currentTimeMillis();
                 windowDeadline = System.currentTimeMillis() + windowMs();
+                // Robot session 2026-11-01: "alpha", a pause, "stand up" ran no command.
+                // The window started at the wake word, but the user speaks after the
+                // connect and the cue, and Vosk gives the result after the silence:
+                // that can be later than command_window_ms. Start the window again
+                // here. The user hears the cue, then has command_window_ms.
+                if (commandUntil != 0) commandUntil = System.currentTimeMillis() + commandWindowMs();
+                // The main recognizer starts clean in LISTEN (worker, see fedMode): the
+                // cue "Yes?" does not go into the command as [unk].
                 mode = Mode.LISTEN;
                 VoiceTiming.get().listen();
                 Log.i(TAG, "turn open");

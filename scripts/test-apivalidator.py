@@ -14,6 +14,8 @@ Also: StopWordMatcherTest, ServoStreamCoreTest, MicSlotsTest, SleepModePolicyTes
 DirectChestControllerTest (alpha2-brain#30, pure java.* with stubs in scripts/test-stubs).
 ChestReplyMatchTest (alpha2-board-sim#12): the chest VERSION reply match.
 VoiceTimingTest (voice turn time log, queue item 6).
+HeadKeyClickTest (head key click codes 0x3c01/0x3d01) and WakeCommandMatchTest (local
+command after the wake word), robot session 2026-11-01.
 
 用法: python scripts/test-apivalidator.py
 """
@@ -209,6 +211,10 @@ def main() -> int:
          [src / "SleepModePolicy.java", testdir / "SleepModePolicyTest.java"]),
         ("com.open.alpha2.VoiceTimingTest",
          [src / "VoiceTiming.java", testdir / "VoiceTimingTest.java"]),
+        ("com.ubtechinc.alpha.hardware.HeadKeyClickTest",
+         [hw / "HeadKeyClick.java", hwtest / "HeadKeyClickTest.java"]),
+        ("com.open.alpha2.WakeCommandMatchTest",
+         [src / "WakeCommandMatch.java", testdir / "WakeCommandMatchTest.java"]),
         ("com.ubtechinc.alpha.hardware.DirectChestControllerTest",
          [hw / "DirectChestController.java", hw / "DirectSerialPort.java", hw / "DirectSerialConfig.java",
           hw / "RobotWire.java", hw / "SerialFrameCodec.java", hw / "ChestSafety.java",
