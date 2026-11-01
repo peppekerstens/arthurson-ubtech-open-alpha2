@@ -385,6 +385,11 @@ public final class ChestUpgrade {
             resetState();
         }
         chestUpgradeInProgress = true;
+        // alpha2-brain#26: stop the servo read stream and wait for it before the first frame.
+        if (!ServoReadStream.haltForUpgrade("chest firmware upgrade")) {
+            chestUpgradeInProgress = false;
+            return "the servo read stream did not stop: upgrade not started";
+        }
         chestUpgradeProgress = startPage * 100 / ((int)(f.length()+127)/128);
         chestUpgradeCurrentPage = startPage;
         chestUpgradeStatus = "starting from " + startPage;

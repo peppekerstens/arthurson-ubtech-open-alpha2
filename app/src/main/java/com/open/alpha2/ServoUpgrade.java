@@ -290,6 +290,11 @@ public final class ServoUpgrade {
             if (!chestReady()) return "chest not ready (pure-direct)";
         }
         upgradeInProgress = true;
+        // alpha2-brain#26: stop the servo read stream and wait for it before the first frame.
+        if (!ServoReadStream.haltForUpgrade("servo firmware upgrade")) {
+            upgradeInProgress = false;
+            return "the servo read stream did not stop: upgrade not started";
+        }
         upgradeProgress = 0;
         upgradeCurrentPage = 0;
         upgradeStatus = "starting id " + servoId;

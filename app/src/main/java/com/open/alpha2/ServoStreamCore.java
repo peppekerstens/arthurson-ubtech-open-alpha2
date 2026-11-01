@@ -1,0 +1,399 @@
+package com.open.alpha2;
+
+import java.util.Arrays;
+
+/**
+ * Pure Java core of the servo read stream (alpha2-rl#3). {@link ServoReadStream} is the
+ * Android wrapper: it gives the clock, the chest port, the event bus and the busy check
+ * through {@link Env}. The unit test (ServoStreamCoreTest) uses a fake {@link Env}.
+ *
+ * <p>Rules:
+ * <ul>
+ *   <li>The stream sends only cmd 0x17 read frames {@code F8 8F 08 00 00 17 id sum ED}.</li>
+ *   <li>Only the servos that answer cmd 0x17 are allowed: {@link #READABLE_IDS}. The 20 kg
+ *       servos (1, 4, 7 to 16) do not answer (alpha2-brain#29).</li>
+ *   <li>The busy check and the send are one step under {@code gate}
+ *       (alpha2-brain#26). A firmware upgrade sets its busy flag, then calls
+ *       {@link #haltForUpgrade}. That call takes {@code gate}, so a send that runs ends first,
+ *       and each later cycle sees the busy flag. Then it stops the stream and waits for the
+ *       thread to end. While the flag is set, {@link #start} refuses with
+ *       {@link BusyException} (HTTP 409).</li>
+ *   <li>Each thread has a generation number. Each cycle has its own {@link Cycle} object.
+ *       An old thread after a stop and a quick start cannot clear or fill the cycle of the
+ *       new thread, and it sends no more batches (alpha2-brain#29).</li>
+ *   <li>A cmd 0x17 reply is hidden from {@code chest_rcv} only when its id is in the running
+ *       cycle and no other requester asked for that id in the last
+ *       {@link #EXTERNAL_WINDOW_MS} ms ({@link #noteExternalRead}, alpha2-brain#29).</li>
+ * </ul>
+ */
+final class ServoStreamCore {
+
+    /** The environment of the stream. All methods must be thread safe. */
+    interface Env {
+        long nowMs();
+        boolean portAvailable();
+        boolean send(byte[] batch);
+        /** True while a chest or servo firmware upgrade runs. */
+        boolean busy();
+        /** The accel part of the event, starting with a comma. */
+        String accelJson();
+        void publish(String type, String json);
+        void log(String msg);
+    }
+
+    /** start() while a firmware upgrade runs (HTTP 409). */
+    static final class BusyException extends RuntimeException {
+        BusyException(String msg) { super(msg); }
+    }
+
+    static final byte CMD_READ_BACK = 0x17;
+    /** The 8 kg servos that answer cmd 0x17 (alpha2_rl READABLE_SERVOS plus 21 and 22). */
+    static final int[] READABLE_IDS = {2, 3, 5, 6, 17, 18, 19, 20, 21, 22};
+    /** A reply for an id that another requester asked for in this time goes out as chest_rcv. */
+    static final long EXTERNAL_WINDOW_MS = 1000;
+
+    static boolean readable(int id) {
+        for (int r : READABLE_IDS) if (r == id) return true;
+        return false;
+    }
+
+    /** Null when all ids answer cmd 0x17, else the reason. */
+    static String checkReadableIds(int[] ids) {
+        for (int id : ids) {
+            if (!readable(id)) {
+                return "servo id " + id + " does not answer cmd 0x17 (the 20 kg servos 1, 4 and 7 to 16"
+                        + " give only missed reads). Use ids from " + Arrays.toString(READABLE_IDS);
+            }
+        }
+        return null;
+    }
+
+    /** The read batch: one 9-byte cmd 0x17 frame for each id. */
+    static byte[] batch(int[] ids) {
+        byte[] b = new byte[9 * ids.length];
+        for (int i = 0; i < ids.length; i++) {
+            int id = ids[i];
+            int o = 9 * i;
+            b[o] = (byte) 0xF8;
+            b[o + 1] = (byte) 0x8F;
+            b[o + 2] = 0x08;
+            b[o + 3] = 0x00;
+            b[o + 4] = 0x00;
+            b[o + 5] = CMD_READ_BACK;
+            b[o + 6] = (byte) id;
+            b[o + 7] = (byte) ((8 + CMD_READ_BACK + id) & 0xFF);
+            b[o + 8] = (byte) 0xED;
+        }
+        return b;
+    }
+
+    /** The servo ids of the long-form cmd 0x17 frames in raw chest data (for noteExternalRead). */
+    static int[] readIdsInFrames(byte[] data) {
+        if (data == null) return new int[0];
+        int[] out = new int[data.length / 9 + 1];
+        int n = 0;
+        for (int i = 0; i + 6 < data.length; i++) {
+            if ((data[i] & 0xFF) == 0xF8 && (data[i + 1] & 0xFF) == 0x8F && data[i + 5] == CMD_READ_BACK) {
+                out[n++] = data[i + 6] & 0xFF;
+            }
+        }
+        return Arrays.copyOf(out, n);
+    }
+
+    /** The reply slots of one cycle. Guarded by the lock of the core. */
+    static final class Cycle {
+        final int[] ids;
+        final Integer[] angles;
+        int got;
+        long lastReplyNs;
+
+        Cycle(int[] ids) {
+            this.ids = ids;
+            this.angles = new Integer[ids.length];
+        }
+
+        /** Returns true when the id is in this cycle. Fills the slot on a good first reply. */
+        boolean accept(int id, int status, int angle, long ns) {
+            for (int i = 0; i < ids.length; i++) {
+                if (ids[i] != id) continue;
+                if (status == 0 && angles[i] == null) {
+                    angles[i] = angle;
+                    got++;
+                    lastReplyNs = ns;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        boolean complete() { return got == ids.length; }
+    }
+
+    // -- state --------------------------------------------------------------------------------
+
+    private final Env env;
+    /** State, the running cycle and the external read marks. */
+    private final Object lock = new Object();
+    /** The busy check and the send of one batch (alpha2-brain#26). Order: gate, then lock. */
+    private final Object gate = new Object();
+
+    private Thread thread;          // guarded by lock
+    private volatile boolean running;
+    private volatile int generation; // written under lock
+    private volatile long deadlineMs;
+    private volatile int[] ids;
+    private volatile int hz;
+    private volatile int ttlMs;
+    private volatile boolean raw;
+    private Cycle current;          // guarded by lock
+    private final long[] externalReadAt = new long[256]; // guarded by lock
+
+    private volatile long seq, cycles, completeCycles, missedReads, pausedCycles, lateCycles;
+    private volatile int lastReadMs = -1, maxReadMs = -1;
+    private volatile String stopReason = "";
+
+    ServoStreamCore(Env env, int[] defaultIds, int defaultHz, int defaultTtlMs) {
+        this.env = env;
+        this.ids = defaultIds.clone();
+        this.hz = defaultHz;
+        this.ttlMs = defaultTtlMs;
+    }
+
+    boolean isRunning() { return running; }
+
+    long missedReads() { return missedReads; }
+
+    long pausedCycles() { return pausedCycles; }
+
+    long cycles() { return cycles; }
+
+    String stopReason() { return stopReason; }
+
+    // -- API --------------------------------------------------------------------------------------
+
+    /** Starts or renews the stream. The caller has checked the values.
+     *  Throws BusyException while a firmware upgrade runs. Returns true for a new thread. */
+    boolean start(int[] newIds, int newHz, int newTtl, boolean newRaw) {
+        if (env.busy()) {
+            throw new BusyException("a chest or servo firmware upgrade runs: the servo read stream"
+                    + " cannot start (alpha2-brain#26)");
+        }
+        synchronized (lock) {
+            boolean changed = !Arrays.equals(newIds, ids) || newHz != hz;
+            ids = newIds.clone();
+            hz = newHz;
+            ttlMs = newTtl;
+            raw = newRaw;
+            deadlineMs = env.nowMs() + newTtl;
+            if (running) {
+                if (changed) env.log("change ids=" + Arrays.toString(newIds) + " hz=" + newHz);
+                return false;
+            }
+            running = true;
+            stopReason = "";
+            final int gen = ++generation;
+            current = null;
+            Thread t = new Thread(new Runnable() {
+                @Override public void run() { loop(gen); }
+            }, "ServoReadStream");
+            t.setDaemon(true);
+            thread = t;
+            t.start();
+            env.log("start ids=" + Arrays.toString(newIds) + " hz=" + newHz + " ttl_ms=" + newTtl);
+            return true;
+        }
+    }
+
+    /** Stops the stream that runs now. */
+    void stop(String why) {
+        stopGeneration(-1, why);
+    }
+
+    /** Stops the stream only when generation {@code gen} still runs (-1: each generation). */
+    private void stopGeneration(int gen, String why) {
+        Thread t;
+        synchronized (lock) {
+            if (!running || (gen >= 0 && gen != generation)) return;
+            running = false;
+            stopReason = why;
+            t = thread;
+            thread = null;
+            current = null;
+            lock.notifyAll();
+        }
+        env.log("stop: " + why);
+        if (t != null && t != Thread.currentThread()) t.interrupt();
+        env.publish("servo_stream", "{\"running\":false,\"reason\":" + JsonUtil.quote(why) + "}");
+    }
+
+    /**
+     * For a firmware upgrade (alpha2-brain#26). The caller sets its busy flag first. After
+     * this call returns, the stream sends no frame: a send that ran has ended, each later
+     * cycle sees the busy flag, and the stream is stopped. Returns false when the thread did
+     * not end in {@code timeoutMs}. The stream sends nothing more also then.
+     */
+    boolean haltForUpgrade(String why, long timeoutMs) {
+        Thread t;
+        synchronized (gate) {
+            synchronized (lock) {
+                t = thread;
+            }
+        }
+        stop(why);
+        if (t == null || t == Thread.currentThread()) return true;
+        try {
+            t.join(Math.max(1, timeoutMs));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return !t.isAlive();
+    }
+
+    /** Another requester (servo/back-angle, debug/serial/send) sends a cmd 0x17 read for id. */
+    void noteExternalRead(int id) {
+        if (id < 0 || id >= externalReadAt.length) return;
+        synchronized (lock) {
+            externalReadAt[id] = Math.max(1, env.nowMs());
+        }
+    }
+
+    /** The serial reader calls this for each chest payload (payload[0] = cmd).
+     *  Returns true when the reply must not go out as chest_rcv. */
+    boolean onPayload(byte[] payload) {
+        // Reply: [0x17, status, id, hi, lo]. status 0 = OK.
+        if (payload == null || payload.length < 5 || payload[0] != CMD_READ_BACK) return false;
+        int id = payload[2] & 0xFF;
+        synchronized (lock) {
+            if (!running) return false;
+            boolean external = externalReadAt[id] != 0
+                    && env.nowMs() - externalReadAt[id] <= EXTERNAL_WINDOW_MS;
+            if (external) externalReadAt[id] = 0;
+            Cycle c = current;
+            boolean mine = c != null && c.accept(id, payload[1],
+                    ((payload[3] & 0xFF) << 8) | (payload[4] & 0xFF), System.nanoTime());
+            if (c != null && c.complete()) lock.notifyAll();
+            return mine && !raw && !external;
+        }
+    }
+
+    String statusJson() {
+        StringBuilder sb = new StringBuilder(256);
+        long left = running ? Math.max(0, deadlineMs - env.nowMs()) : 0;
+        sb.append("{\"ok\":true,\"running\":").append(running)
+                .append(",\"ids\":").append(Arrays.toString(ids).replace(" ", ""))
+                .append(",\"hz\":").append(hz)
+                .append(",\"ttl_ms\":").append(ttlMs)
+                .append(",\"ttl_left_ms\":").append(left)
+                .append(",\"raw\":").append(raw)
+                .append(",\"busy\":").append(env.busy())
+                .append(",\"seq\":").append(seq)
+                .append(",\"cycles\":").append(cycles)
+                .append(",\"complete_cycles\":").append(completeCycles)
+                .append(",\"missed_reads\":").append(missedReads)
+                .append(",\"paused_cycles\":").append(pausedCycles)
+                .append(",\"late_cycles\":").append(lateCycles)
+                .append(",\"last_read_ms\":").append(lastReadMs)
+                .append(",\"max_read_ms\":").append(maxReadMs)
+                .append(",\"stop_reason\":").append(JsonUtil.quote(stopReason))
+                .append('}');
+        return sb.toString();
+    }
+
+    // -- the read loop (own thread) -----------------------------------------------------------
+
+    private boolean alive(int gen) {
+        return running && generation == gen;
+    }
+
+    private void loop(int gen) {
+        long next = env.nowMs();
+        try {
+            while (alive(gen)) {
+                long now = env.nowMs();
+                if (now > deadlineMs) {
+                    stopGeneration(gen, "ttl: no renew in " + ttlMs + " ms");
+                    return;
+                }
+                int period = 1000 / Math.max(1, hz);
+                cycle(gen, period);
+                next += period;
+                long wait = next - env.nowMs();
+                if (wait < 0) {
+                    // Late: do not run the next cycles faster to catch up.
+                    lateCycles++;
+                    next = env.nowMs();
+                    wait = 0;
+                }
+                if (wait > 0) Thread.sleep(wait);
+            }
+        } catch (InterruptedException e) {
+            // stop() interrupts the thread.
+        } catch (Throwable t) {
+            env.log("loop failed: " + t);
+            stopGeneration(gen, "error: " + t.getClass().getSimpleName());
+        }
+    }
+
+    private void cycle(int gen, int periodMs) throws InterruptedException {
+        int[] want = ids;
+        byte[] batch = batch(want);
+        Cycle c = new Cycle(want);
+        boolean sent;
+        long t0;
+        synchronized (gate) {
+            // alpha2-brain#26: check right before the write, in one step with the write.
+            if (!alive(gen)) return;
+            if (env.busy() || !env.portAvailable()) {
+                pausedCycles++;
+                return;
+            }
+            synchronized (lock) {
+                if (!alive(gen)) return;
+                current = c;
+            }
+            t0 = System.nanoTime();
+            sent = env.send(batch);
+        }
+        // Wait for all replies, at most the period minus 10 ms (the rest is for the event).
+        long endNs = t0 + Math.max(5, periodMs - 10) * 1_000_000L;
+        Integer[] got;
+        long lastNs;
+        synchronized (lock) {
+            if (sent) {
+                while (!c.complete() && alive(gen)) {
+                    long leftNs = endNs - System.nanoTime();
+                    if (leftNs <= 0) break;
+                    lock.wait(Math.max(1, leftNs / 1_000_000L));
+                }
+            }
+            got = c.angles.clone();
+            lastNs = c.lastReplyNs;
+            // Replies after this point do not count for this cycle. Clear only the own cycle.
+            if (current == c) current = null;
+            if (!alive(gen)) return;
+        }
+        cycles++;
+        int missing = 0;
+        for (Integer v : got) if (v == null) missing++;
+        missedReads += missing;
+        if (missing == 0) completeCycles++;
+        int readMs = lastNs == 0 ? -1 : (int) ((lastNs - t0) / 1_000_000L);
+        if (missing == 0) {
+            lastReadMs = readMs;
+            if (readMs > maxReadMs) maxReadMs = readMs;
+        }
+        long s = ++seq;
+        StringBuilder sb = new StringBuilder(200);
+        sb.append("{\"seq\":").append(s)
+                .append(",\"t_ms\":").append(env.nowMs())
+                .append(",\"read_ms\":").append(readMs)
+                .append(",\"ids\":").append(Arrays.toString(want).replace(" ", ""))
+                .append(",\"angles\":[");
+        for (int i = 0; i < got.length; i++) {
+            if (i > 0) sb.append(',');
+            sb.append(got[i] == null ? "null" : String.valueOf(got[i]));
+        }
+        sb.append(']').append(env.accelJson()).append('}');
+        env.publish("servo_reads", sb.toString());
+    }
+}

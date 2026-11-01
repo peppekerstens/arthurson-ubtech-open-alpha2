@@ -2461,15 +2461,19 @@ paths:
         `servo_reads` event on `/ws` for each cycle (see asyncapi.yml). Reads only: no move, no write.
         The stream stops by itself `ttl_ms` after the last start call. Call start again (for example
         each second) to keep it running. A call while the stream runs changes ids, hz, ttl_ms and raw.
-        The stream pauses during a chest or servo firmware upgrade. With `raw=false` (default) the
-        replies to the stream do not go out as `chest_rcv` events. Limit: ids x hz at most 200.
-        alpha2-rl#3.
+        A chest or servo firmware upgrade stops the stream before its first frame. During the upgrade
+        this call gives 409 (alpha2-brain#26). With `raw=false` (default) the replies to the stream do
+        not go out as `chest_rcv` events. Exception: when another requester (`servo/back-angle`, or a
+        cmd 0x17 frame on `debug/serial/send`) reads the same id, the next reply for that id goes out
+        as `chest_rcv` (alpha2-brain#29). Limit: ids x hz at most 200. alpha2-rl#3.
       parameters:
       - $ref: '#/components/parameters/PanelToken'
       - name: ids
         in: query
         required: false
-        description: Servo ids 1-22 split by commas (default 2,3,5,6,17,18,19,20, the 8 kg servos)
+        description: Servo ids split by commas (default 2,3,5,6,17,18,19,20, the 8 kg servos). Only
+          the servos that answer cmd 0x17 are allowed (2, 3, 5, 6, 17 to 22). The 20 kg servos 1, 4
+          and 7 to 16 give 400 (alpha2-brain#29).
         schema:
           type: string
           example: 2,3,5,6,17,18,19,20
@@ -2499,6 +2503,18 @@ paths:
           type: boolean
           default: false
       responses:
+        '400':
+          description: A bad value, an id that does not answer cmd 0x17, or ids x hz above 200
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
+        '409':
+          description: A chest or servo firmware upgrade runs (alpha2-brain#26)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
         '401':
           description: 面板 token 缺／錯（僅啟用後）
           content:

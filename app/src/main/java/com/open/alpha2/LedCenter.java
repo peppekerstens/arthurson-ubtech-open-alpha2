@@ -1208,6 +1208,9 @@ public final class LedCenter {
         // alpha2-brain#24: chest cmd 0x19 [00] and cmd 0x40 [01 ..] start "Sit down".
         // 400 unless allow_sit_down=true.
         ApiValidator.checkSerialSendSitDown(query, port, data);
+        // alpha2-brain#29: a cmd 0x17 reply for this client goes out as chest_rcv also while
+        // the servo read stream runs.
+        if ("chest".equals(port)) ServoReadStream.noteExternalReads(data);
         // pure-direct: 经 DirectSerialPort.sendRaw 透传完整 wire 帧。
         boolean sent = "chest".equals(port)
                 ? HardwareDirectManager.get(appContext).chest().sendRaw(data,

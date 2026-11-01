@@ -522,6 +522,7 @@ public class HttpServer implements Runnable {
         STATUS_TEXT.put(400, "Bad Request");
         STATUS_TEXT.put(401, "Unauthorized");
         STATUS_TEXT.put(404, "Not Found");
+        STATUS_TEXT.put(409, "Conflict");
         STATUS_TEXT.put(500, "Internal Server Error");
         STATUS_TEXT.put(503, "Service Unavailable");
     }

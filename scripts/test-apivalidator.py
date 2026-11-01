@@ -10,6 +10,8 @@ gradle cache 無 junit，不想整斷 `--offline` build。
 跑三套：ApiValidatorTest (ApiValidator closure)＋ColorTrackTest
 (ColorTrackLogic 單檔)＋MusicEqTest (MusicEq 單檔，後兩者連 android.jar
 都唔掂)。
+Also: StopWordMatcherTest, ServoStreamCoreTest, MicSlotsTest, SleepModePolicyTest and
+DirectChestControllerTest (alpha2-brain#30, pure java.* with stubs in scripts/test-stubs).
 
 用法: python scripts/test-apivalidator.py
 """
@@ -183,9 +185,43 @@ def main() -> int:
     print(r.stdout, end="")
     if r.stderr:
         print(r.stderr, end="", file=sys.stderr)
+    if r.returncode != 0:
+        shutil.rmtree(tmp, ignore_errors=True)
+        print("FAIL")
+        return r.returncode
+
+    # Suites 5 and later (alpha2-brain#30): pure java.* plus small stubs of android.util.Log
+    # in scripts/test-stubs (no android.jar on the class path: the stubs do not throw).
+    hw = ROOT / "sdk-module" / "hardware-direct" / "src" / "main" / "java" / "com" / "ubtechinc" / "alpha" / "hardware"
+    hwtest = ROOT / "sdk-module" / "hardware-direct" / "src" / "test" / "java" / "com" / "ubtechinc" / "alpha" / "hardware"
+    stubs = ROOT / "scripts" / "test-stubs"
+    suites = [
+        ("com.open.alpha2.ServoStreamCoreTest",
+         [src / "ServoStreamCore.java", src / "JsonUtil.java", hw / "ChestSafety.java",
+          testdir / "ServoStreamCoreTest.java"]),
+    ]
+    for main_class, srcs in suites:
+        out = tmp / main_class
+        out.mkdir()
+        cp5 = [javac, "-encoding", "UTF-8", "-nowarn", "-d", str(out)] + [str(f) for f in srcs]
+        r = subprocess.run(cp5, capture_output=True, text=True)
+        if r.returncode != 0:
+            print(r.stdout)
+            print(r.stderr)
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise SystemExit("compile failed (" + main_class + ")")
+        r = subprocess.run([java, "-cp", str(out), main_class], capture_output=True, text=True,
+                           cwd=str(ROOT))
+        print(r.stdout, end="")
+        if r.stderr:
+            print(r.stderr, end="", file=sys.stderr)
+        if r.returncode != 0:
+            shutil.rmtree(tmp, ignore_errors=True)
+            print("FAIL")
+            return r.returncode
     shutil.rmtree(tmp, ignore_errors=True)
-    print("PASS" if r.returncode == 0 else "FAIL")
-    return r.returncode
+    print("PASS")
+    return 0
 
 
 if __name__ == "__main__":

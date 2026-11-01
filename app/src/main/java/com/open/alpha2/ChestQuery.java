@@ -621,6 +621,8 @@ public final class ChestQuery {
             return null;
         }
         CountDownLatch latch = new CountDownLatch(1);
+        // alpha2-brain#29: the reply must go out as chest_rcv also while the read stream runs.
+        ServoReadStream.noteExternalRead(id);
         backAngleExpectId = id;
         backAngleValue = null;
         backAngleLatch = latch;
