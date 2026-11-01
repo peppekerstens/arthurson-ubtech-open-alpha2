@@ -164,6 +164,14 @@ public class HeadKeyPoller extends HeadKeyMgr {
                     }
                     publish = true;
                     break;
+                case HeadKeyClick.CLICK_MINUS:
+                case HeadKeyClick.CLICK_PLUS:
+                    // Click codes (robot session 2026-11-01): one code for each press, no
+                    // release code. A press and a release gesture give one volume step.
+                    // The state machine flags of the 0x5a..0x5f codes stay as they are.
+                    for (int g : HeadKeyClick.gestures(code)) tmp.add(g);
+                    publish = true;
+                    break;
                 default:
                     Log.d(TAG, "native key unmapped 0x" + Integer.toHexString(code));
                     break;
