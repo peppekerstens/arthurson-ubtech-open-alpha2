@@ -41,6 +41,35 @@ final class ServoStreamCore {
         void log(String msg);
     }
 
+    /**
+     * The time source, the waits and the read thread of the stream. {@link #REAL_CLOCK} is the
+     * normal clock. The unit test gives a fake clock with a fixed schedule, so the timing
+     * tests do not depend on the host (alpha2-brain#46).
+     */
+    interface Clock {
+        long nanoTime();
+        void sleepMs(long ms) throws InterruptedException;
+        /** Waits on {@code lock} (the caller holds it) for at most {@code ms} ms. */
+        void await(Object lock, long ms) throws InterruptedException;
+        /** Starts the read thread. Returns the thread, or null when no real thread runs. */
+        Thread startThread(Runnable r);
+    }
+
+    static final Clock REAL_CLOCK = new Clock() {
+        @Override public long nanoTime() { return System.nanoTime(); }
+
+        @Override public void sleepMs(long ms) throws InterruptedException { Thread.sleep(ms); }
+
+        @Override public void await(Object lock, long ms) throws InterruptedException { lock.wait(ms); }
+
+        @Override public Thread startThread(Runnable r) {
+            Thread t = new Thread(r, "ServoReadStream");
+            t.setDaemon(true);
+            t.start();
+            return t;
+        }
+    };
+
     /** start() while a firmware upgrade runs (HTTP 409). */
     static final class BusyException extends RuntimeException {
         BusyException(String msg) { super(msg); }
@@ -138,8 +167,14 @@ final class ServoStreamCore {
         long lastReplyNs;
         /** The ids that the last cycle missed (late replies can come for them). */
         int[] missedBefore = new int[0];
-        /** The time of the send (System.nanoTime), set before the send. */
+        /**
+         * The time when the send returned (Clock.nanoTime). It is set after the send, under
+         * the lock: a wait for the send lock thus does not open the late reply guard early
+         * (alpha2-brain#46).
+         */
         long sendNs;
+        /** False until the send returned. A reply for a missed id before that time is late. */
+        boolean sendDone;
 
         Cycle(int[] ids) {
             this.ids = ids;
@@ -171,6 +206,7 @@ final class ServoStreamCore {
     // -- state --------------------------------------------------------------------------------
 
     private final Env env;
+    private final Clock clock;
     /** State, the running cycle and the external read marks. */
     private final Object lock = new Object();
     /** The busy check and the send of one batch (alpha2-brain#26). Order: gate, then lock. */
@@ -194,7 +230,12 @@ final class ServoStreamCore {
     private volatile String stopReason = "";
 
     ServoStreamCore(Env env, int[] defaultIds, int defaultHz, int defaultTtlMs) {
+        this(env, REAL_CLOCK, defaultIds, defaultHz, defaultTtlMs);
+    }
+
+    ServoStreamCore(Env env, Clock clock, int[] defaultIds, int defaultHz, int defaultTtlMs) {
         this.env = env;
+        this.clock = clock;
         this.ids = defaultIds.clone();
         this.hz = defaultHz;
         this.ttlMs = defaultTtlMs;
@@ -238,12 +279,9 @@ final class ServoStreamCore {
             stopReason = "";
             final int gen = ++generation;
             current = null;
-            Thread t = new Thread(new Runnable() {
+            thread = clock.startThread(new Runnable() {
                 @Override public void run() { loop(gen); }
-            }, "ServoReadStream");
-            t.setDaemon(true);
-            thread = t;
-            t.start();
+            });
             env.log("start ids=" + Arrays.toString(newIds) + " hz=" + newHz + " ttl_ms=" + newTtl);
             return true;
         }
@@ -314,9 +352,9 @@ final class ServoStreamCore {
                     && env.nowMs() - externalReadAt[id] <= EXTERNAL_WINDOW_MS;
             if (external) externalReadAt[id] = 0;
             Cycle c = current;
-            long ns = System.nanoTime();
+            long ns = clock.nanoTime();
             boolean mine;
-            if (c != null && c.missedBefore(id) && lateReply(true, ns, c.sendNs)) {
+            if (c != null && c.missedBefore(id) && (!c.sendDone || lateReply(true, ns, c.sendNs))) {
                 // A late reply of the last cycle: it does not fill the slot of this cycle.
                 lateReplies++;
                 mine = true;
@@ -378,7 +416,7 @@ final class ServoStreamCore {
                     next = env.nowMs();
                     wait = 0;
                 }
-                if (wait > 0) Thread.sleep(wait);
+                if (wait > 0) clock.sleepMs(wait);
             }
         } catch (InterruptedException e) {
             // stop() interrupts the thread.
@@ -390,7 +428,7 @@ final class ServoStreamCore {
 
     private void cycle(int gen, int periodMs) throws InterruptedException {
         // alpha2-brain#45: the reply wait counts from here, not from the send.
-        long startNs = System.nanoTime();
+        long startNs = clock.nanoTime();
         int[] want = ids;
         byte[] batch = batch(want);
         Cycle c = new Cycle(want);
@@ -406,11 +444,16 @@ final class ServoStreamCore {
             }
             synchronized (lock) {
                 if (!alive(gen)) return;
-                t0 = System.nanoTime();
-                c.sendNs = t0;
+                t0 = clock.nanoTime();
                 current = c;
             }
             sent = env.send(batch);
+            // alpha2-brain#46: the guard counts from the end of the send, not from before the
+            // wait for the send lock. A reply before this time for a missed id is late.
+            synchronized (lock) {
+                c.sendNs = clock.nanoTime();
+                c.sendDone = true;
+            }
         }
         // Wait for all replies, at most replyWaitMs(period) from the start of the cycle (the
         // rest is for the event). A wait for the send lock thus does not make the cycle late.
@@ -420,9 +463,9 @@ final class ServoStreamCore {
         synchronized (lock) {
             if (sent) {
                 while (!c.complete() && alive(gen)) {
-                    long leftNs = endNs - System.nanoTime();
+                    long leftNs = endNs - clock.nanoTime();
                     if (leftNs <= 0) break;
-                    lock.wait(Math.max(1, leftNs / 1_000_000L));
+                    clock.await(lock, Math.max(1, leftNs / 1_000_000L));
                 }
             }
             got = c.angles.clone();

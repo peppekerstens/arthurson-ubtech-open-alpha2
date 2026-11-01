@@ -100,6 +100,16 @@ public final class WakeCommandMatchTest {
         // Time out: the log gives the time after the end.
         w.onWake(wakeAt, window);
         eq("closed 200 ms ago (time out)", w.describe(wakeAt + window + 200), "window: time out");
+        // alpha2-brain#46: the window times out, and the turn ends later. The log still
+        // gives the time out as the reason, with the time after the end of the window.
+        w.onTurnEnd(wakeAt + window + 300);
+        eq("closed 500 ms ago (time out)", w.describe(wakeAt + window + 500),
+                "window: time out, then the turn end");
+        // A close before the end of the window is not a time out.
+        w.onWake(wakeAt, window);
+        w.onTurnEnd(wakeAt + 100);
+        eq("closed 400 ms ago (turn end, answer or command)", w.describe(wakeAt + 500),
+                "window: the turn end before the time out");
 
         System.out.println("WakeCommandMatchTest: passed=" + passed + " failed=" + failed);
         if (failed > 0) System.exit(1);

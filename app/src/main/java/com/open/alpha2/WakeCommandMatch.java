@@ -81,6 +81,8 @@ final class WakeCommandMatch {
         private long until;
         /** The time of the last close, for the log (0: never open). */
         private long closedAt;
+        /** True when the last close came after the end of the window (alpha2-brain#46). */
+        private boolean timedOut;
 
         synchronized void onWake(long now, long windowMs) {
             until = now + windowMs;
@@ -97,7 +99,10 @@ final class WakeCommandMatch {
         synchronized void onCommand(long now) { close(now); }
 
         private void close(long now) {
-            if (until != 0) closedAt = Math.min(now, until);
+            if (until != 0) {
+                closedAt = Math.min(now, until);
+                timedOut = now >= until;
+            }
             until = 0;
         }
 
@@ -113,6 +118,7 @@ final class WakeCommandMatch {
         synchronized String describe(long now) {
             if (until != 0 && now < until) return "open";
             if (until != 0) return "closed " + (now - until) + " ms ago (time out)";
+            if (closedAt != 0 && timedOut) return "closed " + (now - closedAt) + " ms ago (time out)";
             if (closedAt != 0) return "closed " + (now - closedAt) + " ms ago (turn end, answer or command)";
             return "not open";
         }

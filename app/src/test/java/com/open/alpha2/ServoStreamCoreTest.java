@@ -99,6 +99,116 @@ public class ServoStreamCoreTest {
         }
     }
 
+    /**
+     * A fake clock with a fixed schedule (alpha2-brain#46). No real sleep: a wait moves the
+     * clock to the next scheduled reply or to the end of the wait. The read loop runs on the
+     * test thread ({@link #runLoop}), so the result is the same on each host.
+     */
+    static final class SimClock implements ServoStreamCore.Clock {
+        long ns = 1_000_000_000_000L;
+        private final java.util.PriorityQueue<long[]> due =
+                new java.util.PriorityQueue<>((a, b) -> Long.compare(a[0], b[0]) != 0
+                        ? Long.compare(a[0], b[0]) : Long.compare(a[1], b[1]));
+        private final List<Runnable> jobs = new ArrayList<>();
+        private Runnable loop;
+
+        void at(long atNs, Runnable r) {
+            jobs.add(r);
+            due.add(new long[]{atNs, jobs.size() - 1});
+        }
+
+        /** Runs each job due up to t in time order, then sets the clock to t. */
+        void advanceTo(long t) {
+            while (!due.isEmpty() && due.peek()[0] <= t) {
+                long[] d = due.poll();
+                ns = Math.max(ns, d[0]);
+                jobs.get((int) d[1]).run();
+            }
+            ns = Math.max(ns, t);
+        }
+
+        @Override public long nanoTime() { return ns; }
+
+        @Override public void sleepMs(long ms) { advanceTo(ns + ms * 1_000_000L); }
+
+        @Override public void await(Object lock, long ms) {
+            long end = ns + ms * 1_000_000L;
+            if (!due.isEmpty() && due.peek()[0] <= end) advanceTo(due.peek()[0]);
+            else ns = end;
+        }
+
+        @Override public Thread startThread(Runnable r) {
+            loop = r;
+            return null;
+        }
+
+        /** Runs the read loop on this thread until the TTL stops it. */
+        void runLoop() {
+            Runnable r = loop;
+            loop = null;
+            r.run();
+        }
+    }
+
+    /** A fake chest on the fake clock: the send takes sendDelayMs, the replies come
+     *  replyDelayMs after the end of the send. */
+    static final class SimEnv implements ServoStreamCore.Env {
+        final SimClock clock = new SimClock();
+        ServoStreamCore core;
+        long sendDelayMs = 0;
+        long replyDelayMs = 0;
+        boolean answer = true;
+        final List<String> events = new ArrayList<>();
+
+        @Override public long nowMs() { return clock.ns / 1_000_000L; }
+
+        @Override public boolean portAvailable() { return true; }
+
+        @Override public boolean send(final byte[] batch) {
+            clock.advanceTo(clock.ns + sendDelayMs * 1_000_000L);
+            if (!answer) return true;
+            long at = clock.ns + replyDelayMs * 1_000_000L;
+            for (int o = 0; o + 9 <= batch.length; o += 9) {
+                final int id = batch[o + 6] & 0xFF;
+                final int angle = 0x0100 + (int) (clock.ns / 1_000_000L % 200);
+                clock.at(at, new Runnable() {
+                    @Override public void run() {
+                        core.onPayload(new byte[]{0x17, 0, (byte) id, (byte) (angle >> 8), (byte) angle});
+                    }
+                });
+            }
+            return true;
+        }
+
+        @Override public boolean busy() { return false; }
+
+        @Override public String accelJson() { return ",\"accel\":null,\"accel_age_ms\":null"; }
+
+        @Override public void publish(String type, String json) { events.add(type + " " + json); }
+
+        @Override public void log(String msg) { }
+
+        int readEventsWithAngle() {
+            int n = 0;
+            for (String e : events) {
+                if (e.startsWith("servo_reads") && !e.contains("\"angles\":[null,null]")) n++;
+            }
+            return n;
+        }
+    }
+
+    /** Starts a stream on the fake clock and runs it until the TTL stops it. */
+    private static SimEnv sim(long sendDelayMs, long replyDelayMs, boolean answer, int[] ids, int ttlMs) {
+        SimEnv s = new SimEnv();
+        s.sendDelayMs = sendDelayMs;
+        s.replyDelayMs = replyDelayMs;
+        s.answer = answer;
+        s.core = new ServoStreamCore(s, s.clock, new int[]{2, 3}, 20, 5000);
+        s.core.start(ids, 20, ttlMs, false);
+        s.clock.runLoop();
+        return s;
+    }
+
     private static FakeEnv env() {
         FakeEnv e = new FakeEnv();
         e.core = new ServoStreamCore(e, new int[]{2, 3}, 20, 5000);
@@ -143,15 +253,13 @@ public class ServoStreamCoreTest {
         eq(48, ServoStreamCore.replyWaitMs(50), "wait.20hz");
         eq(38, ServoStreamCore.replyWaitMs(40), "wait.25hz");
         eq(5, ServoStreamCore.replyWaitMs(5), "wait.min");
-        FakeEnv slow = env();
-        slow.replyDelayMs = 43; // later than the old 40 ms limit, sooner than 48 ms
-        slow.core.start(new int[]{2, 3, 5, 6, 17, 18, 19, 20}, 20, 2000, false);
-        sleep(400);
-        slow.core.stop("test");
-        eq(true, slow.core.cycles() >= 4, "slow.cycles");
-        // The wait counts from the start of the cycle (alpha2-brain#45). The first cycle also
-        // loads the classes, so it can miss its reads. Each later cycle reads all 8.
-        eq(true, slow.core.missedReads() <= 8, "slow.missedOnlyFirstCycle");
+        // The timing tests below use the fake clock (alpha2-brain#46): no real sleep.
+        // Replies 43 ms after the send: later than the old 40 ms limit, sooner than 48 ms.
+        SimEnv slow = sim(0, 43, true, new int[]{2, 3, 5, 6, 17, 18, 19, 20}, 400);
+        eq(true, slow.core.cycles() >= 7, "slow.cycles");
+        eq(true, slow.core.stopReason().startsWith("ttl"), "slow.ttlStop");
+        // The wait counts from the start of the cycle (alpha2-brain#45): each cycle reads all 8.
+        eq(0L, slow.core.missedReads(), "slow.noMissed");
 
         // -- alpha2-brain#45: a late reply of the last cycle does not fill the next cycle --
         eq(true, ServoStreamCore.lateReply(true, 2_000_000L, 0L), "late.missedEarly");
@@ -160,23 +268,24 @@ public class ServoStreamCoreTest {
         eq(true, ServoStreamCore.lateReply(true, -1_000_000L, 0L), "late.beforeSend");
         // A fake chest that answers 51 ms after the send, at 20 Hz (period 50 ms): the
         // replies of cycle N come about 1 ms after the send of cycle N+1.
-        FakeEnv late = env();
-        late.replyDelayMs = 51;
-        late.core.start(new int[]{2, 3}, 20, 2000, false);
-        sleep(600);
-        late.core.stop("test");
-        eq(true, late.core.lateReplies() >= 1, "late.counted");
+        SimEnv late = sim(0, 51, true, new int[]{2, 3}, 600);
+        // Each reply comes 1 ms after the next send. Only the replies of the last cycle
+        // come after the stop. Thus 2 late replies for each cycle but the last.
+        eq(2 * (late.core.cycles() - 1), late.core.lateReplies(), "late.counted");
+        eq(0, late.readEventsWithAngle(), "late.noOldAngle");
         eq(true, late.core.statusJson().contains("\"late_replies\":"), "late.inStatus");
         // A send that waits for the send lock does not make the cycle late: the reply wait
         // counts from the start of the cycle (period 50 ms, send wait 20 ms, no replies).
-        FakeEnv lock = env();
-        lock.answer = false;
-        lock.sendDelayMs = 20;
-        lock.core.start(new int[]{2, 3}, 20, 2000, false);
-        sleep(600);
-        lock.core.stop("test");
-        eq(true, lock.core.cycles() >= 8, "sendWait.cycles");
-        eq(true, lock.core.lateCycles() <= 1, "sendWait.notLate");
+        SimEnv lock = sim(20, 0, false, new int[]{2, 3}, 600);
+        eq(true, lock.core.cycles() >= 11, "sendWait.cycles");
+        eq(0L, lock.core.lateCycles(), "sendWait.notLate");
+        // alpha2-brain#46: a send that waits 10 ms for the send lock, replies 45 ms after
+        // the send. The replies of cycle N come 5 ms into the send of cycle N+1. The guard
+        // counts from the end of the send, so these replies are late and fill no slot.
+        SimEnv both = sim(10, 45, true, new int[]{2, 3}, 600);
+        eq(true, both.core.cycles() >= 11, "sendAndReply.cycles");
+        eq(2 * (both.core.cycles() - 1), both.core.lateReplies(), "sendAndReply.late");
+        eq(0, both.readEventsWithAngle(), "sendAndReply.noOldAngle");
 
         // -- run, hide replies, TTL --
         FakeEnv e = env();
