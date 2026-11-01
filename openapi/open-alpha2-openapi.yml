@@ -7064,7 +7064,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/OkWrapper'
         '200':
-          description: '{ok, running, listeners, device, raw_rate, slot_rate, locked, rotation, confidence, cross_check, relocks, overruns, frames, channels: [{name, raw, rms}], error}'
+          description: '{ok, running, listeners, device, raw_rate, slot_rate, locked, rotation, confidence, cross_check, relocks, overruns, timeouts, stale_thread, recording, frames, channels: [{name, raw, rms}], error}'
           content:
             application/json:
               schema:
@@ -7566,7 +7566,9 @@ paths:
         required: false
         description: 'Leave out (or 1) for the mono AudioRecord stream. 5 or 8 = the 5-mic FPGA
           card (card 0) at 16 kHz, 500 ms parts. 5 = m1..m5. 8 = m1..m5, ref1, ref2 (speaker
-          reference), aux. Header X-Mic-Channels gives the order. Runs next to wake mode.'
+          reference), aux. Header X-Mic-Channels gives the order. Runs next to wake mode.
+          Another value gives 400. A client that takes no data for 5 s loses the connection
+          (alpha2-brain#27).'
         schema:
           type: integer
           enum: [1, 5, 8]
@@ -7578,6 +7580,12 @@ paths:
               schema:
                 type: string
                 format: binary
+        '400':
+          description: channels is not 1, 5 or 8
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkWrapper'
         '401':
           description: 面板 token 缺／錯（僅啟用後）
           content:
@@ -7593,7 +7601,8 @@ paths:
       description: 'Records `seconds` from the 5-mic card and returns one WAV (PCM format 1).
         channels=5 gives m1..m5. channels=8 adds ref1, ref2 (speaker reference) and aux.
         Header X-Mic-Channels gives the order. Runs next to wake mode, Xiaozhi and /stream/mic
-        (they use the USB card 3). 503 when the card cannot open or the slot lock fails.'
+        (they use the USB card 3). 503 when the card cannot open or the slot lock fails.
+        One record at a time: a second record gives 503 (alpha2-brain#28).'
       parameters:
       - $ref: '#/components/parameters/PanelToken'
       - name: seconds
@@ -7620,7 +7629,7 @@ paths:
                 type: string
                 format: binary
         '400':
-          description: seconds out of range
+          description: seconds out of range, or channels is not 5 or 8
           content:
             application/json:
               schema:
@@ -7632,7 +7641,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/OkWrapper'
         '503':
-          description: card busy, open failed or capture stalled
+          description: card busy, open failed, capture stalled, or another record runs
           content:
             application/json:
               schema:

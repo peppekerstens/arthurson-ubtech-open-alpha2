@@ -29,7 +29,10 @@ final class MultiMicNative {
 
     static native int open(String dev, int channels, int rate, int periodFrames, int periods);
 
-    static native int read(int fd, short[] buf, int frames);
+    /** Reads up to {@code frames} frames of {@code channels} channels into buf. Waits at most
+     *  {@code timeoutMs} for data: then it returns -110 (ETIMEDOUT). -32 (EPIPE) after an
+     *  overrun. -22 (EINVAL) when buf is too small (alpha2-brain#27, #28). */
+    static native int read(int fd, short[] buf, int frames, int channels, int timeoutMs);
 
     static native void close(int fd);
 }

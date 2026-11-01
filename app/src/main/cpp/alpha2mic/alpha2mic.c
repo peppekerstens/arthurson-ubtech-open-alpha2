@@ -9,10 +9,15 @@
  * This file uses the kernel ALSA ioctls only (no tinyalsa on the robot).
  * Format: 2 channels, S16_LE, interleaved. The Java side (MultiMicController)
  * de-interleaves the 8 TDM slots.
+ *
+ * The device opens with O_NONBLOCK. A read waits with poll() for at most the timeout
+ * of the caller. Thus a stopped FPGA clock cannot block the capture thread for all
+ * time, and the thread can close the device (alpha2-brain#27).
  */
 #include <errno.h>
 #include <fcntl.h>
 #include <jni.h>
+#include <poll.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -61,8 +66,10 @@ JNIEXPORT jint JNICALL
 Java_com_open_alpha2_MultiMicNative_open(JNIEnv *env, jclass cls, jstring jdev,
         jint channels, jint rate, jint periodFrames, jint periods) {
     (void) cls;
+    if (jdev == NULL || channels <= 0 || rate <= 0) return -EINVAL;
     const char *dev = (*env)->GetStringUTFChars(env, jdev, NULL);
-    int fd = open(dev, O_RDWR | O_CLOEXEC);
+    if (dev == NULL) return -ENOMEM; /* an OutOfMemoryError is pending */
+    int fd = open(dev, O_RDWR | O_CLOEXEC | O_NONBLOCK);
     int err = errno;
     if (fd < 0) {
         LOGW("open %s: %s", dev, strerror(err));
@@ -104,31 +111,60 @@ Java_com_open_alpha2_MultiMicNative_open(JNIEnv *env, jclass cls, jstring jdev,
     return fd;
 }
 
-/*
- * Reads up to `frames` interleaved frames into buf (frames * channels shorts).
- * Returns the frame count, or -EPIPE after an overrun (the stream is prepared again,
- * the caller must lock the slot order again), or another -errno.
- */
-JNIEXPORT jint JNICALL
-Java_com_open_alpha2_MultiMicNative_read(JNIEnv *env, jclass cls, jint fd, jshortArray jbuf,
-        jint frames) {
-    (void) cls;
+/* One non-blocking READI_FRAMES. Returns the frame count or -errno. */
+static int read_once(JNIEnv *env, jint fd, jshortArray jbuf, jint frames) {
     jshort *buf = (*env)->GetShortArrayElements(env, jbuf, NULL);
+    if (buf == NULL) return -ENOMEM; /* an OutOfMemoryError is pending */
     struct snd_xferi x;
     x.result = 0;
     x.buf = buf;
     x.frames = (snd_pcm_uframes_t) frames;
     int rc = ioctl(fd, SNDRV_PCM_IOCTL_READI_FRAMES, &x);
     int err = errno;
-    (*env)->ReleaseShortArrayElements(env, jbuf, buf, 0);
-    if (rc < 0) {
-        if (err == EPIPE) {
+    /* Copy back only when the kernel wrote data. */
+    (*env)->ReleaseShortArrayElements(env, jbuf, buf, rc < 0 ? JNI_ABORT : 0);
+    if (rc < 0) return -err;
+    return (int) x.result;
+}
+
+/*
+ * Reads up to `frames` interleaved frames of `channels` channels into buf.
+ * Returns the frame count (can be less than `frames`), -ETIMEDOUT when no data came
+ * in `timeoutMs`, -EPIPE after an overrun (the stream is prepared again, the caller
+ * must lock the slot order again), -EINVAL for bad arguments (buf too small), or
+ * another -errno.
+ */
+JNIEXPORT jint JNICALL
+Java_com_open_alpha2_MultiMicNative_read(JNIEnv *env, jclass cls, jint fd, jshortArray jbuf,
+        jint frames, jint channels, jint timeoutMs) {
+    (void) cls;
+    if (fd < 0 || jbuf == NULL || frames <= 0 || channels <= 0) return -EINVAL;
+    jsize len = (*env)->GetArrayLength(env, jbuf);
+    if ((long long) frames * (long long) channels > (long long) len) return -EINVAL;
+    int attempt;
+    for (attempt = 0; attempt < 2; attempt++) {
+        /* In the PREPARED state the first READI also starts the capture. */
+        int rc = read_once(env, fd, jbuf, frames);
+        if (rc >= 0) return rc;
+        if (rc == -EPIPE) {
             ioctl(fd, SNDRV_PCM_IOCTL_PREPARE);
             return -EPIPE;
         }
-        return -err;
+        if (rc != -EAGAIN) return rc;
+        if (attempt > 0) break;
+        struct pollfd pfd;
+        pfd.fd = fd;
+        pfd.events = POLLIN;
+        pfd.revents = 0;
+        int pr;
+        do {
+            pr = poll(&pfd, 1, timeoutMs > 0 ? timeoutMs : 0);
+        } while (pr < 0 && errno == EINTR);
+        if (pr == 0) return -ETIMEDOUT;
+        if (pr < 0) return -errno;
+        /* POLLIN or POLLERR (an overrun): the next READI gives the data or -EPIPE. */
     }
-    return (jint) x.result;
+    return -ETIMEDOUT;
 }
 
 JNIEXPORT void JNICALL

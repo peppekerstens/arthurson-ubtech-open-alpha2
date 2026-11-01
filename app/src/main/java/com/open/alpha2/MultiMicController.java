@@ -5,14 +5,13 @@ import android.util.Log;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.Socket;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 5-mic capture from the FPGA sound card (card 0, "RK-FPGA-I2S"), next to the mono
@@ -40,23 +39,33 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Wake mode, Xiaozhi and /stream/mic keep the mono AudioRecord path. They use
  * another card, so this capture runs at the same time and never pauses them.
+ *
+ * <p>Robustness (alpha2-brain#27, #28): the native read waits at most
+ * {@link #READ_TIMEOUT_MS} (poll). After {@link #MAX_TIMEOUTS} timeouts in a row the capture
+ * stops, closes the device and sets the error. A stream client that does not read for
+ * {@link #WRITE_STALL_MS} loses its socket. Only one record runs at a time. The slot lock and
+ * the de-interleave are in the pure Java class {@link MicSlots}.
  */
 public final class MultiMicController {
     private static final String TAG = "MultiMic";
     static final String DEVICE = "/dev/snd/pcmC0D0c";
-    static final int RAW_RATE = 64000;
+    static final int RAW_RATE = MicSlots.RAW_RATE;
     static final int RAW_CHANNELS = 2;
-    static final int SLOT_RATE = 16000;
+    static final int SLOT_RATE = MicSlots.SLOT_RATE;
     private static final int PERIOD_FRAMES = 1024;  // 16 ms at 64 kHz
     private static final int PERIODS = 8;
-    private static final int WARMUP_FRAMES = 6400;  // 100 ms: the first samples are junk
-    private static final int LOCK_FRAMES = 8192;    // 128 ms of data for the first lock
-    private static final int CHECK_FRAMES = RAW_RATE; // check the lock again each second
+    /** One native read waits at most this long for data (poll). */
+    static final int READ_TIMEOUT_MS = 200;
+    /** The capture stops after this many read timeouts in a row (2 s without data). */
+    static final int MAX_TIMEOUTS = 10;
+    /** A stream or record client that takes no data for this long loses its socket. */
+    static final long WRITE_STALL_MS = 5000;
+    private static final int ETIMEDOUT = 110;
+    private static final int EAGAIN = 11;
+    private static final int EPIPE = 32;
 
-    /** Canonical order: names and (raw channel, canonical slot). */
-    public static final String[] NAMES = {"m1", "m2", "m3", "m4", "m5", "ref1", "ref2", "aux"};
-    private static final int[] CH = {0, 0, 1, 1, 1, 0, 0, 1};
-    private static final int[] SLOT = {0, 2, 1, 2, 3, 1, 3, 0};
+    /** Canonical order: names (see MicSlots). */
+    public static final String[] NAMES = MicSlots.NAMES;
 
     /** Called on the capture thread with n samples of each of the 8 canonical channels.
      *  Must not block. The arrays are reused after the call returns. */
@@ -73,14 +82,14 @@ public final class MultiMicController {
     private Thread thread;
     private volatile boolean running;
     private volatile String lastError;
-    // lock state (written by the capture thread, read by status())
-    private volatile int rotation = -1;
-    private volatile float confidence;
-    private volatile boolean crossCheckOk;
-    private volatile int relocks;
+    private volatile boolean staleThread;
+    private volatile MicSlots slots = new MicSlots();
     private volatile int overruns;
+    private volatile int timeouts;
     private volatile long framesRead;
     private final float[] levels = new float[8];
+    /** One /stream/mic/record at a time (alpha2-brain#28). */
+    private final AtomicBoolean recording = new AtomicBoolean(false);
 
     private MultiMicController() {}
 
@@ -91,18 +100,25 @@ public final class MultiMicController {
         String err = MultiMicNative.ensureLoaded();
         if (err != null) return err;
         synchronized (stateLock) {
-            listeners.add(l);
             if (thread != null && thread.isAlive() && !running) {
-                // The old capture thread is on its way out (one read is at most 16 ms).
+                // The old capture thread is on its way out (one read waits at most 200 ms).
                 try {
                     thread.join(1000);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
+                if (thread.isAlive()) {
+                    staleThread = true;
+                    lastError = "the old capture thread did not stop: the 5-mic card is still open";
+                    Log.w(TAG, lastError);
+                    return lastError;
+                }
             }
+            staleThread = false;
+            listeners.add(l);
             if (thread == null || !thread.isAlive()) {
                 lastError = null;
-                rotation = -1;
+                slots = new MicSlots();
                 running = true;
                 thread = new Thread(new Runnable() {
                     @Override
@@ -117,7 +133,7 @@ public final class MultiMicController {
                 unsubscribe(l);
                 return lastError;
             }
-            if (rotation >= 0) return null;
+            if (slots.rotation >= 0) return null;
             try {
                 Thread.sleep(20);
             } catch (InterruptedException e) {
@@ -156,27 +172,29 @@ public final class MultiMicController {
             return;
         }
         Log.i(TAG, "capture start");
+        final MicSlots ms = slots;
         short[] raw = new short[PERIOD_FRAMES * RAW_CHANNELS];
         short[][] out = new short[8][PERIOD_FRAMES / 4 + 4];
-        short[] sf = new short[8];       // one super frame: 4 frames x 2 channels
         double[] lvlAcc = new double[8];
         int lvlCount = 0;
-        long pos = 0;                    // frame counter since open or since the last overrun
-        long[] d0 = new long[4], d1 = new long[4];
-        short[] prev = new short[8];     // previous sample of each raw (channel, slot)
-        long accFrames = 0;
-        int pendingRot = -1, pendingCount = 0;
+        int timeoutsInRow = 0;
         framesRead = 0;
         try {
             while (running) {
-                int n = MultiMicNative.read(fd, raw, PERIOD_FRAMES);
-                if (n == -32) { // EPIPE: overrun, the slot phase can change
+                int n = MultiMicNative.read(fd, raw, PERIOD_FRAMES, RAW_CHANNELS, READ_TIMEOUT_MS);
+                if (n == -EPIPE) { // overrun, the slot phase can change
                     overruns++;
-                    pos = 0;
-                    rotation = -1;
-                    accFrames = 0;
-                    java.util.Arrays.fill(d0, 0);
-                    java.util.Arrays.fill(d1, 0);
+                    ms.overrun();
+                    continue;
+                }
+                if (n == -ETIMEDOUT || n == -EAGAIN) {
+                    timeouts++;
+                    if (++timeoutsInRow >= MAX_TIMEOUTS) {
+                        lastError = "no data from the 5-mic card for "
+                                + (MAX_TIMEOUTS * READ_TIMEOUT_MS) + " ms";
+                        Log.w(TAG, lastError);
+                        break;
+                    }
                     continue;
                 }
                 if (n < 0) {
@@ -184,66 +202,15 @@ public final class MultiMicController {
                     Log.w(TAG, lastError);
                     break;
                 }
+                timeoutsInRow = 0;
                 framesRead += n;
-                int outN = 0;
-                for (int f = 0; f < n; f++, pos++) {
-                    short a = raw[2 * f], b = raw[2 * f + 1];
-                    if (pos < WARMUP_FRAMES) continue;
-                    int q = (int) (pos & 3);
-                    // smoothness statistics per raw slot (for lock and re-check)
-                    d0[q] += Math.abs(a - prev[q]);
-                    d1[q] += Math.abs(b - prev[4 + q]);
-                    prev[q] = a;
-                    prev[4 + q] = b;
-                    accFrames++;
-                    int r = rotation;
-                    if (r < 0) {
-                        if (accFrames >= LOCK_FRAMES) {
-                            int best = lockFrom(d0, d1);
-                            rotation = best;
-                            Log.i(TAG, "slot lock rotation=" + best + " conf=" + confidence
-                                    + " crossCheck=" + crossCheckOk);
-                            accFrames = 0;
-                            java.util.Arrays.fill(d0, 0);
-                            java.util.Arrays.fill(d1, 0);
-                        }
-                        continue;
-                    }
-                    if (accFrames >= CHECK_FRAMES) {
-                        int best = bestRotation(d1);
-                        if (best != r && smoothRatio(d1, best) < 0.5f) {
-                            if (best == pendingRot) pendingCount++; else { pendingRot = best; pendingCount = 1; }
-                            if (pendingCount >= 2) {
-                                Log.w(TAG, "slot phase moved: rotation " + r + " -> " + best);
-                                lockFrom(d0, d1);
-                                rotation = best;
-                                relocks++;
-                                pendingRot = -1;
-                                pendingCount = 0;
-                            }
-                        } else {
-                            pendingRot = -1;
-                            pendingCount = 0;
-                        }
-                        accFrames = 0;
-                        java.util.Arrays.fill(d0, 0);
-                        java.util.Arrays.fill(d1, 0);
-                    }
-                    int s = (q - rotation) & 3;  // canonical slot
-                    sf[s] = a;
-                    sf[4 + s] = b;
-                    if (s == 3) {
-                        if (outN < out[0].length) {
-                            for (int k = 0; k < 8; k++) {
-                                short v = sf[CH[k] * 4 + SLOT[k]];
-                                out[k][outN] = v;
-                                lvlAcc[k] += (double) v * v;
-                            }
-                            outN++;
-                            lvlCount++;
-                        }
-                    }
+                int before = ms.rotation;
+                int outN = ms.process(raw, n, out);
+                if (ms.rotation != before && ms.lastLockEvent != null) Log.i(TAG, ms.lastLockEvent);
+                for (int i = 0; i < outN; i++) {
+                    for (int k = 0; k < 8; k++) lvlAcc[k] += (double) out[k][i] * out[k][i];
                 }
+                lvlCount += outN;
                 if (lvlCount >= SLOT_RATE / 2) {
                     synchronized (levels) {
                         for (int k = 0; k < 8; k++) {
@@ -266,58 +233,37 @@ public final class MultiMicController {
         } finally {
             MultiMicNative.close(fd);
             running = false;
-            rotation = -1;
+            ms.rotation = -1;
             Log.i(TAG, "capture stop, frames=" + framesRead + " overruns=" + overruns
-                    + " relocks=" + relocks);
+                    + " timeouts=" + timeouts + " relocks=" + ms.relocks);
         }
-    }
-
-    private static int bestRotation(long[] d1) {
-        int best = 0;
-        for (int i = 1; i < 4; i++) if (d1[i] < d1[best]) best = i;
-        return best;
-    }
-
-    /** d1[r] / smallest other d1: low = clear lock. */
-    private static float smoothRatio(long[] d1, int r) {
-        long other = Long.MAX_VALUE;
-        for (int i = 0; i < 4; i++) if (i != r) other = Math.min(other, d1[i]);
-        return other <= 0 ? 1f : (float) d1[r] / other;
-    }
-
-    /** Sets confidence and crossCheckOk from the statistics, returns the rotation. */
-    private int lockFrom(long[] d0, long[] d1) {
-        int r = bestRotation(d1);
-        confidence = 1f - Math.min(1f, smoothRatio(d1, r));
-        // channel 0: the reference slots (canonical 1 and 3) must be smoother than the
-        // mic slots (canonical 0 and 2).
-        long refs = d0[(r + 1) & 3] + d0[(r + 3) & 3];
-        long mics = d0[r] + d0[(r + 2) & 3];
-        crossCheckOk = refs < mics;
-        return r;
     }
 
     // -- status -------------------------------------------------------------------------
 
     public String statusJson() {
+        MicSlots ms = slots;
         StringBuilder sb = new StringBuilder();
         sb.append("{\"ok\":true,\"running\":").append(running && thread != null && thread.isAlive())
                 .append(",\"listeners\":").append(listeners.size())
                 .append(",\"device\":\"").append(DEVICE).append('"')
                 .append(",\"raw_rate\":").append(RAW_RATE)
                 .append(",\"slot_rate\":").append(SLOT_RATE)
-                .append(",\"locked\":").append(rotation >= 0)
-                .append(",\"rotation\":").append(rotation)
-                .append(",\"confidence\":").append(String.format(java.util.Locale.US, "%.2f", confidence))
-                .append(",\"cross_check\":").append(crossCheckOk)
-                .append(",\"relocks\":").append(relocks)
+                .append(",\"locked\":").append(ms.rotation >= 0)
+                .append(",\"rotation\":").append(ms.rotation)
+                .append(",\"confidence\":").append(String.format(java.util.Locale.US, "%.2f", ms.confidence))
+                .append(",\"cross_check\":").append(ms.crossCheckOk)
+                .append(",\"relocks\":").append(ms.relocks)
                 .append(",\"overruns\":").append(overruns)
+                .append(",\"timeouts\":").append(timeouts)
+                .append(",\"stale_thread\":").append(staleThread)
+                .append(",\"recording\":").append(recording.get())
                 .append(",\"frames\":").append(framesRead)
                 .append(",\"channels\":[");
         for (int k = 0; k < 8; k++) {
             if (k > 0) sb.append(',');
-            sb.append("{\"name\":\"").append(NAMES[k]).append("\",\"raw\":\"c").append(CH[k])
-                    .append('s').append(SLOT[k]).append("\",\"rms\":");
+            sb.append("{\"name\":\"").append(NAMES[k]).append("\",\"raw\":\"c").append(MicSlots.CH[k])
+                    .append('s').append(MicSlots.SLOT[k]).append("\",\"rms\":");
             synchronized (levels) {
                 sb.append(Math.round(levels[k]));
             }
@@ -334,18 +280,92 @@ public final class MultiMicController {
 
     private static final String BOUNDARY = "opensdktestpanelaudio";
 
-    static int parseChannels(Map<String, String> query) {
-        String c = query.get("channels");
-        return "8".equals(c) ? 8 : 5;
+    /**
+     * Closes the socket when one write does not end in {@link #WRITE_STALL_MS}: a client that
+     * stops to read but keeps the TCP connection open (alpha2-brain#27). The blocked write then
+     * fails, and the caller removes its listener.
+     */
+    static final class StallGuard {
+        private static final int CHUNK = 32 * 1024;
+        private final Socket socket;
+        private final OutputStream out;
+        private final long limitMs;
+        private volatile long busySince;
+        private volatile boolean done;
+        private volatile boolean stalled;
+        private final Thread watcher;
+
+        StallGuard(Socket socket, OutputStream out, long limitMs) {
+            this.socket = socket;
+            this.out = out;
+            this.limitMs = limitMs;
+            watcher = new Thread(new Runnable() {
+                @Override public void run() { watch(); }
+            }, "MicWriteGuard");
+            watcher.setDaemon(true);
+            watcher.start();
+        }
+
+        private void watch() {
+            while (!done) {
+                try {
+                    Thread.sleep(250);
+                } catch (InterruptedException e) {
+                    return;
+                }
+                long b = busySince;
+                if (b != 0 && System.currentTimeMillis() - b > limitMs) {
+                    stalled = true;
+                    Log.w(TAG, "client takes no data for " + limitMs + " ms: closing the socket");
+                    try {
+                        socket.close();
+                    } catch (IOException ignored) {
+                    }
+                    return;
+                }
+            }
+        }
+
+        void write(byte[] b) throws IOException {
+            for (int off = 0; off < b.length; off += CHUNK) {
+                busySince = System.currentTimeMillis();
+                try {
+                    out.write(b, off, Math.min(CHUNK, b.length - off));
+                } finally {
+                    busySince = 0;
+                }
+            }
+        }
+
+        void flush() throws IOException {
+            busySince = System.currentTimeMillis();
+            try {
+                out.flush();
+            } finally {
+                busySince = 0;
+            }
+        }
+
+        boolean stalled() { return stalled; }
+
+        void close() {
+            done = true;
+            watcher.interrupt();
+        }
     }
 
     /** Multipart stream of WAV chunks (500 ms each), same framing as /stream/mic. */
     public void handleStream(Socket socket, Map<String, String> query) throws IOException {
-        final int channels = parseChannels(query);
+        final int channels = MicSlots.parseChannels(query.get("channels"), 5, 5, 8);
+        OutputStream out = socket.getOutputStream();
+        if (channels < 0) {
+            writeError(out, 400, "channels must be 1, 5 or 8");
+            return;
+        }
         final int chunkSamples = SLOT_RATE / 2;
         final ArrayBlockingQueue<byte[]> queue = new ArrayBlockingQueue<>(4);
         Listener l = new Listener() {
-            final short[][] buf = new short[8][chunkSamples];
+            final short[][] buf = new short[channels][chunkSamples];
             int fill = 0;
 
             @Override
@@ -357,7 +377,7 @@ public final class MultiMicController {
                     fill += take;
                     i += take;
                     if (fill == chunkSamples) {
-                        byte[] wav = wav(buf, channels, chunkSamples);
+                        byte[] wav = MicSlots.wav(buf, channels, chunkSamples);
                         if (!queue.offer(wav)) {
                             queue.poll();
                             queue.offer(wav);
@@ -367,20 +387,20 @@ public final class MultiMicController {
                 }
             }
         };
-        OutputStream out = socket.getOutputStream();
         String err = subscribe(l, 3000);
         if (err != null) {
             writeError(out, err);
             return;
         }
+        StallGuard g = new StallGuard(socket, out, WRITE_STALL_MS);
         try {
-            out.write(("HTTP/1.1 200 OK\r\n"
+            g.write(("HTTP/1.1 200 OK\r\n"
                     + "Content-Type: multipart/mixed; boundary=" + BOUNDARY + "\r\n"
                     + "Cache-Control: no-store\r\n"
                     + "Access-Control-Allow-Origin: *\r\n"
-                    + "X-Mic-Channels: " + channelNames(channels) + "\r\n"
+                    + "X-Mic-Channels: " + MicSlots.channelNames(channels) + "\r\n"
                     + "Connection: close\r\n\r\n").getBytes(StandardCharsets.ISO_8859_1));
-            out.flush();
+            g.flush();
             while (true) {
                 byte[] wav;
                 try {
@@ -393,20 +413,24 @@ public final class MultiMicController {
                     Log.w(TAG, "stream: no data for 3 s, closing");
                     break;
                 }
-                out.write(("--" + BOUNDARY + "\r\nContent-Type: audio/wav\r\nContent-Length: "
+                g.write(("--" + BOUNDARY + "\r\nContent-Type: audio/wav\r\nContent-Length: "
                         + wav.length + "\r\n\r\n").getBytes(StandardCharsets.ISO_8859_1));
-                out.write(wav);
-                out.write("\r\n".getBytes(StandardCharsets.ISO_8859_1));
-                out.flush();
+                g.write(wav);
+                g.write("\r\n".getBytes(StandardCharsets.ISO_8859_1));
+                g.flush();
             }
+        } catch (IOException e) {
+            if (!g.stalled()) throw e;
         } finally {
+            g.close();
             unsubscribe(l);
         }
     }
 
-    /** One WAV file of `seconds` (1 to 60, default 5) with 5 or 8 channels at 16 kHz. */
+    /** One WAV file of `seconds` (1 to 60, default 5) with 5 or 8 channels at 16 kHz.
+     *  One record at a time: a second request gives 503 (alpha2-brain#28). */
     public void handleRecord(Socket socket, Map<String, String> query) throws IOException {
-        final int channels = parseChannels(query);
+        final int channels = MicSlots.parseChannels(query.get("channels"), 5, 5, 8);
         int seconds = 5;
         try {
             if (query.get("seconds") != null) seconds = Integer.parseInt(query.get("seconds").trim());
@@ -414,12 +438,29 @@ public final class MultiMicController {
             seconds = -1;
         }
         OutputStream out = socket.getOutputStream();
+        if (channels < 0) {
+            writeError(out, 400, "channels must be 5 or 8");
+            return;
+        }
         if (seconds < 1 || seconds > 60) {
             writeError(out, 400, "seconds must be 1 to 60");
             return;
         }
+        if (!recording.compareAndSet(false, true)) {
+            writeError(out, 503, "another 5-mic record runs: one record at a time");
+            return;
+        }
+        try {
+            record(socket, out, channels, seconds);
+        } finally {
+            recording.set(false);
+        }
+    }
+
+    private void record(Socket socket, OutputStream out, final int channels, int seconds) throws IOException {
         final int total = seconds * SLOT_RATE;
-        final short[][] buf = new short[8][total];
+        // Only the channels that the client wants (at most 60 s x 8 x 2 bytes = 15.4 MB).
+        final short[][] buf = new short[channels][total];
         final int[] fill = {0};
         final Object done = new Object();
         Listener l = new Listener() {
@@ -459,26 +500,32 @@ public final class MultiMicController {
             unsubscribe(l);
         }
         if (got < total) {
-            writeError(out, "capture stalled: " + got + " of " + total + " samples");
+            String why = lastError;
+            writeError(out, "capture stalled: " + got + " of " + total + " samples"
+                    + (why != null ? " (" + why + ")" : ""));
             return;
         }
-        byte[] wav = wav(buf, channels, total);
-        out.write(("HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: " + wav.length
-                + "\r\nContent-Disposition: attachment; filename=\"mic" + channels + "ch.wav\""
-                + "\r\nX-Mic-Channels: " + channelNames(channels)
-                + "\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n")
-                .getBytes(StandardCharsets.ISO_8859_1));
-        out.write(wav);
-        out.flush();
-    }
-
-    static String channelNames(int channels) {
-        StringBuilder sb = new StringBuilder();
-        for (int k = 0; k < channels; k++) {
-            if (k > 0) sb.append(',');
-            sb.append(NAMES[k]);
+        byte[] header = MicSlots.wavHeader(channels, total);
+        StallGuard g = new StallGuard(socket, out, WRITE_STALL_MS);
+        try {
+            g.write(("HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: "
+                    + (header.length + total * channels * 2)
+                    + "\r\nContent-Disposition: attachment; filename=\"mic" + channels + "ch.wav\""
+                    + "\r\nX-Mic-Channels: " + MicSlots.channelNames(channels)
+                    + "\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n")
+                    .getBytes(StandardCharsets.ISO_8859_1));
+            g.write(header);
+            // The WAV data in parts: no second copy of the full record in memory.
+            int part = SLOT_RATE / 4;
+            for (int i = 0; i < total; i += part) {
+                g.write(MicSlots.pcm(buf, channels, i, Math.min(part, total - i)));
+            }
+            g.flush();
+        } catch (IOException e) {
+            if (!g.stalled()) throw e;
+        } finally {
+            g.close();
         }
-        return sb.toString();
     }
 
     private static void writeError(OutputStream out, String msg) throws IOException {
@@ -494,20 +541,5 @@ public final class MultiMicController {
                 + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.ISO_8859_1));
         out.write(body);
         out.flush();
-    }
-
-    /** Interleaved 16-bit PCM WAV (format 1) with `channels` channels at 16 kHz. */
-    static byte[] wav(short[][] ch, int channels, int n) {
-        int dataLen = n * channels * 2;
-        ByteBuffer bb = ByteBuffer.allocate(44 + dataLen).order(ByteOrder.LITTLE_ENDIAN);
-        bb.put(new byte[]{'R', 'I', 'F', 'F'}).putInt(36 + dataLen)
-                .put(new byte[]{'W', 'A', 'V', 'E', 'f', 'm', 't', ' '}).putInt(16)
-                .putShort((short) 1).putShort((short) channels).putInt(SLOT_RATE)
-                .putInt(SLOT_RATE * channels * 2).putShort((short) (channels * 2)).putShort((short) 16)
-                .put(new byte[]{'d', 'a', 't', 'a'}).putInt(dataLen);
-        for (int i = 0; i < n; i++) {
-            for (int k = 0; k < channels; k++) bb.putShort(ch[k][i]);
-        }
-        return bb.array();
     }
 }

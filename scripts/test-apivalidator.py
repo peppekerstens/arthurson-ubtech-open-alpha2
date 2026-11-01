@@ -199,6 +199,8 @@ def main() -> int:
         ("com.open.alpha2.ServoStreamCoreTest",
          [src / "ServoStreamCore.java", src / "JsonUtil.java", hw / "ChestSafety.java",
           testdir / "ServoStreamCoreTest.java"]),
+        ("com.open.alpha2.MicSlotsTest",
+         [src / "MicSlots.java", testdir / "MicSlotsTest.java"]),
     ]
     for main_class, srcs in suites:
         out = tmp / main_class
