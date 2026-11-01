@@ -102,6 +102,40 @@ public final class VoiceTimingTest {
                 + " tts_start=1300 audio_first=1400 play=1500 tts_stop=- play_end=1500",
                 "follow-up turn");
 
+        // Missed idle pause: the follow-up answer starts while turn 1 still closes.
+        // The first frame of turn 2 closes turn 1, so play and play_end go to turn 2.
+        out.clear();
+        vt = fresh(out);
+        vt.wake();
+        at(500); vt.listen();
+        at(1000); vt.stt();
+        at(1200); vt.ttsStart();
+        at(1300); vt.audioFrame();
+        at(1400); vt.play();
+        at(1900); vt.written();
+        at(2000); vt.ttsStop(); // no idle pause before or after tts stop
+        vt.followUp(); // t0 = 2000
+        at(2600); vt.written(); // turn 1 audio still plays
+        at(3000); vt.speech();
+        at(3200); vt.stt();
+        at(3300); vt.ttsStart();
+        check(out.isEmpty(), "closing turn stays open before the new frame");
+        at(3400); vt.audioFrame();
+        eq(out.size(), 1, "first frame of turn 2 closes turn 1");
+        eq(out.get(0), "v=1 turn=1 kind=wake wake=0 listen=500 speech_end=- stt=1000"
+                + " tts_start=1200 audio_first=1300 play=1400 tts_stop=2000 play_end=2600",
+                "turn 1 closed by the new frame");
+        at(3410); vt.audioFrame(); // second frame: no new line
+        eq(out.size(), 1, "second frame gives no line");
+        at(3500); vt.play();
+        at(3700); vt.written();
+        at(4000); vt.ttsStop();
+        at(4600); vt.idle();
+        eq(out.size(), 2, "turn 2 line after idle");
+        eq(out.get(1), "v=1 turn=2 kind=followup wake=- listen=0 speech_end=1000 stt=1200"
+                + " tts_start=1300 audio_first=1400 play=1500 tts_stop=2000 play_end=1700",
+                "follow-up turn has play");
+
         // A new wake word flushes an open turn. No connection: listen stays "-".
         out.clear();
         vt = fresh(out);

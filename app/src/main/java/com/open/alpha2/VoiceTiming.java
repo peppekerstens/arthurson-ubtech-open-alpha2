@@ -147,9 +147,24 @@ public final class VoiceTiming {
         if (current != null) current.first(TTS_START, clock.nanos());
     }
 
-    /** One Opus frame of the answer came in. */
-    public synchronized void audioFrame() {
-        if (current != null) current.first(AUDIO_FIRST, clock.nanos());
+    /**
+     * One Opus frame of the answer came in. The first frame of the current turn also
+     * closes the closing turn: from now on play() and written() belong to the current
+     * turn. Without this, a missed idle pause before tts stop keeps the closing turn
+     * open up to the prebuffer wait, and a follow-up answer then shows play=-.
+     */
+    public void audioFrame() {
+        String out = null;
+        synchronized (this) {
+            Turn t = current;
+            if (t == null || t.has[AUDIO_FIRST]) return; // no allocation per frame
+            t.first(AUDIO_FIRST, clock.nanos());
+            if (closing != null) {
+                out = take(closing);
+                closing = null;
+            }
+        }
+        emit(out);
     }
 
     /** AudioTrack.play(): counts only after the first frame of the turn. */
