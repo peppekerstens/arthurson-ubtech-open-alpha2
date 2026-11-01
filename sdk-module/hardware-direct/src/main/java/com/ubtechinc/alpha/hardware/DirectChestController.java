@@ -280,7 +280,8 @@ public final class DirectChestController {
     }
 
     /** Raw frame pass-through with the "Sit down" guard: frames with cmd 0x19 [00] or
-     *  cmd 0x40 [01 ..] are refused unless allowSitDown=true (alpha2-brain#24). */
+     *  cmd 0x40 [01 ..] are refused unless allowSitDown=true (alpha2-brain#24). The data must
+     *  also be whole frames with a correct length, checksum and tail (alpha2-brain#25). */
     public boolean sendRaw(byte[] rawFrame, boolean allowSitDown) {
         if (rawFrame == null || rawFrame.length == 0) return false;
         String why = ChestSafety.checkChestFrames(rawFrame, allowSitDown);

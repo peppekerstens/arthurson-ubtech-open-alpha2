@@ -22,8 +22,18 @@ package com.ubtechinc.alpha.hardware;
  *
  * <p>The scan is more strict than the Python decoder: at each F8 8F it tries the long
  * form with any SRC and DST and the legacy short form. A frame with a correct checksum
- * and tail in one of the two forms counts. Pure java, no Android classes (unit test:
- * scripts/test-serialcodec.py).
+ * and tail in one of the two forms counts.
+ *
+ * <p>Whole frames only (alpha2-brain#25): without the opt-in, the data must be one or more
+ * complete frames, back to back, each with a correct length, checksum and tail. Thus the
+ * guard refuses a frame with a bad checksum or a bad length, junk bytes, and a call that
+ * ends inside a frame. The UART is a byte stream: a frame split over two calls
+ * ({@code F8 8F 08 05 00 19} and then {@code 00 26 ED}) would join again in the chest. With
+ * whole frames only, each call ends at a frame end, so no call can complete a frame of an
+ * earlier call. No reassembly buffer is necessary. All callers in the app send whole frames.
+ *
+ * <p>Pure java, no Android classes (unit tests: scripts/test-serialcodec.py and
+ * scripts/test-apivalidator.py).
  */
 public final class ChestSafety {
     public static final int CMD_SERVO_POWER = 0x19; // RobotWire.CHEST_SERVO_POWER
@@ -62,6 +72,7 @@ public final class ChestSafety {
     public static String checkChestFrames(byte[] data, boolean allowSitDown) {
         if (allowSitDown || data == null) return null;
         int n = data.length;
+        // 1. Each complete frame at each F8 8F (also inside the payload of another frame).
         for (int i = 0; i + 1 < n; i++) {
             if ((data[i] & 0xFF) != HEAD0 || (data[i + 1] & 0xFF) != HEAD1) continue;
             String r = checkLong(data, i);
@@ -69,34 +80,78 @@ public final class ChestSafety {
             r = checkShort(data, i);
             if (r != null) return r;
         }
+        // 2. Whole frames only (alpha2-brain#25).
+        return checkWholeFrames(data);
+    }
+
+    /**
+     * Returns null when {@code data} is zero or more complete chest frames back to back
+     * (long or legacy short form, correct length, checksum and tail), else the reason.
+     * It does not look at the command. {@link #checkChestFrames} uses it.
+     */
+    public static String checkWholeFrames(byte[] data) {
+        if (data == null) return null;
+        int n = data.length;
+        int i = 0;
+        while (i < n) {
+            if (i + 1 >= n || (data[i] & 0xFF) != HEAD0 || (data[i + 1] & 0xFF) != HEAD1) {
+                return NOT_WHOLE + ": no frame header F8 8F at byte " + i;
+            }
+            int len = longLength(data, i);
+            if (len < 0) len = shortLength(data, i);
+            if (len < 0) {
+                return NOT_WHOLE + ": the frame at byte " + i
+                        + " is not complete or has a bad length, checksum or tail";
+            }
+            i += len;
+        }
         return null;
+    }
+
+    public static final String NOT_WHOLE = "chest data must be complete frames"
+            + " (F8 8F .. checksum ED) with a correct length, checksum and tail, and nothing more."
+            + " A frame split over two calls, junk bytes and a bad checksum are refused,"
+            + " because the chest could join them into a 'Sit down' frame (alpha2-brain#25)."
+            + " Send allow_sit_down=true to send the bytes without a check";
+
+    /** Total length of a valid long-form frame at {@code start}, else -1. */
+    private static int longLength(byte[] b, int start) {
+        if (start + 5 >= b.length) return -1;
+        int total = (b[start + 2] & 0xFF) + 1;
+        if (total < 8 || start + total > b.length) return -1;
+        int end = start + total;
+        if ((b[end - 1] & 0xFF) != TAIL) return -1;
+        if ((sum(b, start + 2, end - 2) & 0xFF) != (b[end - 2] & 0xFF)) return -1;
+        return total;
+    }
+
+    /** Total length of a valid legacy short-form frame at {@code start}, else -1. */
+    private static int shortLength(byte[] b, int start) {
+        if (start + 3 >= b.length) return -1;
+        int len = b[start + 2] & 0xFF;
+        if (len < 1) return -1;
+        int total = len + 5;
+        if (start + total > b.length) return -1;
+        int end = start + total;
+        if ((b[end - 1] & 0xFF) != TAIL) return -1;
+        if ((sum(b, start + 2, end - 2) & 0xFF) != (b[end - 2] & 0xFF)) return -1;
+        return total;
     }
 
     /** Long form: F8 8F LEN SRC DST CMD PAYLOAD.. CHK ED, total = LEN + 1. */
     private static String checkLong(byte[] b, int start) {
-        if (start + 5 >= b.length) return null;
-        int len = b[start + 2] & 0xFF;
-        int total = len + 1;
-        if (total < 8 || start + total > b.length) return null;
-        int end = start + total;
-        if ((b[end - 1] & 0xFF) != TAIL) return null;
-        if ((sum(b, start + 2, end - 2) & 0xFF) != (b[end - 2] & 0xFF)) return null;
+        int total = longLength(b, start);
+        if (total < 0) return null;
         int cmd = b[start + 5] & 0xFF;
-        return checkCommand(cmd, copy(b, start + 6, end - 2));
+        return checkCommand(cmd, copy(b, start + 6, start + total - 2));
     }
 
     /** Legacy short form: F8 8F LEN CMD PAYLOAD.. CHK ED, total = LEN + 5. */
     private static String checkShort(byte[] b, int start) {
-        if (start + 3 >= b.length) return null;
-        int len = b[start + 2] & 0xFF;
-        if (len < 1) return null;
-        int total = len + 5;
-        if (start + total > b.length) return null;
-        int end = start + total;
-        if ((b[end - 1] & 0xFF) != TAIL) return null;
-        if ((sum(b, start + 2, end - 2) & 0xFF) != (b[end - 2] & 0xFF)) return null;
+        int total = shortLength(b, start);
+        if (total < 0) return null;
         int cmd = b[start + 3] & 0xFF;
-        return checkCommand(cmd, copy(b, start + 4, end - 2));
+        return checkCommand(cmd, copy(b, start + 4, start + total - 2));
     }
 
     private static int sum(byte[] b, int from, int to) {

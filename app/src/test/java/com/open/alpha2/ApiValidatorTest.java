@@ -331,17 +331,51 @@ public final class ApiValidatorTest {
         ApiValidator.checkSerialSendSitDown(q(), "chest", f40leave);
         ApiValidator.checkSerialSendSitDown(q(), "chest", fRead);
         ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, f19on, f40leave));
-        ApiValidator.checkSerialSendSitDown(q(), "chest", new byte[]{(byte) 0xF8, (byte) 0x8F});
         ApiValidator.checkSerialSendSitDown(q(), "chest", new byte[0]);
         ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "chest", f19off);
         ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "chest", f40enter);
         ApiValidator.checkSerialSendSitDown(q(), "head", f19off); // head cmd 0x19 is another command
         eq(okBefore, failed, "sit.raw.allowed");
-        // a bad checksum is no frame (the MCU drops it)
+        // alpha2-brain#25: whole frames only. Nobody checked that the chest firmware drops a
+        // frame with a bad checksum, so the guard refuses it.
         final byte[] badSum = f19off.clone();
         badSum[badSum.length - 2] ^= 0x01;
-        ApiValidator.checkSerialSendSitDown(q(), "chest", badSum);
-        eq(okBefore, failed, "sit.raw.badChecksum");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", badSum); } }, "sit.raw.badChecksum");
+        final byte[] badSum40 = f40enter.clone();
+        badSum40[badSum40.length - 2] ^= 0x01;
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", badSum40); } }, "sit.raw.badChecksum40");
+        final byte[] badSumRead = fRead.clone();
+        badSumRead[badSumRead.length - 2] ^= 0x01;
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", badSumRead); } }, "sit.raw.badChecksumRead");
+        final byte[] badTail = f19off.clone();
+        badTail[badTail.length - 1] = 0x00;
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", badTail); } }, "sit.raw.badTail");
+        final byte[] badLen = f19off.clone();
+        badLen[2] = 0x09; // LEN says one more byte than the data has
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", badLen); } }, "sit.raw.badLength");
+        // a frame split over two debug/serial/send calls: each part is refused
+        final byte[] partA = java.util.Arrays.copyOfRange(f19off, 0, 6);  // F8 8F 08 05 00 19
+        final byte[] partB = java.util.Arrays.copyOfRange(f19off, 6, 9);  // 00 26 ED
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", partA); } }, "sit.split.first");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", partB); } }, "sit.split.second");
+        final byte[] onlyF8 = new byte[]{(byte) 0xF8};
+        final byte[] restAfterF8 = java.util.Arrays.copyOfRange(f19off, 1, 9);
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", onlyF8); } }, "sit.split.onlyF8");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", restAfterF8); } }, "sit.split.after8F");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", new byte[]{(byte) 0xF8, (byte) 0x8F}); } }, "sit.raw.headerOnly");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, partA)); } }, "sit.split.afterGoodFrame");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, new byte[]{0x00})); } }, "sit.raw.junkAfter");
+        // the opt-in sends the bytes without a check; the head port has no check
+        int okBefore2 = failed;
+        ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "chest", partA);
+        ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "chest", badSum);
+        ApiValidator.checkSerialSendSitDown(q(), "head", partA);
+        ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, fRead, fRead));
+        eq(okBefore2, failed, "sit.whole.allowed");
+        eq(null, com.ubtechinc.alpha.hardware.ChestSafety.checkWholeFrames(new byte[0]), "sit.whole.empty");
+        eq(null, com.ubtechinc.alpha.hardware.ChestSafety.checkWholeFrames(
+                new byte[]{(byte) 0xF8, (byte) 0x8F, 0x07, 0x00, 0x00, 0x33, 0x3A, (byte) 0xED}), "sit.whole.versionFrame");
+        eq(null, com.ubtechinc.alpha.hardware.ChestSafety.checkWholeFrames(shortFrame(0x06, 0x03)), "sit.whole.short");
         eq(null, com.ubtechinc.alpha.hardware.ChestSafety.checkCommand(0x19, new byte[]{1}), "sit.cmd.19on");
         eq(com.ubtechinc.alpha.hardware.ChestSafety.SIT_DOWN_19,
                 com.ubtechinc.alpha.hardware.ChestSafety.checkCommand(0x19, new byte[]{0}), "sit.cmd.19off");

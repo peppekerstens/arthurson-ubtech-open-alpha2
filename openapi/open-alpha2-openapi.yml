@@ -3652,12 +3652,12 @@ paths:
         schema:
           type: string
           example: f88f08000091019aed
-        description: 完整 wire frame hex. On port=chest, frames with cmd 0x19 [00] or cmd 0x40 [01 ..] start the "Sit down" move (alpha2-brain#24) and need allow_sit_down=true, else 400.
+        description: 完整 wire frame hex. On port=chest, frames with cmd 0x19 [00] or cmd 0x40 [01 ..] start the "Sit down" move (alpha2-brain#24) and need allow_sit_down=true, else 400. On port=chest the hex must also be whole frames only (correct length, checksum and tail, no extra bytes), else 400 (alpha2-brain#25). A frame split over two calls is refused.
       - $ref: '#/components/parameters/AllowSitDown'
       - $ref: '#/components/parameters/PanelToken'
       responses:
         '400':
-          description: a chest frame that starts "Sit down" without allow_sit_down=true, or a bad parameter
+          description: a chest frame that starts "Sit down", chest data that is not whole frames (both without allow_sit_down=true), or a bad parameter
           content:
             application/json:
               schema:
