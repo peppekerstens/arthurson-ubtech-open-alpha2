@@ -60,9 +60,26 @@ final class ServoStreamCore {
      */
     static final int EVENT_MARGIN_MS = 2;
 
-    /** The longest wait for the replies of one cycle (ms), from the send of the batch. */
+    /**
+     * The longest wait for the replies of one cycle (ms), from the start of the cycle
+     * (before the busy check and the send). The send can wait for another chest write
+     * (sendRaw is synchronized), so the wait does not start at the send (alpha2-brain#45).
+     */
     static int replyWaitMs(int periodMs) {
         return Math.max(5, periodMs - EVENT_MARGIN_MS);
+    }
+
+    /**
+     * A cmd 0x17 reply has no cycle number. A reply for an id that the last cycle missed,
+     * earlier than this time after the send of the new cycle, is a late reply of the last
+     * cycle (alpha2-brain#45): the stream drops it and counts it in late_replies. A new
+     * reply cannot come so early: 8 reads take 33 to 40 ms, thus about 4 ms or more for one.
+     */
+    static final long LATE_REPLY_GUARD_MS = 3;
+
+    /** True when a reply is a late reply of the last cycle (see LATE_REPLY_GUARD_MS). */
+    static boolean lateReply(boolean missedInLastCycle, long replyNs, long sendNs) {
+        return missedInLastCycle && replyNs - sendNs < LATE_REPLY_GUARD_MS * 1_000_000L;
     }
 
     static boolean readable(int id) {
@@ -119,10 +136,19 @@ final class ServoStreamCore {
         final Integer[] angles;
         int got;
         long lastReplyNs;
+        /** The ids that the last cycle missed (late replies can come for them). */
+        int[] missedBefore = new int[0];
+        /** The time of the send (System.nanoTime), set before the send. */
+        long sendNs;
 
         Cycle(int[] ids) {
             this.ids = ids;
             this.angles = new Integer[ids.length];
+        }
+
+        boolean missedBefore(int id) {
+            for (int m : missedBefore) if (m == id) return true;
+            return false;
         }
 
         /** Returns true when the id is in this cycle. Fills the slot on a good first reply. */
@@ -161,7 +187,9 @@ final class ServoStreamCore {
     private Cycle current;          // guarded by lock
     private final long[] externalReadAt = new long[256]; // guarded by lock
 
-    private volatile long seq, cycles, completeCycles, missedReads, pausedCycles, lateCycles;
+    private volatile long seq, cycles, completeCycles, missedReads, pausedCycles, lateCycles, lateReplies;
+    /** The ids that the last cycle missed. Read loop thread only. */
+    private int[] lastMissed = new int[0];
     private volatile int lastReadMs = -1, maxReadMs = -1;
     private volatile String stopReason = "";
 
@@ -179,6 +207,10 @@ final class ServoStreamCore {
     long pausedCycles() { return pausedCycles; }
 
     long cycles() { return cycles; }
+
+    long lateReplies() { return lateReplies; }
+
+    long lateCycles() { return lateCycles; }
 
     String stopReason() { return stopReason; }
 
@@ -282,8 +314,16 @@ final class ServoStreamCore {
                     && env.nowMs() - externalReadAt[id] <= EXTERNAL_WINDOW_MS;
             if (external) externalReadAt[id] = 0;
             Cycle c = current;
-            boolean mine = c != null && c.accept(id, payload[1],
-                    ((payload[3] & 0xFF) << 8) | (payload[4] & 0xFF), System.nanoTime());
+            long ns = System.nanoTime();
+            boolean mine;
+            if (c != null && c.missedBefore(id) && lateReply(true, ns, c.sendNs)) {
+                // A late reply of the last cycle: it does not fill the slot of this cycle.
+                lateReplies++;
+                mine = true;
+            } else {
+                mine = c != null && c.accept(id, payload[1],
+                        ((payload[3] & 0xFF) << 8) | (payload[4] & 0xFF), ns);
+            }
             if (c != null && c.complete()) lock.notifyAll();
             return mine && !raw && !external;
         }
@@ -305,6 +345,7 @@ final class ServoStreamCore {
                 .append(",\"missed_reads\":").append(missedReads)
                 .append(",\"paused_cycles\":").append(pausedCycles)
                 .append(",\"late_cycles\":").append(lateCycles)
+                .append(",\"late_replies\":").append(lateReplies)
                 .append(",\"last_read_ms\":").append(lastReadMs)
                 .append(",\"max_read_ms\":").append(maxReadMs)
                 .append(",\"stop_reason\":").append(JsonUtil.quote(stopReason))
@@ -348,9 +389,12 @@ final class ServoStreamCore {
     }
 
     private void cycle(int gen, int periodMs) throws InterruptedException {
+        // alpha2-brain#45: the reply wait counts from here, not from the send.
+        long startNs = System.nanoTime();
         int[] want = ids;
         byte[] batch = batch(want);
         Cycle c = new Cycle(want);
+        c.missedBefore = lastMissed;
         boolean sent;
         long t0;
         synchronized (gate) {
@@ -362,13 +406,15 @@ final class ServoStreamCore {
             }
             synchronized (lock) {
                 if (!alive(gen)) return;
+                t0 = System.nanoTime();
+                c.sendNs = t0;
                 current = c;
             }
-            t0 = System.nanoTime();
             sent = env.send(batch);
         }
-        // Wait for all replies, at most replyWaitMs(period) (the rest is for the event).
-        long endNs = t0 + replyWaitMs(periodMs) * 1_000_000L;
+        // Wait for all replies, at most replyWaitMs(period) from the start of the cycle (the
+        // rest is for the event). A wait for the send lock thus does not make the cycle late.
+        long endNs = startNs + replyWaitMs(periodMs) * 1_000_000L;
         Integer[] got;
         long lastNs;
         synchronized (lock) {
@@ -388,6 +434,9 @@ final class ServoStreamCore {
         cycles++;
         int missing = 0;
         for (Integer v : got) if (v == null) missing++;
+        int[] missedIds = new int[missing];
+        for (int i = 0, k = 0; i < got.length; i++) if (got[i] == null) missedIds[k++] = want[i];
+        lastMissed = missedIds;
         missedReads += missing;
         if (missing == 0) completeCycles++;
         int readMs = lastNs == 0 ? -1 : (int) ((lastNs - t0) / 1_000_000L);

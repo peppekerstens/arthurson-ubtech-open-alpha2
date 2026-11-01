@@ -149,7 +149,34 @@ public class ServoStreamCoreTest {
         sleep(400);
         slow.core.stop("test");
         eq(true, slow.core.cycles() >= 4, "slow.cycles");
-        eq(0L, slow.core.missedReads(), "slow.noMissed");
+        // The wait counts from the start of the cycle (alpha2-brain#45). The first cycle also
+        // loads the classes, so it can miss its reads. Each later cycle reads all 8.
+        eq(true, slow.core.missedReads() <= 8, "slow.missedOnlyFirstCycle");
+
+        // -- alpha2-brain#45: a late reply of the last cycle does not fill the next cycle --
+        eq(true, ServoStreamCore.lateReply(true, 2_000_000L, 0L), "late.missedEarly");
+        eq(false, ServoStreamCore.lateReply(true, 3_000_000L, 0L), "late.missedAtGuard");
+        eq(false, ServoStreamCore.lateReply(false, 1_000_000L, 0L), "late.notMissed");
+        eq(true, ServoStreamCore.lateReply(true, -1_000_000L, 0L), "late.beforeSend");
+        // A fake chest that answers 51 ms after the send, at 20 Hz (period 50 ms): the
+        // replies of cycle N come about 1 ms after the send of cycle N+1.
+        FakeEnv late = env();
+        late.replyDelayMs = 51;
+        late.core.start(new int[]{2, 3}, 20, 2000, false);
+        sleep(600);
+        late.core.stop("test");
+        eq(true, late.core.lateReplies() >= 1, "late.counted");
+        eq(true, late.core.statusJson().contains("\"late_replies\":"), "late.inStatus");
+        // A send that waits for the send lock does not make the cycle late: the reply wait
+        // counts from the start of the cycle (period 50 ms, send wait 20 ms, no replies).
+        FakeEnv lock = env();
+        lock.answer = false;
+        lock.sendDelayMs = 20;
+        lock.core.start(new int[]{2, 3}, 20, 2000, false);
+        sleep(600);
+        lock.core.stop("test");
+        eq(true, lock.core.cycles() >= 8, "sendWait.cycles");
+        eq(true, lock.core.lateCycles() <= 1, "sendWait.notLate");
 
         // -- run, hide replies, TTL --
         FakeEnv e = env();
