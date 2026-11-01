@@ -26,6 +26,8 @@ import sys
 
 import yaml
 
+import yaml12  # YAML 1.2 booleans: "on" stays a string (alpha2-brain#29)
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WEB = ROOT / "app" / "src" / "main" / "assets" / "web"
 SPEC = ROOT / "openapi"
@@ -72,7 +74,7 @@ def check_yml(src: pathlib.Path, dst: pathlib.Path) -> bool:
 
 
 def check_json(src: pathlib.Path, dst: pathlib.Path) -> bool:
-    want = yaml.safe_load(src.read_text(encoding="utf-8"))
+    want = yaml12.load(src.read_text(encoding="utf-8"))
     if not dst.exists():
         print(f"DIFF {dst.relative_to(ROOT)}: 缺席")
         return False

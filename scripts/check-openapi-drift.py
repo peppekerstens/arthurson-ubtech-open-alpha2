@@ -20,6 +20,7 @@ case（如 "servo/one"）時，扁平 set 會將兩個 handler 的 case 混在�
 完全沒有掃這兩個 method，令 "upload/*"、"stream/*" 一律被當漏報「extra」。
 """
 import pathlib, re, yaml, sys
+import yaml12  # YAML 1.2 booleans (alpha2-brain#29)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SPEC = ROOT / "openapi" / "open-alpha2-openapi.yml"
@@ -27,7 +28,7 @@ DISP = ROOT / "app" / "src" / "main" / "java" / "com" / "open" / "alpha2" / "Api
 XZ = ROOT / "app" / "src" / "main" / "java" / "com" / "open" / "alpha2" / "XiaozhiBridge.java"
 MAIN = ROOT / "app" / "src" / "main" / "java" / "com" / "open" / "alpha2" / "MainActivity.java"
 
-spec = yaml.safe_load(open(SPEC, encoding='utf-8'))
+spec = yaml12.load(open(SPEC, encoding="utf-8"))
 # spec paths 一律 "/api/..." 或 "/upload/..." / "/stream/..." 或 "/", "/blockly.html"；
 # 去除 "/api/" 前綴、"/upload"、"/stream" 前面的斜線，方便同 case name（沒有 "api/" 前綴）比較。
 spec_norm = set()

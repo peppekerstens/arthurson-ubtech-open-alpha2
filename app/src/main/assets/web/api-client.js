@@ -418,7 +418,7 @@ const Alpha2Api = (function() {
   }
 
   function directChestServoPower(params) {
-    if (params && params.True != null) assertRange(Number(params.True), 0, 1, 'True');
+    if (params && params.on != null) assertRange(Number(params.on), 0, 1, 'on');
     // Chest cmd 0x19. on=0 is NOT a servo power off, it starts the stock \"Sit down\" move.
     return directApi('chest/servo_power', params);
   }

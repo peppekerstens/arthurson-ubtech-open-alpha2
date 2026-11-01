@@ -19,6 +19,8 @@ import re
 import sys
 import yaml
 
+import yaml12  # YAML 1.2 booleans: "on" stays a string (alpha2-brain#29)
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SPEC = ROOT / "openapi" / "open-alpha2-openapi.yml"
 OUT = ROOT / "app" / "src" / "main" / "assets" / "web" / "api-client.js"
@@ -73,7 +75,7 @@ SPECIFIC_DOC = {
 }
 
 with open(SPEC, encoding="utf-8") as f:
-    spec = yaml.safe_load(f)
+    spec = yaml12.load(f)
 
 paths = spec.get("paths", {})
 

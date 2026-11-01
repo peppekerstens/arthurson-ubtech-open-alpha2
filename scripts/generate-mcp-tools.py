@@ -22,6 +22,8 @@ import sys
 
 import yaml
 
+import yaml12  # YAML 1.2 booleans: "on" stays a string (alpha2-brain#29)
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SPEC = ROOT / "openapi" / "open-alpha2-openapi.yml"
 SYNC = ROOT / "openapi" / "mcp-openapi-sync.yml"
@@ -81,9 +83,9 @@ def load_spec_op(spec, path, method):
 
 def build_model():
     with open(SPEC, encoding="utf-8") as f:
-        spec = yaml.safe_load(f)
+        spec = yaml12.load(f)
     with open(SYNC, encoding="utf-8") as f:
-        sync = yaml.safe_load(f)
+        sync = yaml12.load(f)
     if str(sync.get("sync_version", "")).split(".")[0] != "2":
         raise SystemExit(f"❌ mcp-openapi-sync.yml sync_version 須為 2.x（自動生成用），現為 {sync.get('sync_version')}")
     mappings = sync.get("mappings", [])

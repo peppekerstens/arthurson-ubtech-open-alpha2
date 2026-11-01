@@ -1138,7 +1138,7 @@
         "description": "Firmware analysis in Renode (chest V142 and V352, alpha2-brain#24) shows that cmd 0x19 [00] starts the stock \"Sit down\" move: the chest sends a move to all 20 servos. A standing robot can fall. When the charger flag of the chest is set, it does nothing. cmd 0x19 [01] sets the power on, which is already on from boot. The app refuses on=0 with a 400 unless allow_sit_down=true. To release the servos, squat and read each servo angle (cmd 6, /api/servo/angle). To hold them again, send a move.",
         "parameters": [
           {
-            "name": true,
+            "name": "on",
             "in": "query",
             "required": true,
             "schema": {
@@ -10049,7 +10049,7 @@
         "summary": "開／關藍牙（管理 UI 用）",
         "parameters": [
           {
-            "name": true,
+            "name": "on",
             "in": "query",
             "required": true,
             "schema": {
@@ -10323,7 +10323,7 @@
             "description": "邊；唔帶＝兩邊一齊"
           },
           {
-            "name": true,
+            "name": "on",
             "in": "query",
             "required": true,
             "schema": {
