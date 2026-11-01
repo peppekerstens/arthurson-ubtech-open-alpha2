@@ -52,6 +52,19 @@ final class ServoStreamCore {
     /** A reply for an id that another requester asked for in this time goes out as chest_rcv. */
     static final long EXTERNAL_WINDOW_MS = 1000;
 
+    /**
+     * The time of the cycle after the reply wait, for the event (ms). Robot session
+     * 2026-11-01: 8 reads take 33 to 40 ms on the chest link. The old wait (period minus
+     * 10 ms, thus 40 ms at 20 Hz) cut the last replies (servos 17 to 20) in about 13 % of
+     * the cycles: 6 to 7 % missed reads. The publish of the event takes less than 1 ms.
+     */
+    static final int EVENT_MARGIN_MS = 2;
+
+    /** The longest wait for the replies of one cycle (ms), from the send of the batch. */
+    static int replyWaitMs(int periodMs) {
+        return Math.max(5, periodMs - EVENT_MARGIN_MS);
+    }
+
     static boolean readable(int id) {
         for (int r : READABLE_IDS) if (r == id) return true;
         return false;
@@ -354,8 +367,8 @@ final class ServoStreamCore {
             t0 = System.nanoTime();
             sent = env.send(batch);
         }
-        // Wait for all replies, at most the period minus 10 ms (the rest is for the event).
-        long endNs = t0 + Math.max(5, periodMs - 10) * 1_000_000L;
+        // Wait for all replies, at most replyWaitMs(period) (the rest is for the event).
+        long endNs = t0 + replyWaitMs(periodMs) * 1_000_000L;
         Integer[] got;
         long lastNs;
         synchronized (lock) {

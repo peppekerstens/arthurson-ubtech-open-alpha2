@@ -43,6 +43,8 @@ public class ServoStreamCoreTest {
         volatile long sendDelayMs = 0;
         final List<String> events = new ArrayList<>();
         volatile byte[] lastBatch;
+        /** More than 0: the replies come from another thread, this many ms after the send. */
+        volatile long replyDelayMs = 0;
 
         @Override public long nowMs() { return System.nanoTime() / 1_000_000L; }
 
@@ -53,7 +55,19 @@ public class ServoStreamCoreTest {
             sends.incrementAndGet();
             lastBatch = batch;
             if (sendDelayMs > 0) sleep(sendDelayMs);
-            if (answer) {
+            if (answer && replyDelayMs > 0) {
+                final byte[] b = batch;
+                final long d = replyDelayMs;
+                new Thread(new Runnable() {
+                    @Override public void run() {
+                        sleep(d);
+                        for (int o = 0; o + 9 <= b.length; o += 9) {
+                            int id = b[o + 6] & 0xFF;
+                            core.onPayload(new byte[]{0x17, 0, (byte) id, 0x01, (byte) id});
+                        }
+                    }
+                }).start();
+            } else if (answer) {
                 for (int o = 0; o + 9 <= batch.length; o += 9) {
                     int id = batch[o + 6] & 0xFF;
                     byte[] reply = {0x17, 0, (byte) id, 0x01, (byte) id};
@@ -124,6 +138,18 @@ public class ServoStreamCoreTest {
         eq(true, c.accept(2, 1, 5, 3), "cycle.badStatus");
         eq(null, c.angles[0], "cycle.badStatusEmpty");
         eq(false, c.complete(), "cycle.notComplete");
+
+        // -- reply wait: robot session 2026-11-01, 8 reads take 33 to 40 ms --
+        eq(48, ServoStreamCore.replyWaitMs(50), "wait.20hz");
+        eq(38, ServoStreamCore.replyWaitMs(40), "wait.25hz");
+        eq(5, ServoStreamCore.replyWaitMs(5), "wait.min");
+        FakeEnv slow = env();
+        slow.replyDelayMs = 43; // later than the old 40 ms limit, sooner than 48 ms
+        slow.core.start(new int[]{2, 3, 5, 6, 17, 18, 19, 20}, 20, 2000, false);
+        sleep(400);
+        slow.core.stop("test");
+        eq(true, slow.core.cycles() >= 4, "slow.cycles");
+        eq(0L, slow.core.missedReads(), "slow.noMissed");
 
         // -- run, hide replies, TTL --
         FakeEnv e = env();
