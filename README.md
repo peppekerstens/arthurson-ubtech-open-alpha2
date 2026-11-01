@@ -161,16 +161,16 @@ Bilingual (EN/Traditional Chinese), 10 tabs, live updates over WebSocket, no ref
 
 ## HTTP API
 
-Single source of truth: `openapi/open-alpha2-openapi.yml` (**208 paths**,
+Single source of truth: `openapi/open-alpha2-openapi.yml` (**223 paths**,
 one operation each). Namespaces as spelled in the spec (`/api/*` count in
 brackets):
 
-- `/api/*` — main robot API, 199 paths: `accelerometer` (2), `action` (6),
+- `/api/*` — main robot API, 213 paths: `accelerometer` (2), `action` (6),
   `apk` (3), `audio` (33), `battery` (1), `bt` (1), `camera` (12), `chest`
   (6), `color` (4), `debug` (2), `face` (5), `gamepad` (12), `head` (1),
-  `led` (9), `misc` (2), `pir` (3), `servo` (19), `speech` (18), `status`
-  (1), `ubx` (5), `vosk` (10), `wifi` (1) — plus the passthrough families
-  `direct` (12), `system` (13) and `xiaozhi` (18). The browser client calls
+  `led` (9), `mic` (1), `misc` (2), `pir` (3), `servo` (22), `speech` (20),
+  `status` (1), `ubx` (5), `vosk` (11), `wake` (3), `wifi` (1) — plus the
+  passthrough families `direct` (14), `system` (13) and `xiaozhi` (20). The browser client calls
   these under the **`/api/alpha2/*`** prefix (`api()` in `app-core.js`;
   `sysApi()`/`directApi()`/`xiaozhiApi()` for the other three families);
   all spellings reach the same dispatcher (`handleApi`), and the bare
@@ -186,6 +186,10 @@ brackets):
 - 5-mic capture from the FPGA sound card: `/stream/mic/record` (one 5- or
   8-channel WAV), `/stream/mic?channels=5|8` and `/api/mic/multi/status`.
   See [docs/mic-5ch.md](docs/mic-5ch.md).
+- Servo read stream (chest cmd 0x17, event `servo_reads` on `/ws`):
+  `/api/servo/stream/start`, `/api/servo/stream/stop` and
+  `/api/servo/stream/status`. Use only the ids 2, 3, 5, 6 and 17 to 22.
+  The 20 kg servos 1, 4 and 7 to 16 give 400. See alpha2-rl#3.
 
 Self-describing endpoints on the robot (same port):
 
@@ -196,7 +200,7 @@ Self-describing endpoints on the robot (same port):
 - `/apis.yml` — apis.json-style directory entry; `/llms.txt` — short LLM
   pointer.
 
-The JS client (`assets/web/api-client.js`, `Alpha2Api.*`, **199 typed
+The JS client (`assets/web/api-client.js`, `Alpha2Api.*`, **213 typed
 wrappers**) is generated from the spec — never hand-edit it:
 
 ```bash
