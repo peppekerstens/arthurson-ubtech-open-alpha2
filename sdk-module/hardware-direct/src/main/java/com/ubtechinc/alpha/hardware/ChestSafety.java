@@ -26,8 +26,8 @@ package com.ubtechinc.alpha.hardware;
  *
  * <p>Whole frames only (alpha2-brain#25): without the opt-in, the data must be one or more
  * complete frames, back to back, each with a correct length, checksum and tail. Thus the
- * guard refuses a frame with a bad checksum or a bad length, junk bytes, and a call that
- * ends inside a frame. The UART is a byte stream: a frame split over two calls
+ * guard refuses a frame with a bad checksum or a bad length, junk bytes other than 0x00
+ * padding, and a call that ends inside a frame. The UART is a byte stream: a frame split over two calls
  * ({@code F8 8F 08 05 00 19} and then {@code 00 26 ED}) would join again in the chest. With
  * whole frames only, each call ends at a frame end, so no call can complete a frame of an
  * earlier call. No reassembly buffer is necessary. All callers in the app send whole frames.
@@ -87,6 +87,7 @@ public final class ChestSafety {
     /**
      * Returns null when {@code data} is zero or more complete chest frames back to back
      * (long or legacy short form, correct length, checksum and tail), else the reason.
+     * 0x00 bytes between and after the frames are allowed.
      * It does not look at the command. {@link #checkChestFrames} uses it.
      */
     public static String checkWholeFrames(byte[] data) {
@@ -94,6 +95,12 @@ public final class ChestSafety {
         int n = data.length;
         int i = 0;
         while (i < n) {
+            // 0x00 padding between or after frames is allowed: it can never start a frame
+            // (set_uuid sends one 0x00 after its frame, a format verified on the robot).
+            if (data[i] == 0) {
+                i++;
+                continue;
+            }
             if (i + 1 >= n || (data[i] & 0xFF) != HEAD0 || (data[i + 1] & 0xFF) != HEAD1) {
                 return NOT_WHOLE + ": no frame header F8 8F at byte " + i;
             }
@@ -109,7 +116,8 @@ public final class ChestSafety {
     }
 
     public static final String NOT_WHOLE = "chest data must be complete frames"
-            + " (F8 8F .. checksum ED) with a correct length, checksum and tail, and nothing more."
+            + " (F8 8F .. checksum ED) with a correct length, checksum and tail. Only 0x00 padding"
+            + " can come between and after the frames."
             + " A frame split over two calls, junk bytes and a bad checksum are refused,"
             + " because the chest could join them into a 'Sit down' frame (alpha2-brain#25)."
             + " Send allow_sit_down=true to send the bytes without a check";

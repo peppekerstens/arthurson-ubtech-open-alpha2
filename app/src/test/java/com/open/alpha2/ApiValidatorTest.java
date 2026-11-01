@@ -364,13 +364,16 @@ public final class ApiValidatorTest {
         throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", restAfterF8); } }, "sit.split.after8F");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", new byte[]{(byte) 0xF8, (byte) 0x8F}); } }, "sit.raw.headerOnly");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, partA)); } }, "sit.split.afterGoodFrame");
-        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, new byte[]{0x00})); } }, "sit.raw.junkAfter");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, new byte[]{0x01})); } }, "sit.raw.junkAfter");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", concat(new byte[]{0x00}, partA)); } }, "sit.split.afterPadding");
         // the opt-in sends the bytes without a check; the head port has no check
         int okBefore2 = failed;
         ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "chest", partA);
         ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "chest", badSum);
         ApiValidator.checkSerialSendSitDown(q(), "head", partA);
         ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, fRead, fRead));
+        ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, new byte[]{0x00})); // set_uuid form
+        ApiValidator.checkSerialSendSitDown(q(), "chest", concat(new byte[]{0x00, 0x00}, fRead, new byte[]{0x00}, fRead));
         eq(okBefore2, failed, "sit.whole.allowed");
         eq(null, com.ubtechinc.alpha.hardware.ChestSafety.checkWholeFrames(new byte[0]), "sit.whole.empty");
         eq(null, com.ubtechinc.alpha.hardware.ChestSafety.checkWholeFrames(

@@ -121,6 +121,10 @@ public class DirectChestControllerTest {
         r = new Rig();
         eq(true, r.chest.sendRaw(frame(0x19, 0x01)), "raw.19on");
         eq(true, r.chest.sendRaw(frame(0x40, 0x00, 0x00)), "raw.40leave");
+        // the set_uuid frame of ChestQuery: one frame and one 0x00 after it
+        byte[] uuid = frame(0x36, 3, 'A', 'B', 'C');
+        byte[] uuidPadded = java.util.Arrays.copyOf(uuid, uuid.length + 1);
+        eq(true, r.chest.sendRaw(uuidPadded), "raw.setUuidForm");
         r = new Rig();
         eq(true, r.chest.sendRaw(f19off, true), "raw.19off.allowed");
         eq(hex(f19off), hex(r.wire.toByteArray()), "raw.19off.allowed.bytes");
