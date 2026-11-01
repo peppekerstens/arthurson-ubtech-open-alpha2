@@ -188,8 +188,12 @@ brackets):
   See [docs/mic-5ch.md](docs/mic-5ch.md).
 - Servo read stream (chest cmd 0x17, event `servo_reads` on `/ws`):
   `/api/servo/stream/start`, `/api/servo/stream/stop` and
-  `/api/servo/stream/status`. Use only the ids 2, 3, 5, 6 and 17 to 22.
-  The 20 kg servos 1, 4 and 7 to 16 give 400. See alpha2-rl#3.
+  `/api/servo/stream/status`. The ids 2, 3, 5, 6 and 17 to 20 give an
+  angle. The app also accepts 21 and 22 (`READABLE_IDS`), but these servos
+  are not on the owner's robot (`UbxApi.java`: "21/22 unknown (absent)").
+  The 20 kg servos 1, 4 and 7 to 16 give 400. See alpha2-rl#3. The spec
+  text of `ids` still says "17 to 22". The app serves a copy of the spec
+  from its assets, so that text changes with the next APK build.
 
 Self-describing endpoints on the robot (same port):
 
@@ -274,7 +278,7 @@ open-alpha2/
 │   │   SemanticCenter + 10 matchers, Vosk/TTS/Ringtone, XiaozhiBridge/
 │   │   Client/OTA/MCP, PanelAuth, EventBus, WebSocketServer, HttpServer, …
 │   ├── src/main/assets/web/        ← control panel (10 tabs) + Blockly +
-│   │                                  generated api-client.js (199 wrappers)
+│   │                                  generated api-client.js (213 wrappers)
 │   │                                  (CI strips web comments before build)
 │   ├── src/main/assets/semantic/   ← 10 intent libraries (298 groups each:
 │   │                                  85 action + 13 function + 200 chat)
@@ -287,7 +291,7 @@ open-alpha2/
 ├── sdk-module/hardware-direct/     ← serial ports (/dev/ttyS1+S3), LED/pad JNI,
 │                                      wire protocol, .ubx parse/play/speed-shifted music
 │   └── src/test/java/…             ← SerialFrameCodecTest (scripts/test-serialcodec.py)
-├── openapi/                        ← open-alpha2-openapi.yml (208 paths) /
+├── openapi/                        ← open-alpha2-openapi.yml (223 paths) /
 │                                      asyncapi.yml / mcp-openapi-sync.yml + README
 ├── scripts/                        ← generators, drift/route/copy checks, unit-test
 │                                      runners, ubx_* offline analysis tools
