@@ -556,6 +556,7 @@ public class XiaozhiAudioController {
                         audioTrack.pause();
                     } catch (Exception ignored) {
                     }
+                    VoiceTiming.get().idle();
                     if (!prebufferThenPlay()) {
                         finishAndReleasePlayback();
                         return;
@@ -574,6 +575,7 @@ public class XiaozhiAudioController {
             queuedBytes.addAndGet(-pcm.length);
             try {
                 audioTrack.write(pcm, 0, pcm.length);
+                VoiceTiming.get().written();
             } catch (Exception e) {
                 Log.w(TAG, "AudioTrack.write() failed, stopping playback: " + e.getMessage());
                 playing = false;
@@ -609,6 +611,7 @@ public class XiaozhiAudioController {
             queuedBytes.addAndGet(-pcm.length);
             try {
                 audioTrack.write(pcm, 0, pcm.length);
+                VoiceTiming.get().written();
             } catch (Exception e) {
                 Log.w(TAG, "AudioTrack.write() failed during prebuffer: " + e.getMessage());
                 return false;
@@ -616,6 +619,7 @@ public class XiaozhiAudioController {
         }
         try {
             audioTrack.play();
+            VoiceTiming.get().play();
         } catch (Exception e) {
             Log.w(TAG, "AudioTrack.play() failed: " + e.getMessage());
             return false;

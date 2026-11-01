@@ -1254,6 +1254,7 @@ public final class XiaozhiBridge {
                         return;
                     }
                     if (dropReplyAudio) return; // the rest of an aborted answer
+                    VoiceTiming.get().audioFrame();
                     xiaozhiAudioController.onIncomingOpusFrame(opusData);
                 }
             });

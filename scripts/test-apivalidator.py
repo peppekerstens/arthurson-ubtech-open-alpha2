@@ -13,6 +13,7 @@ gradle cache 無 junit，不想整斷 `--offline` build。
 Also: StopWordMatcherTest, ServoStreamCoreTest, MicSlotsTest, SleepModePolicyTest and
 DirectChestControllerTest (alpha2-brain#30, pure java.* with stubs in scripts/test-stubs).
 ChestReplyMatchTest (alpha2-board-sim#12): the chest VERSION reply match.
+VoiceTimingTest (voice turn time log, queue item 6).
 
 用法: python scripts/test-apivalidator.py
 """
@@ -206,6 +207,8 @@ def main() -> int:
          [src / "MicSlots.java", testdir / "MicSlotsTest.java"]),
         ("com.open.alpha2.SleepModePolicyTest",
          [src / "SleepModePolicy.java", testdir / "SleepModePolicyTest.java"]),
+        ("com.open.alpha2.VoiceTimingTest",
+         [src / "VoiceTiming.java", testdir / "VoiceTimingTest.java"]),
         ("com.ubtechinc.alpha.hardware.DirectChestControllerTest",
          [hw / "DirectChestController.java", hw / "DirectSerialPort.java", hw / "DirectSerialConfig.java",
           hw / "RobotWire.java", hw / "SerialFrameCodec.java", hw / "ChestSafety.java",

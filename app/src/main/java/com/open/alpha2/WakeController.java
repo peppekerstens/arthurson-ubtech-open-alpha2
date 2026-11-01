@@ -118,6 +118,11 @@ public final class WakeController {
         if (vosk == null || bridge == null || api == null) return; // API < 21: no Vosk
         final WakeController w = new WakeController(ctx, bridge, vosk, api);
         instance = w;
+        VoiceTiming.get().setSink(new VoiceTiming.Sink() {
+            @Override public void line(String text) {
+                Log.i(VoiceTiming.TAG, text);
+            }
+        });
         if (w.prefs().getBoolean("enabled", false)) {
             // The Vosk model loads in the background at boot: wait for it.
             new Thread(new Runnable() {
@@ -452,8 +457,11 @@ public final class WakeController {
             }
             long now = System.currentTimeMillis();
             if (f != null) {
-                if (rms(f) >= speechRms()) lastSpeechMs = now;
                 Mode m = mode;
+                if (rms(f) >= speechRms()) {
+                    lastSpeechMs = now;
+                    if (m == Mode.LISTEN) VoiceTiming.get().speech();
+                }
                 Recognizer sr = stopRecognizer;
                 boolean speaking = m == Mode.SPEAKING && sr != null;
                 if (m != fedMode) {
@@ -481,7 +489,10 @@ public final class WakeController {
                             onFinal(r.getResult());
                         } else {
                             String partial = new JSONObject(r.getPartialResult()).optString("partial", "");
-                            if (!clean(partial).isEmpty()) lastSpeechMs = now;
+                            if (!clean(partial).isEmpty()) {
+                                lastSpeechMs = now;
+                                if (m == Mode.LISTEN) VoiceTiming.get().speech();
+                            }
                         }
                     } catch (Throwable t) {
                         Log.w(TAG, "recognizer: " + t.getMessage());
@@ -612,6 +623,7 @@ public final class WakeController {
         if (wake && mode == Mode.WAKE) {
             commandUntil = now + commandWindowMs();
             motionGeneration++; // a new turn drops queued motion
+            VoiceTiming.get().wake();
             beginTurn();
         }
     }
@@ -667,6 +679,7 @@ public final class WakeController {
                 lastSpeechMs = System.currentTimeMillis();
                 windowDeadline = System.currentTimeMillis() + windowMs();
                 mode = Mode.LISTEN;
+                VoiceTiming.get().listen();
                 Log.i(TAG, "turn open");
                 publish();
             }
@@ -674,6 +687,7 @@ public final class WakeController {
     }
 
     private void endTurn() {
+        VoiceTiming.get().end();
         bridge.wakeTurnEnd();
         if (mode != Mode.OFF) mode = Mode.WAKE;
         publish();
@@ -690,6 +704,7 @@ public final class WakeController {
 
     private void handleStt(String text) {
         if (mode == Mode.LISTEN) {
+            VoiceTiming.get().stt();
             mode = Mode.THINKING;
             thinkingSince = System.currentTimeMillis();
         }
@@ -699,12 +714,15 @@ public final class WakeController {
         Mode m = mode;
         if (m == Mode.OFF || m == Mode.WAKE) return;
         if ("start".equals(state)) {
+            VoiceTiming.get().ttsStart();
             sentenceHasStop = false;
             selfStopUntil = 0;
             mode = Mode.SPEAKING;
             if (halfDuplex()) bridge.wakeUplink(false);
         } else if ("stop".equals(state)) {
+            VoiceTiming.get().ttsStop();
             bridge.wakeListenAgain();
+            VoiceTiming.get().followUp();
             lastSpeechMs = 0;
             windowDeadline = System.currentTimeMillis() + windowMs();
             mode = Mode.LISTEN;
@@ -731,6 +749,7 @@ public final class WakeController {
             // closed after a stop during an answer.
             call("speech/stop", null);
             if (mode != Mode.WAKE && mode != Mode.OFF) {
+                VoiceTiming.get().end();
                 bridge.wakeAbort();
                 bridge.wakeTurnEnd();
                 mode = Mode.WAKE;
