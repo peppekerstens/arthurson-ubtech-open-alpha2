@@ -201,6 +201,13 @@ def main() -> int:
           testdir / "ServoStreamCoreTest.java"]),
         ("com.open.alpha2.MicSlotsTest",
          [src / "MicSlots.java", testdir / "MicSlotsTest.java"]),
+        ("com.open.alpha2.SleepModePolicyTest",
+         [src / "SleepModePolicy.java", testdir / "SleepModePolicyTest.java"]),
+        ("com.ubtechinc.alpha.hardware.DirectChestControllerTest",
+         [hw / "DirectChestController.java", hw / "DirectSerialPort.java", hw / "DirectSerialConfig.java",
+          hw / "RobotWire.java", hw / "SerialFrameCodec.java", hw / "ChestSafety.java",
+          hw / "DeveloperPacketData.java",
+          stubs / "android" / "util" / "Log.java", hwtest / "DirectChestControllerTest.java"]),
     ]
     for main_class, srcs in suites:
         out = tmp / main_class

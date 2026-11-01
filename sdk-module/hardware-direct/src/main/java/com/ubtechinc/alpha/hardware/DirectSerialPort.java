@@ -84,6 +84,17 @@ public final class DirectSerialPort {
         return new DirectSerialPort(DirectSerialConfig.HEAD_TTY, DirectSerialConfig.HEAD_TTY_ALT, DirectSerialConfig.HEAD_TTY_ALT2, DirectSerialConfig.BAUDRATE);
     }
 
+    /** Host unit tests only (DirectChestControllerTest, alpha2-brain#30): a port that writes
+     *  to {@code out}, reads nothing and starts no reader thread. The app never calls it. */
+    static DirectSerialPort forTest(OutputStream out) {
+        DirectSerialPort p = new DirectSerialPort("test", null, 0);
+        p.input = new java.io.ByteArrayInputStream(new byte[0]);
+        p.output = out;
+        p.openedPath = "test";
+        p.running.set(true);
+        return p;
+    }
+
     public void addListener(OnFrameListener l) { listeners.add(l); }
     public void removeListener(OnFrameListener l) { listeners.remove(l); }
     public String getOpenedPath() { return openedPath; }

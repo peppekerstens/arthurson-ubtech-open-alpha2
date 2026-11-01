@@ -204,7 +204,7 @@ public final class WakeController {
      *  The old modes servo_power (cmd 0x19 [00]) and power_save (cmd 0x40 [01 01]) started
      *  the stock "Sit down" move of the chest (alpha2-brain#24). The settings call still
      *  accepts them, for old clients, but stores release. An old stored value reads as release. */
-    private String sleepMode() { return "release"; }
+    private String sleepMode() { return SleepModePolicy.effective(prefs().getString("sleep_mode", null)); }
 
     private int speechRms() { return prefs().getInt("speech_rms", 400); }
 
@@ -265,12 +265,12 @@ public final class WakeController {
                 ed.putFloat("stop_conf", v);
             }
             if (q.containsKey("sleep_mode")) {
-                String s = q.get("sleep_mode");
-                if (!"release".equals(s) && !"servo_power".equals(s) && !"power_save".equals(s)) {
+                String stored = SleepModePolicy.toStored(q.get("sleep_mode"));
+                if (stored == null) {
                     return "sleep_mode must be release, servo_power or power_save";
                 }
                 // alpha2-brain#24: servo_power and power_save act as release (no sit-down).
-                ed.putString("sleep_mode", "release");
+                ed.putString("sleep_mode", stored);
             }
             if (q.containsKey("commands")) {
                 String c = q.get("commands");
