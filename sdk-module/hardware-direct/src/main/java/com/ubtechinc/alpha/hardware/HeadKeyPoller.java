@@ -66,6 +66,8 @@ public class HeadKeyPoller extends HeadKeyMgr {
      */
     private static final long DOUBLE_DEDUP_MS = 1000;
     private long lastBothFireMs = -1;
+    /** The time of the last click code (uptime ms, -1: none), for the click log line. */
+    private long lastClickMs = -1;
 
     public void setListener(Listener l) { listener = l; }
 
@@ -169,6 +171,11 @@ public class HeadKeyPoller extends HeadKeyMgr {
                     // Click codes (robot session 2026-11-01): one code for each press, no
                     // release code. A press and a release gesture give one volume step.
                     // The state machine flags of the 0x5a..0x5f codes stay as they are.
+                    // alpha2-brain#45: log each click with the time since the last click
+                    // (the source of 2 extra codes is not known, see HeadKeyClick).
+                    long nowMs = SystemClock.uptimeMillis();
+                    Log.i(TAG, HeadKeyClick.logLine(code, lastClickMs < 0 ? -1 : nowMs - lastClickMs));
+                    lastClickMs = nowMs;
                     for (int g : HeadKeyClick.gestures(code)) tmp.add(g);
                     publish = true;
                     break;

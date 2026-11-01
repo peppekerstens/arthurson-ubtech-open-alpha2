@@ -38,6 +38,11 @@ public final class HeadKeyClickTest {
         eq("[]", g(0x3e01), "other code 0x3e01");
         eq("[]", g(0), "zero");
         eq("[]", g(0x3d), "low byte only");
+        // alpha2-brain#45: each click gets a log line with the time since the last click.
+        eq("click + 0x3d01 gap_ms=4692 (one volume step; a click with no push: alpha2-brain#45)",
+                HeadKeyClick.logLine(0x3d01, 4692), "log line plus");
+        eq("click - 0x3c01 (first click) (one volume step; a click with no push: alpha2-brain#45)",
+                HeadKeyClick.logLine(0x3c01, -1), "log line minus first");
         System.out.println("HeadKeyClickTest: passed=" + passed + " failed=" + failed);
         if (failed > 0) System.exit(1);
     }

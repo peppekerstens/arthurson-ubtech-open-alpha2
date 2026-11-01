@@ -11,6 +11,15 @@ package com.ubtechinc.alpha.hardware;
  * <p>A click gives a press and a release gesture: + is volume up (0x5c, 0x5d), - is
  * volume down (0x5a, 0x5b). GestureCenter then does one volume step, the same as a short
  * press of the old codes. A click never moves the robot.
+ *
+ * <p>Unknown codes (alpha2-brain#45): the same session log has 2 more click codes (7 for
+ * each code, not 6), {@code 0x3d01} at 17:02:31 and {@code 0x3c01} at 17:03:31. Their source
+ * is not known (possibly the head touch). They came alone, 5 to 10 s after the last push. A
+ * real single push also comes alone, so no time rule can tell the two apart. A filter would
+ * also drop real single pushes. The worst result of an unknown code is one volume step, and
+ * no click path moves the robot. Thus each click gives one volume step, and HeadKeyPoller
+ * logs each click with the time since the last click ({@link #logLine}). The next robot
+ * check (touch the head, no push, 30 s) finds the source with this log.
  */
 public final class HeadKeyClick {
     /** The event code (high byte) of a - key click. */
@@ -28,6 +37,15 @@ public final class HeadKeyClick {
     public static boolean isClick(int nativeCode) {
         int ev = (nativeCode >> 8) & 0xFF;
         return ev == CLICK_MINUS || ev == CLICK_PLUS;
+    }
+
+    /** The log line of a click: the key and the time since the last click (-1: first click). */
+    public static String logLine(int nativeCode, long gapMs) {
+        int ev = (nativeCode >> 8) & 0xFF;
+        String key = ev == CLICK_PLUS ? "+" : ev == CLICK_MINUS ? "-" : "?";
+        return "click " + key + " 0x" + Integer.toHexString(nativeCode)
+                + (gapMs < 0 ? " (first click)" : " gap_ms=" + gapMs)
+                + " (one volume step; a click with no push: alpha2-brain#45)";
     }
 
     /** The gesture codes for a native click code, in order. Empty for each other code. */
