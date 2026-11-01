@@ -65,6 +65,42 @@ public final class WakeCommandMatchTest {
                 "stop has its own rule");
         eq(false, WakeCommandMatch.runsCommand(null, true, heard, turnOpen + window), "no command");
 
+        // alpha2-brain#45: the window rules (start, start again, end).
+        WakeCommandMatch.CommandWindow w = new WakeCommandMatch.CommandWindow();
+        eq("not open", w.describe(wakeAt), "window: not open at first");
+        eq(false, w.runs("volume_up", false, wakeAt), "window: closed at first");
+        w.onTurnOpen(turnOpen, window);
+        eq(0L, w.until(), "window: a turn open with no wake word opens no window");
+        w.onWake(wakeAt, window);
+        eq(wakeAt + window, w.until(), "window: the wake word opens it");
+        w.onTurnOpen(turnOpen, window);
+        eq(turnOpen + window, w.until(), "window: the wake turn open starts it again");
+        eq(true, w.runs("volume_up", false, heard), "window: a command after the cue runs");
+        eq("open", w.describe(heard), "window: open");
+        w.onCommand(heard);
+        eq(0L, w.until(), "window: a command closes it");
+        eq(false, w.runs("volume_up", false, heard + 10), "window: one command for each wake word");
+        // A short answer, then the follow-up turn: no command with no wake word.
+        w.onWake(wakeAt, window);
+        w.onTurnOpen(turnOpen, window);
+        long ttsStart = turnOpen + 1500;
+        w.onTtsStart(ttsStart);
+        eq(0L, w.until(), "window: the answer closes it");
+        long followUp = ttsStart + 1000; // still before the old end of the window
+        w.onTurnOpen(followUp, window);
+        eq(0L, w.until(), "window: a follow-up turn opens no window");
+        eq(false, w.runs("stand_up", false, followUp + 500), "window: no motion in the follow-up turn");
+        eq(true, w.runs("volume_up", true, followUp + 500), "window: the wake word in the phrase still runs");
+        eq("closed 1500 ms ago (turn end, answer or command)", w.describe(ttsStart + 1500),
+                "window: the log gives the close time");
+        // The turn end closes the window.
+        w.onWake(wakeAt, window);
+        w.onTurnEnd(wakeAt + 100);
+        eq(0L, w.until(), "window: the turn end closes it");
+        // Time out: the log gives the time after the end.
+        w.onWake(wakeAt, window);
+        eq("closed 200 ms ago (time out)", w.describe(wakeAt + window + 200), "window: time out");
+
         System.out.println("WakeCommandMatchTest: passed=" + passed + " failed=" + failed);
         if (failed > 0) System.exit(1);
     }

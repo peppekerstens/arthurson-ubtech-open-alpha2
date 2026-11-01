@@ -86,7 +86,8 @@ public final class WakeController {
     private volatile long lastSpeechMs;
     private volatile long thinkingSince;
     private volatile long lastCaptureCheck;
-    private volatile long commandUntil;
+    /** The command window: the rules and the unit test are in WakeCommandMatch. */
+    private final WakeCommandMatch.CommandWindow commandWindow = new WakeCommandMatch.CommandWindow();
     private volatile boolean commandRunning;
     /** Goes up at each new turn and each "stop": a queued motion of an older generation is dropped. */
     private volatile int motionGeneration;
@@ -602,20 +603,20 @@ public final class WakeController {
         }
         // Other local commands: with the wake word in the same phrase, or in the
         // command window after it. This removes the false alarms of normal talk.
-        if (WakeCommandMatch.runsCommand(command, wake, now, commandUntil)) {
-            commandUntil = 0;
+        if (commandWindow.runs(command, wake, now)) {
+            commandWindow.onCommand(now);
             if (mode != Mode.WAKE) endTurn();
             runCommand(command);
             return;
         }
         if (command != null && !"stop".equals(command)) {
             Log.i(TAG, "command " + command + " ignored: no wake word, window "
-                    + (commandUntil == 0 ? "not open" : "closed " + (now - commandUntil) + " ms ago"));
+                    + commandWindow.describe(now));
         } else if (command == null && !raw.equals(text)) {
             Log.i(TAG, "raw: " + raw); // [unk] tokens: a sentence, not a command
         }
         if (wake && mode == Mode.WAKE) {
-            commandUntil = now + commandWindowMs();
+            commandWindow.onWake(now, commandWindowMs());
             motionGeneration++; // a new turn drops queued motion
             VoiceTiming.get().wake();
             beginTurn();
@@ -688,7 +689,8 @@ public final class WakeController {
                 // connect and the cue, and Vosk gives the result after the silence:
                 // that can be later than command_window_ms. Start the window again
                 // here. The user hears the cue, then has command_window_ms.
-                if (commandUntil != 0) commandUntil = System.currentTimeMillis() + commandWindowMs();
+                // Only for a wake-word turn: a follow-up turn gets no window (alpha2-brain#45).
+                commandWindow.onTurnOpen(System.currentTimeMillis(), commandWindowMs());
                 // The main recognizer starts clean in LISTEN (worker, see fedMode): the
                 // cue "Yes?" does not go into the command as [unk].
                 mode = Mode.LISTEN;
@@ -700,6 +702,7 @@ public final class WakeController {
     }
 
     private void endTurn() {
+        commandWindow.onTurnEnd(System.currentTimeMillis());
         VoiceTiming.get().end();
         bridge.wakeTurnEnd();
         if (mode != Mode.OFF) mode = Mode.WAKE;
@@ -728,6 +731,9 @@ public final class WakeController {
         if (m == Mode.OFF || m == Mode.WAKE) return;
         if ("start".equals(state)) {
             VoiceTiming.get().ttsStart();
+            // alpha2-brain#45: the answer closes the command window. A follow-up turn
+            // after a short answer thus runs no command with no wake word.
+            commandWindow.onTtsStart(System.currentTimeMillis());
             sentenceHasStop = false;
             selfStopUntil = 0;
             mode = Mode.SPEAKING;
@@ -761,6 +767,7 @@ public final class WakeController {
             // it again in the safe order (alpha2-brain#20). Before, the playback stayed
             // closed after a stop during an answer.
             call("speech/stop", null);
+            commandWindow.onTurnEnd(System.currentTimeMillis());
             if (mode != Mode.WAKE && mode != Mode.OFF) {
                 VoiceTiming.get().end();
                 bridge.wakeAbort();
