@@ -60,7 +60,7 @@ public final class ChestSafetyVectorTest {
 
     private static byte[] hex(String s) {
         int n = s.length();
-        if (n % 2 != 0) throw new Error("hex length " + n + " is odd");
+        if (n % 2 != 0) throw new IllegalArgumentException("hex length " + n + " is odd");
         byte[] out = new byte[n / 2];
         for (int i = 0; i < n; i += 2) {
             out[i / 2] = (byte) ((val(s.charAt(i)) << 4) | val(s.charAt(i + 1)));
@@ -72,7 +72,7 @@ public final class ChestSafetyVectorTest {
         if (c >= '0' && c <= '9') return c - '0';
         if (c >= 'a' && c <= 'f') return c - 'a' + 10;
         if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-        throw new Error("bad hex char " + c);
+        throw new IllegalArgumentException("bad hex char " + c);
     }
 
     private static Path vectorPath(String[] args) {
@@ -118,11 +118,26 @@ public final class ChestSafetyVectorTest {
         }
 
         for (int i = 0; i < cases.size(); i++) {
-            Map<String, Object> caseObj = (Map<String, Object>) cases.get(i);
-            String name = (String) caseObj.getOrDefault("name", "<no name>");
-            String hexStr = (String) caseObj.getOrDefault("hex", "");
-            boolean allowSitDown = Boolean.TRUE.equals(caseObj.get("allow_sit_down"));
-            String expect = (String) caseObj.get("expect");
+            // alpha2-brain#60 N-2: a bad case (not an object, or a field that is not a
+            // string) prints one clean line and exits 1, with no stack trace.
+            Map<String, Object> caseObj;
+            String name;
+            String hexStr;
+            boolean allowSitDown;
+            String expect;
+            String expectReason;
+            try {
+                caseObj = (Map<String, Object>) cases.get(i);
+                name = (String) caseObj.getOrDefault("name", "<no name>");
+                hexStr = (String) caseObj.getOrDefault("hex", "");
+                allowSitDown = Boolean.TRUE.equals(caseObj.get("allow_sit_down"));
+                expect = (String) caseObj.get("expect");
+                expectReason = (String) caseObj.get("reason");
+            } catch (Exception e) {
+                System.out.println("FAIL: case " + i + " has a bad shape: " + e);
+                System.exit(1);
+                return;
+            }
 
             String actual;
             String actualReason;
@@ -134,7 +149,6 @@ public final class ChestSafetyVectorTest {
                 actual = "ERROR (" + e + ")";
                 actualReason = "ERROR (" + e + ")";
             }
-            String expectReason = (String) caseObj.get("reason");
             System.out.println(name + ": expect=" + expect + " actual=" + actual
                     + " reason=" + expectReason + "/" + actualReason);
             eq(expect, actual, name + " (case " + i + ")");
@@ -163,7 +177,7 @@ public final class ChestSafetyVectorTest {
         Object parse() {
             Object v = value();
             skipWs();
-            if (pos != s.length()) throw new Error("trailing data at " + pos);
+            if (pos != s.length()) throw new IllegalArgumentException("trailing data at " + pos);
             return v;
         }
 
@@ -172,13 +186,13 @@ public final class ChestSafetyVectorTest {
         }
 
         private char peek() {
-            if (pos >= s.length()) throw new Error("unexpected end of input");
+            if (pos >= s.length()) throw new IllegalArgumentException("unexpected end of input");
             return s.charAt(pos);
         }
 
         private void expect(char c) {
             char p = peek();
-            if (p != c) throw new Error("expected '" + c + "' at " + pos);
+            if (p != c) throw new IllegalArgumentException("expected '" + c + "' at " + pos);
             pos++;
         }
 
@@ -202,12 +216,12 @@ public final class ChestSafetyVectorTest {
                     literal("null");
                     return null;
                 default:
-                    throw new Error("bad value at " + pos);
+                    throw new IllegalArgumentException("bad value at " + pos);
             }
         }
 
         private void literal(String lit) {
-            if (!s.startsWith(lit, pos)) throw new Error("bad literal at " + pos);
+            if (!s.startsWith(lit, pos)) throw new IllegalArgumentException("bad literal at " + pos);
             pos += lit.length();
         }
 
@@ -234,7 +248,7 @@ public final class ChestSafetyVectorTest {
                     pos++;
                     return m;
                 } else {
-                    throw new Error("expected , or } at " + pos);
+                    throw new IllegalArgumentException("expected , or } at " + pos);
                 }
             }
         }
@@ -257,7 +271,7 @@ public final class ChestSafetyVectorTest {
                     pos++;
                     return items;
                 } else {
-                    throw new Error("expected , or ] at " + pos);
+                    throw new IllegalArgumentException("expected , or ] at " + pos);
                 }
             }
         }
@@ -298,12 +312,12 @@ public final class ChestSafetyVectorTest {
                             sb.append('\f');
                             break;
                         case 'u':
-                            if (pos + 4 > s.length()) throw new Error("bad \\u escape");
+                            if (pos + 4 > s.length()) throw new IllegalArgumentException("bad \\u escape");
                             sb.append((char) Integer.parseInt(s.substring(pos, pos + 4), 16));
                             pos += 4;
                             break;
                         default:
-                            throw new Error("bad escape at " + (pos - 1));
+                            throw new IllegalArgumentException("bad escape at " + (pos - 1));
                     }
                 } else {
                     sb.append(c);
