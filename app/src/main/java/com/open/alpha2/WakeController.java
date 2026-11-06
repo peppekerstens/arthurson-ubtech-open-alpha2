@@ -707,9 +707,7 @@ public final class WakeController {
     }
 
     private void handleSentence(String text) {
-        long now = System.currentTimeMillis();
-        stopEcho.onSentence(text, stopPhrases, now);
-        List<Integer> at = StopWordMatcher.stopWordOffsets(text, stopPhrases);
+        List<Integer> at = stopEcho.onSentence(text, stopPhrases, System.currentTimeMillis());
         if (!at.isEmpty()) {
             Log.i(TAG, "answer sentence says stop: guard on near char " + at.get(0));
         }

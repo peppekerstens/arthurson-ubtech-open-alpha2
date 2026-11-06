@@ -23,7 +23,7 @@ public final class StopEchoGuardTest {
         }
     }
 
-    /** The real story sentence: ref/logcat-blockF-0756.txt, line 07:56:13.348. */
+    /** The real story sentence: robot session log 2026-11-06, block F, 07:56. */
     private static final String STORY =
             "in a quiet village, there was a little robot named Alpha who loved to explore. "
             + "Every morning, Alpha would walk through the fields, watching the sun rise and the "
@@ -52,7 +52,8 @@ public final class StopEchoGuardTest {
 
         // 3. A short sentence with "Stop.": guard now, not 10 s later.
         g = new StopEchoGuard();
-        g.onSentence("Stop.", stop, t0);
+        List<Integer> ret = g.onSentence("Stop.", stop, t0);
+        check(Arrays.asList(0).equals(ret), "Stop.: onSentence returns [0]");
         check(g.windowCount() == 1, "Stop.: one window");
         check(g.blocks(t0), "Stop.: blocks at t0");
         check(g.blocks(t0 + 2000), "Stop.: blocks at +2000");

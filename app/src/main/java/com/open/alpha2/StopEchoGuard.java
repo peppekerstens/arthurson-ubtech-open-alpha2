@@ -2,6 +2,7 @@ package com.open.alpha2;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -9,8 +10,8 @@ import java.util.List;
  *
  * The second Vosk recognizer hears the robot's own voice. The old guard blocked
  * every "stop" while the current answer sentence held the word. One "stopped" in
- * a 620 character story then blocked a real "stop" for 31 seconds (log
- * ref/logcat-blockF-0756.txt). This class blocks only the time windows where the
+ * a 620 character story then blocked a real "stop" for 31 seconds (robot session
+ * log 2026-11-06, block F, 07:56). This class blocks only the time windows where the
  * TTS audio of a matched stop word can play.
  *
  * Each window is [from, until] in milliseconds. The window of a word starts at
@@ -45,16 +46,23 @@ final class StopEchoGuard {
     /**
      * Register the stop words of one answer sentence. nowMs is the time of the
      * sentence_start message, about the time the audio of the sentence starts.
-     * No match, null or empty text: no new window.
+     * Returns the start index of each matched stop word in the text, an empty list
+     * when the sentence holds no match. No Java 8 library calls: the robot runs
+     * API 22, where List.removeIf throws NoSuchMethodError.
      */
-    synchronized void onSentence(String text, Collection<String> phrases, long nowMs) {
+    synchronized List<Integer> onSentence(String text, Collection<String> phrases, long nowMs) {
         // The audio of an earlier sentence ends soon after this sentence starts.
         for (long[] w : windows) {
             w[1] = Math.min(w[1], nowMs + AUDIO_LAG_MS);
         }
-        windows.removeIf(w -> w[1] < nowMs);
-        if (text == null || text.isEmpty()) return;
-        for (int o : StopWordMatcher.stopWordOffsets(text, phrases)) {
+        Iterator<long[]> it = windows.iterator();
+        while (it.hasNext()) {
+            if (it.next()[1] < nowMs) {
+                it.remove();
+            }
+        }
+        List<Integer> at = StopWordMatcher.stopWordOffsets(text, phrases);
+        for (int o : at) {
             // L: the length of the matched word at offset o.
             int len = 1;
             while (o + len < text.length() && Character.isLetterOrDigit(text.charAt(o + len))) {
@@ -65,6 +73,7 @@ final class StopEchoGuard {
                     + (long) ((o + len) / SLOW_CHARS_PER_SEC * 1000) + MARGIN_MS;
             windows.add(new long[] {from, until});
         }
+        return at;
     }
 
     /** true when nowMs is inside one window: the robot may say "stop" now. */
