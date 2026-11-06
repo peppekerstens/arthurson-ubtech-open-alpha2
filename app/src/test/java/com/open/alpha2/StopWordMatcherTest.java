@@ -73,15 +73,29 @@ public final class StopWordMatcherTest {
         check(StopWordMatcher.partialHasStop("{\"partial\" : \"[unk] stop now\"}", two), "two words partial");
         check(!StopWordMatcher.partialHasStop("{\"partial\" : \"now stop\"}", two), "two words order");
 
-        // The answer itself says stop: the guard text check.
+        // The answer itself says stop: the guard text check. Whole words only
+        // (alpha2-brain#52): "stopped", "stopping" and "nonstop" are no match.
         check(StopWordMatcher.textHasStopWord("A bus stops at the corner.", stop), "text: stops");
         check(StopWordMatcher.textHasStopWord("Stop.", stop), "text: Stop.");
         check(StopWordMatcher.textHasStopWord("The boats could not stop rocking", stop), "text: stop inside");
-        check(StopWordMatcher.textHasStopWord("It stopped, then it went on.", stop), "text: stopped");
+        check(!StopWordMatcher.textHasStopWord("It stopped, then it went on.", stop), "text: stopped no match");
+        check(!StopWordMatcher.textHasStopWord("He is nonstop on the phone", stop), "text: nonstop no match");
+        check(!StopWordMatcher.textHasStopWord("Keep stopping the noise", stop), "text: stopping no match");
+        check(StopWordMatcher.textHasStopWord("stop", stop), "text: stop alone");
+        check(StopWordMatcher.textHasStopWord("STOP!", stop), "text: STOP upper");
         check(!StopWordMatcher.textHasStopWord("The weather is sunny today.", stop), "text: no stop");
         check(!StopWordMatcher.textHasStopWord("unstoppable", stop), "text: word start only");
         check(!StopWordMatcher.textHasStopWord(null, stop), "text: null");
         check(!StopWordMatcher.textHasStopWord("", stop), "text: empty");
+
+        // stopWordOffsets: the start index of each whole-word match (alpha2-brain#52).
+        check(Arrays.asList(7).equals(StopWordMatcher.stopWordOffsets("Please stop now", stop)),
+                "offsets: Please stop now -> [7]");
+        check(Arrays.asList(0, 9).equals(StopWordMatcher.stopWordOffsets("stop and stop", stop)),
+                "offsets: stop and stop -> [0, 9]");
+        check(StopWordMatcher.stopWordOffsets("stopped", stop).isEmpty(), "offsets: stopped -> []");
+        check(StopWordMatcher.stopWordOffsets(null, stop).isEmpty(), "offsets: null -> []");
+        check(StopWordMatcher.stopWordOffsets("", stop).isEmpty(), "offsets: empty -> []");
 
         System.out.println("StopWordMatcherTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
