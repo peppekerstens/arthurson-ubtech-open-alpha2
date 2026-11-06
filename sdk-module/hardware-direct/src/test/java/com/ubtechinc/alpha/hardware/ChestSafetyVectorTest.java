@@ -48,6 +48,16 @@ public final class ChestSafetyVectorTest {
         }
     }
 
+    /** Map the reason text of {@link ChestSafety#checkChestFrames} to the
+     *  reason code of the shared vector file. */
+    private static String reasonCode(String reason) {
+        if (reason == null) return null;
+        if (reason.startsWith(ChestSafety.SIT_DOWN_19)) return "sit_down_19";
+        if (reason.startsWith(ChestSafety.SIT_DOWN_40)) return "sit_down_40";
+        if (reason.startsWith(ChestSafety.NOT_WHOLE)) return "not_whole";
+        return "UNMAPPED (" + reason + ")";
+    }
+
     private static byte[] hex(String s) {
         int n = s.length();
         if (n % 2 != 0) throw new Error("hex length " + n + " is odd");
@@ -98,6 +108,14 @@ public final class ChestSafetyVectorTest {
             return;
         }
         cases = (List<Object>) c;
+        // The shared vector file has exactly 41 cases. An empty or a changed
+        // list must fail the test, not silently pass.
+        if (cases.size() != 41) {
+            System.out.println("FAIL: the vector file has " + cases.size()
+                    + " cases, want 41");
+            System.exit(1);
+            return;
+        }
 
         for (int i = 0; i < cases.size(); i++) {
             Map<String, Object> caseObj = (Map<String, Object>) cases.get(i);
