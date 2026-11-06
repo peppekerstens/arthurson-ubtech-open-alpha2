@@ -1,23 +1,23 @@
-// Open Alpha2 — Blockly 自訂 block 定義。
-// 每個 block 對應 index.html (app-*.js) / MainActivity.handleApi() 裡面已驗證的一個
-// /api/* 端點, 或者是一個流程控制 block (repeat/if/wait/variable/event)。
+// Open Alpha2 — Blockly custom block definitions.
+// Every block maps to one verified /api/* endpoint in index.html (app-*.js) / MainActivity.handleApi(),
+// or it is a flow-control block (repeat/if/wait/variable/event).
 //
-// 這個檔案僅定義「個 block 生成出來長什麼樣、有什麼輸入」——實際「行這個 block 會做什麼」
-// 在 blockly-run.js 的 interpreter 裡面,不在這裡用 Blockly 內建的 code-generator。
-// 用直譯 (walk the block tree) 而不用「生成 JS code 再 eval」,是因為這樣先可以在
-// wait/repeat 中途看到「現在正在行哪個 block」的即時 highlight,同埋可以隨時安全中斷。
+// This file only defines what each block looks like and which inputs it has. What running a block does
+// lives in the blockly-run.js interpreter, not in the Blockly built-in code generator.
+// Tree-walking interpretation is used instead of "generate JS then eval" so the highlight of
+// "which block is running now" stays live during wait/repeat, and stopping is always safe.
 
 (function () {
   const clr = {
-    action: 20,     // 橙 - 動作
-    speech: 160,     // 綠 - 聲音 (TTS/鈴聲/本地音樂共用)
-    servo: 230,     // 藍 - 伺服
-    led: 290,     // 紫 - LED
-    sensor: 0,       // 紅 - 感應/事件
-    camera: 65,      // 黃綠 - 相機
-    audio: 200,     // 靛藍 - 音效
-    device: 330,     // 粉紅 - 裝置資訊
-    flow: 120,     // 草綠 - 流程控制 (跟 Blockly 慣例其實通常用啡, 但這裡統一用自訂色系)
+    action: 20,     // orange - actions
+    speech: 160,     // green - sound (TTS/ringtone/local music share it)
+    servo: 230,     // blue - servo
+    led: 290,     // purple - LED
+    sensor: 0,       // red - sensors/events
+    camera: 65,      // yellow-green - camera
+    audio: 200,     // indigo - sound effects
+    device: 330,     // pink - device info
+    flow: 120,     // grass green - flow control (Blockly convention usually uses brown, but this project keeps one custom color scheme)
     logic: 210,
     loop: 120,
     math: 230,
@@ -27,14 +27,14 @@
   };
 
   // ---------------------------------------------------------------------
-  // 動作 Actions
+  // Actions
   // ---------------------------------------------------------------------
   //
-  // 設計取捨: 「播放動作」這粒 block 預設會在送出 API request 之後, 一路等到機械人
-  // 用 action_stop 事件回報「這個動作真正播完了」先放行落下一粒 block。這個是刻意
-  // 選的安全預設 —— 動作播放本身有長有短 (幾百 ms 到幾秒), 如果不等就即刻行下一格,
-  // 好容易撞到兩個動作互相打斷, 看來好突兀甚至傷伺服馬達。想要「發了就走、不等」
-  // 的快速連續動作效果, 可以將下面的「等待完成」選做「不等」。
+  // Design trade-off: the play-action block waits by default after it sends the API request. It waits until the robot
+  // reports, with the action_stop event, that the action truly finished, then the next block runs. This is a deliberate
+  // safe default. Action length varies (a few hundred ms to several seconds), and starting the next block immediately
+  // easily makes two actions interrupt each other. That looks abrupt and can stress the servo motors. For a
+  // fast fire-and-forget chain, set "wait for completion" below to the no-wait choice.
 
   Blockly.Blocks['alpha_action_play'] = {
     init: function () {
@@ -57,19 +57,19 @@
     }
   };
 
-  // 2026-08 更新: 動作 toolbox 由「總分類 -> 4 個子分類 (各自顏色) 」的 nested
-  // tree 改做扁平化 —— 一按「動作」這個分類就即刻見完所有動作 block, 不用再逐層
-  // 展開先看到東西。跟著這個改動, 動作 block 不應該再跟著 CATEGORY 轉色 (遵循
-  // clr.action 單一顏色就夠, 一眼看得出「這粒是動作 block」已經足夠, 不需要再靠
-  // 顏色分辨基本/跳舞/故事/瑜伽), CATEGORY dropdown 亦都要重新在 block 度顯示
-  // 給用家自己選 (以前靠拖哪個 toolbox 子分類來預設 CATEGORY 這招不再適用, 因為
-  // toolbox 已經沒有了那些子分類)。
-  const ACTION_CATEGORY_COLOUR = null; // 保留這個 const 名做 no-op, 下面不再用來查色
+  // 2026-08 update: the actions toolbox changed from a nested tree ("top category -> 4 sub-categories, each with its own color")
+  // to a flat list. Opening "Actions" now shows every action block immediately, with no extra
+  // expansion step. With this change, action blocks no longer change color by CATEGORY. The single
+  // clr.action color is enough: it is easy to see at a glance "this is an action block", and color no longer
+  // needs to separate basic/dance/story/yoga. The CATEGORY dropdown is shown in the block again
+  // so the user can pick it. The old trick (the toolbox sub-category presetting CATEGORY) no longer works, because
+  // those sub-categories are gone from the toolbox.
+  const ACTION_CATEGORY_COLOUR = null; // keep the const name as a no-op; nothing below uses it to look up colors
 
-  // 子分類清單: 跟 blockly-actions-data.js 的 ALPHA_ACTION_SUBCATEGORIES 一致
-  // (每個 main 分類之下的 sub 分類, 例如 basic 底下有 移動類/手勢類/頭部類/
-  // 表情 / 互動類/全身 / 其他動作)。沒有資料就 fallback 做「(全部)」單一分類,
-  // 這樣即使資料未載入都不會整個 block 壞死。
+  // Sub-category list: kept in sync with ALPHA_ACTION_SUBCATEGORIES in blockly-actions-data.js
+  // (the sub-categories under each main category, for example basic has movement/gesture/head/
+  // expression/interaction/full-body/other actions). With no data, fall back to one "(all)" category,
+  // so the block still works even before the data loads.
   function subcategoriesForCategory(catKey) {
     const subs = (window.ALPHA_ACTION_SUBCATEGORIES && window.ALPHA_ACTION_SUBCATEGORIES[catKey]) || [];
     return subs.length ? subs : [t('action_all_subcat')];
@@ -79,19 +79,19 @@
     const bySub = window.ALPHA_ACTION_OPTIONS_BY_SUBCATEGORY;
     const list = (bySub && bySub[catKey] && bySub[catKey][subKey]) || [];
     if (list.length) return list;
-    // Fallback: 資料未載入 (ALPHA_ACTION_OPTIONS_BY_SUBCATEGORY 未有) 就退而求其次
-    // 用回沒有 sub 分層的舊清單, 保證 block 不會顯示一片空白的 dropdown。
+    // Fallback: when the data is not loaded yet (no ALPHA_ACTION_OPTIONS_BY_SUBCATEGORY), use the
+    // old flat list without sub-categories, so the block never shows an empty dropdown.
     const flat = (window.ALPHA_ACTION_OPTIONS_BY_CATEGORY && window.ALPHA_ACTION_OPTIONS_BY_CATEGORY[catKey]) || [];
     return flat.length ? flat : [[t('action_no_items'), '']];
   }
 
-  // 2026-08 更新: 之前這裡用一粒 block (alpha_action_play_builtin) + CATEGORY
-  // dropdown 選「基本/跳舞/故事/瑜伽」, 現在遵循電話/通知鈴聲個模式, 拆開做
-  // 獨立 block ——「播放基本動作」/「播放跳舞動作」/「播放故事動作」/「播放
-  // 瑜伽動作」/「播放其他動作」各自一粒, 不再有 CATEGORY 這個 field, 僅留下
-  // SUBCATEGORY (子分類) + NAME (動作) 兩層 dropdown。全部都用回 clr.action
-  // 同一隻色 (toolbox 攤平當時定的做法), CATEGORY 由 block type 本身決定,
-  // 寫死在 interpreter (blockly-run.js) 那邊, 不再靠 field 讀。
+  // 2026-08 update: previously one block (alpha_action_play_builtin) + a CATEGORY dropdown picked
+  // "basic/dance/story/yoga". Now, following the phone/notification ringtone pattern, split into
+  // separate blocks — "Play Basic Action" / "Play Dance Action" / "Play Story Action" / "Play
+  // Yoga Action" / "Play Other Action", one block each. The CATEGORY field is gone; only
+  // SUBCATEGORY + NAME remain as the two dropdowns. All blocks use the single clr.action
+  // color (decided when the toolbox was flattened). CATEGORY is implied by the block type itself,
+  // hard-coded in the interpreter (blockly-run.js), and no longer read from a field.
   function makeActionCategoryBlock(blockType, catKey, catI18nKey) {
     Blockly.Blocks[blockType] = {
       init: function () {
@@ -108,8 +108,8 @@
               return [(window.ALPHA_SUB_LABEL ? window.ALPHA_SUB_LABEL(s) : s), s];
             });
           }, function (newSub) {
-            // 子分類轉了, 要重新過濾 NAME 個 dropdown options, 選回那個子分類
-            // 第一個動作。
+            // When the sub-category changes, re-filter the NAME dropdown options and select the
+            // first action of that sub-category.
             setTimeout(function () {
               const nameField = self.getField('NAME');
               if (nameField) {
@@ -139,10 +139,10 @@
         this.setColour(clr.action);
         this.setTooltip(t('action_category_tooltip', { cat: catLabel }));
       },
-      // Workspace 載入回來當時 (XML → block) 要確認 SUBCATEGORY/NAME 依然屬於
-      // 這個 catKey 底下的有效值, 不是就自動修正做第一個有效的 sub/動作, 避免
-      // 顯示錯配 (道理同舊版 alpha_action_play_builtin 的 onchange 一樣, 僅
-      // 不用再理 CATEGORY, 因為這裡 catKey 是固定的)。
+      // When a workspace loads back (XML -> block), check that SUBCATEGORY/NAME are still valid values
+      // under this catKey. If not, auto-correct to the first valid sub-category/action, to avoid
+      // showing a mismatched pair (same rule as the old alpha_action_play_builtin onchange, only
+      // CATEGORY no longer matters here because catKey is fixed).
       onchange: function (e) {
         if (this.workspace && this.workspace.isDragging && this.workspace.isDragging()) return;
         if (this.__alphaFixingConsistency) return;
@@ -231,9 +231,9 @@
 
 
   // ---------------------------------------------------------------------
-  // 聲音 Sound: TTS / 系統鈴聲 / 本地音樂
-  // (2026-09: toolbox 分類由「語音」改名做「聲音」, block type 名維持
-  // alpha_speech_* 不變 —— 舊 .xml 存檔用緊這些 type 名, 改會 load 唔返。)
+  // Sound: TTS / system ringtone / local music
+  // (2026-09: the toolbox category changed its name from "voice" to "sound", but the block type names stay
+  // alpha_speech_* unchanged — old .xml saves use these type names, and renaming would break loading.)
   // ---------------------------------------------------------------------
 
   Blockly.Blocks['alpha_speech_tts'] = {
@@ -242,9 +242,9 @@
         .setCheck('String')
         .appendField(t('speech_tts__label'))
         .appendField(new Blockly.FieldDropdown([
-          // 2026-09: 只留 android——機身已無 alpha2services，nuance/iflytek
-          // 經 speech_startTTS 恒回 NOT_INIT 全程靜音（見 RobotStub）。
-          // 舊存檔 ENGINE=nuance/iflytek 會跌回第一項 android 照響。
+          // 2026-09: keep only android — the body no longer has alpha2services, and nuance/iflytek
+          // return NOT_INIT through speech_startTTS and stay silent all the time (see RobotStub).
+          // An old save with ENGINE=nuance/iflytek falls back to the first entry, android, and still speaks.
           [t('speech_tts__engine_android'), 'android'],
         ]), 'ENGINE');
       this.appendDummyInput()
@@ -274,11 +274,11 @@
     }
   };
 
-  // 2026-09: 三合一「停止播放」block — TTS / 系統鈴聲 / 本地音樂 3 選 1。
-  // 取代 alpha_speech_stop / alpha_speech_ringtone_stop / alpha_music_stop
-  // 三粒分開 stop block。toolbox 只出呢粒統一版; alpha_speech_stop 同
-  // alpha_music_stop 定義同 interpreter case 仍保留畀舊 .xml,
-  // alpha_speech_ringtone_stop 已完全移除 (經 TYPE=ringtone 蓋)。
+  // 2026-09: the three-in-one "stop playback" block — pick one: TTS / system ringtone / local music.
+  // It replaces the three separate stop blocks alpha_speech_stop / alpha_speech_ringtone_stop / alpha_music_stop.
+  // The toolbox shows only this unified block; the alpha_speech_stop and
+  // alpha_music_stop definitions and interpreter cases stay for old .xml files,
+  // while alpha_speech_ringtone_stop is fully removed (covered by TYPE=ringtone).
   Blockly.Blocks['alpha_media_stop'] = {
     init: function () {
       this.appendDummyInput()
@@ -310,20 +310,20 @@
     }
   };
 
-  // 2026-09 移除: alpha_speech_start_asr / alpha_speech_set_voice /
-  // alpha_speech_set_language / alpha_speech_self_interrupt —— 對應後端
-  // endpoint 已經不存在 (送出只會 404)，定義、toolbox、i18n、run case 一齊拿走。
+  // Removed 2026-09: alpha_speech_start_asr / alpha_speech_set_voice /
+  // alpha_speech_set_language / alpha_speech_self_interrupt — the matching backend
+  // endpoints no longer exist (a call only gets 404), so the definitions, toolbox, i18n, and run cases were removed together.
 
-  // Android 內置電話鈴聲 / 通知鈴聲 —— 清單現在內嵌在 blockly-ringtone-data.js
-  // (由實機 adb 抓一次靜態化, 不再即時查 /api/audio/ringtones/list)。
+  // Built-in Android phone ringtones / notification sounds — the list now lives in blockly-ringtone-data.js
+  // (captured once from a real device over adb and made static; no more live /api/audio/ringtones/list queries).
   //
-  // 2026-08 更新: 之前這裡用一粒 block (alpha_speech_ringtone) + TYPE dropdown
-  // 選「電話/通知」, 現在拆開做兩粒獨立 block ——「播放電話鈴聲」/「播放通知鈴
-  // 聲」各自一粒, 不再有 TYPE 這個 field。播放現在用 title (不用 index) 送去
-  // /api/audio/ringtones/play_by_title, 由 app 那邊用 findRingtoneByTitle() 查
-  // 返回 Uri (同相機分頁快門聲/停止提示音一樣的穩陣機制, 見 MainActivity.java 的
-  // findRingtoneByTitle() javadoc) —— 完全不用理 RingtoneManager cursor index
-  // 排序是否跨機一致這個問題。
+  // 2026-08 update: previously one block (alpha_speech_ringtone) + a TYPE dropdown picked
+  // "phone/notification". Now split into two separate blocks — "Play Phone Ringtone" and "Play Notification
+  // Ringtone" — one each, with no TYPE field anymore. Playback now uses title (not index) and sends it to
+  // /api/audio/ringtones/play_by_title; the app resolves it with findRingtoneByTitle() and returns a
+  // Uri (the same reliable mechanism as the camera shutter/stop sounds — see the
+  // findRingtoneByTitle() javadoc in MainActivity.java). Nothing depends on whether RingtoneManager cursor index
+  // ordering matches across devices.
   function ringtoneDropdownOptions(fixedType) {
     const titles = (window.ALPHA_RINGTONE_TITLES && window.ALPHA_RINGTONE_TITLES[fixedType]) || [];
     if (!titles.length) return [[t('ringtone__not_loaded'), '']];
@@ -352,16 +352,16 @@
   makeRingtoneBlock('alpha_speech_ringtone_phone', 'ringtone', 'ringtone_phone__label');
   makeRingtoneBlock('alpha_speech_ringtone_notification', 'notification', 'ringtone_notification__label');
 
-  // 2026-09 移除: alpha_speech_ringtone_stop — 改用三合一
-  // alpha_media_stop (TYPE=ringtone), 見上面 alpha_media_stop 定義。
+  // Removed 2026-09: alpha_speech_ringtone_stop — replaced by the three-in-one
+  // alpha_media_stop (TYPE=ringtone), see the alpha_media_stop definition above.
 
   // ---------------------------------------------------------------------
-  // 本地音樂 (同 Music 分頁同一套 /api/audio/local_music/*)。
+  // Local music (same /api/audio/local_music/* endpoints as the Music page).
   //
-  // 曲目 dropdown 是 live list: blockly-run.js refreshMusicDropdown() 開頁
-  // 自動抓一次 (頂欄「🔄 取得音樂清單」可以重抓), 存入
-  // window.__alphaMusicOptions, 做法跟 alpha_action_play_dropdown
-  // (window.__alphaActionOptions) 一樣。未抓到之前顯示 fallback 選項。
+  // The track dropdown is a live list: refreshMusicDropdown() in blockly-run.js fetches it once when the page
+  // opens (the top-bar "🔄 Get music list" button re-fetches it), and stores it in
+  // window.__alphaMusicOptions, the same way as alpha_action_play_dropdown
+  // (window.__alphaActionOptions). Before the fetch completes, a fallback option is shown.
   // ---------------------------------------------------------------------
   Blockly.Blocks['alpha_music_play'] = {
     init: function () {
@@ -373,9 +373,9 @@
             ? window.__alphaMusicOptions
             : [[t('music__not_loaded'), '']];
         }), 'NAME');
-      // 兩個獨立開關, 對應 Music 分頁兩個唔同 checkbox:
-      //   隨歌伴舞 FILLER → /api/audio/local_music/filler_action/set (隨機動作)
-      //   節奏燈   DISCO  → /api/audio/local_music/disco/set (眼做拍子機)
+      // Two independent switches, matching the two different checkboxes on the Music page:
+      //   Dance-with-music FILLER → /api/audio/local_music/filler_action/set (random actions)
+      //   Beat lights      DISCO → /api/audio/local_music/disco/set (the eyes act as a metronome)
       this.appendDummyInput()
         .appendField(t('music__filler_label'))
         .appendField(new Blockly.FieldDropdown([
@@ -405,23 +405,23 @@
     }
   };
 
-  // 2026-09 移除: alpha_music_disco / alpha_music_pause /
-  // alpha_music_resume —— 用家要求精簡 toolbox。play block 個 FILLER +
-  // DISCO 兩個 field 分別管隨歌伴舞同節奏燈。定義同 interpreter case
-  // 一齊拿走, 舊 .xml 有呢啲 type 會顯示為未知 block (罕見, 接受)。
+  // Removed 2026-09: alpha_music_disco / alpha_music_pause /
+  // alpha_music_resume — the user asked for a smaller toolbox. The play block's FILLER and
+  // DISCO fields now control dance-with-music and beat lights. The definitions and interpreter cases
+  // were removed together; an old .xml with these types shows an unknown block (rare, accepted).
 
   // ---------------------------------------------------------------------
-  // 伺服 Servo (20 顆) + Sonar
+  // Servo (20 motors) + Sonar
   // ---------------------------------------------------------------------
 
-  // 實際的 SERVO_NAMES / SERVO_GROUPS / SERVO_CALIBRATION 資料在獨立檔案
-  // blockly-servo-data.js 定義 (同 app-core.js 保持一致, 見該檔頭註解), 這裡僅讀
-  // window.ALPHA_SERVO_* 來用, 不重複定義一份會出錯的副本。
-  // 2026-08 更新: 伺服 toolbox 由「總分類 -> 5 個部位子分類 (各自顏色)」的 nested
-  // tree 改做扁平化 —— 一按「伺服」就即刻見完所有伺服 block, 不再逐層展開先見到。
-  // 跟著這個改動, 伺服 block 不應該再跟部位轉色, 固定用 clr.servo 就夠。
-  // servoGroupColour() 僅保留做 no-op fallback (永遠回傳 clr.servo), 避免要
-  // 改完所有 call 過這個 function 的地方。
+  // The real SERVO_NAMES / SERVO_GROUPS / SERVO_CALIBRATION data lives in the separate file
+  // blockly-servo-data.js (kept in sync with app-core.js, see that file's header comment). Here we only read
+  // window.ALPHA_SERVO_* and never keep a second copy that could drift and be wrong.
+  // 2026-08 update: the servo toolbox changed from a nested tree ("top category -> 5 body-part sub-categories, each with its own color")
+  // to a flat list. Opening "Servo" now shows every servo block immediately, with no extra expansion step.
+  // With this change, servo blocks no longer change color by body part; the fixed clr.servo color is enough.
+  // servoGroupColour() stays only as a no-op fallback (always returns clr.servo), so nothing
+  // that calls it needs to change.
   function servoGroups() {
     return (window.ALPHA_SERVO_GROUPS && window.ALPHA_SERVO_GROUPS.length) ? window.ALPHA_SERVO_GROUPS : [
       { key: 'head', label: t('servo_group_head') },
@@ -443,12 +443,12 @@
     return [[t('servo_data_not_loaded'), '']];
   }
 
-  // 2026-08 更新: 之前這裡用一粒 block (alpha_servo_one) + GROUP dropdown 選
-  // 「頭/右手/左手/右腳/左腳」, 現在遵循電話/通知鈴聲、動作分類個模式, 拆開做
-  // 5 粒獨立 block ——「頭部伺服」/「右手伺服」/「左手伺服」/「右腳伺服」/「左腳
-  // 伺服」各自一粒, 不再有 GROUP 這個 field, 僅留下 ID (馬達) + ANGLE + TIME。
-  // 五粒都用回 clr.servo 同一隻色, GROUP 由 block type 本身決定, 寫死在
-  // interpreter (blockly-run.js) 那邊, 不再靠 field 讀。
+  // 2026-08 update: previously one block (alpha_servo_one) + a GROUP dropdown picked
+  // "head/right arm/left arm/right leg/left leg". Now, following the phone/notification ringtone and action-category patterns,
+  // split into 5 separate blocks — "Head Servo" / "Right Arm Servo" / "Left Arm Servo" / "Right Leg Servo" / "Left
+  // Leg Servo" — one each, with no GROUP field; only ID (motor) + ANGLE + TIME remain.
+  // All five use the single clr.servo color. GROUP is implied by the block type itself
+  // and is hard-coded in the interpreter (blockly-run.js), no longer read from a field.
   function makeServoGroupBlock(blockType, groupKey, groupLabelKey, groupIcon) {
     Blockly.Blocks[blockType] = {
       init: function () {
@@ -457,22 +457,22 @@
         const defaultId = defaultIds.length ? defaultIds[0][1] : '19';
         const groupLabel = t(groupLabelKey);
 
-        // 2026-08 bugfix: 這個 flag 用來分辨「block 剛剛由 init() 正在建立 /
-        // 由 XML 正在load field 值」同「用家真正在 workspace 裡手動選了
-        // dropdown」。之前沒有這個 guard, 令到 Blockly.Xml.domToBlock() 在
-        // import project 讀回 ID field 個值當時 (即使個值同 default 一樣),
-        // 都會觸發下面個 ID dropdown 的 validator, 然後個 setTimeout(0)
-        // callback 之後會將剛剛先由 XML 讀回來、本身已經是正確的 ANGLE 值
-        // 覆蓋番做 servoHomeAngle(newId) (homepoint) —— 因為 XML loader
-        // 對逐個 field setFieldValue() 是 synchronous, 但這個 auto-set
-        // homepoint 的 side effect 用了 setTimeout(0) 變了 async, 於是在
-        // loader 成串 field 都設完之後先至執行, 結果將 ANGLE 撞返做 120
-        // 這類 homepoint 數值, 令整個 import 下來的動作全部變完做站定姿勢。
-        // 現在僅在這粒 block 已經 init 完 (self.servoBlockReady_ = true)
-        // 之後, 先給 validator 做這個 auto-homepoint 的 side effect;
-        // domToBlock() 裡面所有 field 都是在 init() 正在跑當時或者跑完之後
-        // 好快發生, 用這個 flag 就可以確保「programmatic load」同「用家手
-        // 動選 dropdown」分得開。
+        // 2026-08 bugfix: this flag separates "the block was just created by init(), or XML is loading field
+        // values" from "the user really picked a dropdown in the workspace". Without this guard,
+        // Blockly.Xml.domToBlock() fired the ID dropdown validator below while an import restored the ID field
+        // (even when the value matched the default). That validator's setTimeout(0)
+        // callback then overwrote the freshly loaded ANGLE value, which was already correct,
+        // with servoHomeAngle(newId) (the homepoint). The XML loader calls setFieldValue() on
+        // every field synchronously, but this auto-set-homepoint side effect uses setTimeout(0) and becomes
+        // async, so it ran only after the loader finished setting all fields, and reset ANGLE to a homepoint number such as 120.
+        // That turned the whole imported program into the standing-still pose.
+        // Now the validator performs the auto-homepoint side effect only after the block
+        // finished init() (self.servoBlockReady_ = true).
+        // Inside domToBlock(), every field set happens fast, during or right after init(), inside the synchronous flow,
+        // so it always completes before this setTimeout(0) callback runs. After that, when the user
+        // really picks a dropdown in the workspace, the flag is already true,
+        // and only then does the auto-set homepoint side effect above fire. This flag keeps
+        // "programmatic load" apart from "the user picking a dropdown by hand".
         self.servoBlockReady_ = false;
 
         this.appendDummyInput()
@@ -480,12 +480,12 @@
           .appendField(new Blockly.FieldDropdown(function () {
             return servoDropdownForGroup(groupKey);
           }, function (newId) {
-            // 選了另一粒馬達 (同一 group 之內) 之後, 要即刻將 ANGLE 校準為
-            // 那顆馬達自己的 homepoint —— 不同馬達的 home 不一還是 120 (例如
-            // 右腳 #8 home=65, #9 home=145, 左腳 #13 home=175 等)。僅在
-            // block 已經 ready (就是用家手動操作, 不是 XML 正在import) 先做
-            // 這個 side effect, 否則 import project 當時會將剛剛讀回來的
-            // ANGLE 值覆蓋番做 homepoint。
+            // After the user picks a different motor in the same group, calibrate ANGLE right away to
+            // that motor's own homepoint — home is not always 120 (for example right leg #8 home=65,
+            // #9 home=145, left leg #13 home=175). Do this side effect only when the
+            // block is ready (a real user action, not an XML import in progress),
+            // or an import would overwrite the freshly restored
+            // ANGLE value with the homepoint.
             if (self.servoBlockReady_) {
               setTimeout(function () {
                 const angleField = self.getField('ANGLE');
@@ -497,10 +497,10 @@
         this.appendDummyInput()
           .appendField(t('servo_group__angle_label'))
           .appendField(new Blockly.FieldNumber(servoHomeAngle(defaultId), 0, 255, 1, function (newVal) {
-            // Field-level validator: 選住哪粒馬達就 clamp 在那顆的 min/max 校準
-            // 範圍之內, 不可以送出會撞機械極限的角度 (見 app-core.js clampServoAngle()
-            // 的同一個安全設計, 這裡在 UI 層面提早擋, 執行時 blockly-run.js 會再
-            // clamp 多一次做保險)。
+            // Field-level validator: clamp the angle for the selected motor to that motor's calibration min/max
+            // range, so no angle can be sent that would hit a mechanical limit (see the same safety design in
+            // clampServoAngle() in app-core.js; here the UI blocks most cases early, and blockly-run.js clamps
+            // once more at execution time as a failsafe).
             const block = this.getSourceBlock();
             const id = block ? block.getFieldValue('ID') : null;
             if (id && window.ALPHA_SERVO_CLAMP) return window.ALPHA_SERVO_CLAMP(id, Math.round(newVal));
@@ -513,13 +513,13 @@
         this.setColour(clr.servo);
         this.setTooltip(t('servo_group__tooltip', { group: groupLabel }));
 
-        // 用 setTimeout(0) 押後至下一個 event loop tick 先將 flag 揭做
-        // true —— Blockly.Xml.domToBlock() 對 ID / ANGLE / TIME 這些
-        // field 的 setFieldValue() 全部是在這個 init() call 完、返回
-        // domToBlock() 那個 synchronous 流程裡面即刻發生, 所以一定會在
-        // 這個 setTimeout(0) callback 之前跑完。之後如果用家才是
-        // workspace 裡真正手動個 dropdown, 當時 flag 已經是 true, 才會
-        // 觸發上面 auto-set homepoint 的 side effect。
+        // Use setTimeout(0) to defer to the next event loop tick before the flag becomes
+        // true. Blockly.Xml.domToBlock() calls setFieldValue() on fields such as ID / ANGLE / TIME
+        // all inside the synchronous flow that returns from this init() call into
+        // domToBlock(), so those calls always finish before this setTimeout(0) callback runs. Later, when the user
+        // really picks a dropdown in the workspace, the flag is already true,
+        // and only then does the auto-set homepoint side effect above
+        // fire.
         setTimeout(function () { self.servoBlockReady_ = true; }, 0);
       }
     };
@@ -547,7 +547,7 @@
   };
 
   Blockly.Blocks['alpha_servo_all_helper'] = {
-    // 方便組 20 個數值成一個 CSV string, 免得用家自己打逗號
+    // Makes it easy to assemble 20 numbers into one CSV string, so the user does not type the commas by hand
     init: function () {
       this.appendDummyInput().appendField(t('servo_helper__label'));
       for (let i = 1; i <= 20; i++) {
@@ -592,12 +592,12 @@
   // LED
   // ---------------------------------------------------------------------
 
-  // ⚠️ 這 3 個原本是 module-level const, 僅在檔案首次 load 那一刻用 t()
-  // 計值一次, 之後永遠都是那個語言 (同 module-level 的
-  // ACTION_CATEGORIES/LED_PRESETS 這類靜態陣列一樣的陷阱) —— 語言切換之後
-  // 就算靠 XML roundtrip 令 block 重新 init(), init() 裡面拿到的都還是那份
-  // 舊語言的陣列引用, 不會跟著變。改做 function, 每次 init() 裡面即時 call
-  // 先拿到當前語言的版本。
+  // Warning: these 3 were originally module-level const, evaluated once with t() at first load,
+  // and they kept that language forever (the same trap as module-level static arrays such as
+  // ACTION_CATEGORIES/LED_PRESETS). After a language switch, even an XML round-trip that re-ran init(),
+  // init() still got the same old-language array reference; it never changed. Rewrite them as functions,
+  // called fresh inside every init(),
+  // so each call returns the current-language version.
   function ledColours() {
     return [
       [t('led_colour_red'), '1'], [t('led_colour_green'), '2'], [t('led_colour_blue'), '3'], [t('led_colour_yellow'), '4'],
@@ -676,23 +676,23 @@
   };
 
   // ---------------------------------------------------------------------
-  // 2026-08 更新: 「裝置資訊」分類 (電池電量/充電中/WiFi IP/藍牙/UUID 查詢/
-  // 系統狀態) 同「相機/音效」分類 (快照/解像度/測試音/喇叭串流) 已經整個移除,
-  // block 定義同 interpreter case 都一齊刪了, 不再保留 (見對應的 blockly-run.js
+  // 2026-08 update: the device-info category (battery level/charging/WiFi IP/Bluetooth/UUID query/
+  // system status) and the camera/audio category (snapshot/resolution/test tone/speaker streaming) were removed completely,
+  // including both the block definitions and the interpreter cases (see the matching notes in blockly-run.js).
   // / blockly-toolbox.js)。
   // ---------------------------------------------------------------------
 
 
   // ---------------------------------------------------------------------
-  // 事件 (WebSocket) — hat blocks, 用來起一個「當 XXX 事件發生」的事件驅動流程
+  // Events (WebSocket) — hat blocks that start an event-driven flow: "when event XXX happens".
   // ---------------------------------------------------------------------
 
-  // 感應器開關 —— accel/sonar 這兩粒「觸發」hat block (下面的
-  // alpha_event_accel_threshold / alpha_event_sonar_triggered) 僅監聽,
-  // 不會自己開感應器, 一定要感應器本身已經開了才會有 WebSocket 事件送到。
-  // 之前 blockly 裡面完全沒有 block 可以開/關 accel (/api/alpha2/accelerometer/set)
-  // 或者 sonar (/api/alpha2/servo/sonar, distance=0=關/distance>0=開並設門檻),
-  // 要靠用家自己記得先在主控制面板的「感應」分頁手動開好, 這裡補回這兩粒。
+  // Sensor switches — the two accel/sonar "trigger" hat blocks (below,
+  // alpha_event_accel_threshold / alpha_event_sonar_triggered) only listen.
+  // They do not switch the sensor on by themselves. The sensor must already be on before any WebSocket event arrives.
+  // Before this, Blockly had no block to turn accel (/api/alpha2/accelerometer/set)
+  // or sonar (/api/alpha2/servo/sonar, distance=0=off / distance>0=on with threshold)
+  // on or off, and users had to remember to open the Sensors page on the main control panel first. These two blocks fix that.
   Blockly.Blocks['alpha_sensor_accel_toggle'] = {
     init: function () {
       this.appendDummyInput()
@@ -719,11 +719,11 @@
     }
   };
 
-  // PIR 人體感應器開關 —— 對應 /api/alpha2/pir/set?on=true|false (chest_setPirSensorEnabled(),
-  // 真機已確認 cmd=72 生效, 見 AIDL_REFERENCE_ALPHA2.md)。沒有距離門檻可以設 (硬件本身
-  // 僅給開/關, 沒有 sonar 那種 distance 參數), 所以這粒按鈕僅一個 dropdown, 比
-  // sonar toggle 簡單。同 sonar 一樣, 一定要先開了這個, 下面「當PIR偵測到...」
-  // 個 hat block 才會收到 alpha2_pir_state 事件。
+  // PIR human sensor switch — maps to /api/alpha2/pir/set?on=true|false (chest_setPirSensorEnabled(),
+  // confirmed working on real hardware as cmd=72, see AIDL_REFERENCE_ALPHA2.md). There is no distance threshold to set (the hardware
+  // only gives on/off, no sonar-style distance parameter), so this block has one dropdown and is
+  // simpler than the sonar toggle. Like sonar, switch this on first, or the "when PIR detects..." hat
+  // block below never receives alpha2_pir_state events.
   Blockly.Blocks['alpha_sensor_pir_toggle'] = {
     init: function () {
       this.appendDummyInput()
@@ -736,40 +736,40 @@
     }
   };
 
-  // 加速度計 / 聲納「觸發」專用 hat block —— 直接給用家設門檻, 貼近「觸發」這個
-  // 語意 (不是「事件一到就執行」, 而是「事件到了、但要數值過了門檻先執行」),
-  // 所以邏輯在 blockly-run.js 用獨立的 accelHandlers/sonarHandlers 處理。
+  // Accelerometer / sonar "trigger" hat blocks — the user sets the threshold directly, close to the "trigger" meaning
+  // (not "run when the event arrives" but "run when the event arrives and the value passes the threshold"),
+  // so the logic lives in blockly-run.js with dedicated accelHandlers/sonarHandlers.
   Blockly.Blocks['alpha_event_accel_threshold'] = {
     init: function () {
       this.appendDummyInput()
         .appendField(t('event_accel__label'))
         .appendField(new Blockly.FieldDropdown([[t('event_accel__axis_x'), 'x'], [t('event_accel__axis_y'), 'y'], [t('event_accel__axis_z'), 'z']]), 'AXIS')
         .appendField(new Blockly.FieldDropdown([[t('event_accel__cmp_gt'), 'gt'], [t('event_accel__cmp_lt'), 'lt']]), 'CMP')
-        // 2026-08 修正: min 之前是 0, 但下面 blockly-run.js 的比較邏輯是
-        // `Math.abs(讀數) 同 threshold 比較`, 用家原意應該可以直接打負數
-        // 門檻 (例如想僅選 X 軸「向負方向傾側」那種語意, 或者純粹想打
-        // 一個負數下去做視覺上的提示), 但之前 min=0 令個 field 完全打不到
-        // 負號, 一打就即刻給 FieldNumber 夾返做 0。現在 min 改做 -20, 同
-        // max 20 對稱, 用家可以自由打負數下去。
+        // 2026-08 fix: min was 0 before, but the comparison logic in blockly-run.js below
+        // compares Math.abs(reading) against the threshold, so a user should be able to type a negative
+        // threshold directly (for example to mean "tilt in the negative X direction" only, or just to show a
+        // negative number on screen). With min=0 the field could never hold a
+        // minus sign: FieldNumber clamped it back to 0 at once. Now min is -20, symmetric with
+        // max 20, so the user can type negative numbers freely.
         .appendField(new Blockly.FieldNumber(2, -20, 20, 0.1), 'THRESHOLD')
         .appendField(t('event_accel__trigger_suffix'));
       this.appendDummyInput()
         .appendField(t('event_accel__store_prefix'))
-        // 2026-08 更新: 之前用 Blockly.FieldVariable, 令個 field 附帶 Blockly
-        // 內建的「重新命名變數/刪除變數」context menu —— 但這個變數其實只是
-        // blockly-run.js 自己那個簡易 variables Map 的 key (見 getFieldValue
-        // ('VAR') 的用法), 完全沒有經過 Blockly 官方的 workspace variable
-        // model, 「重新命名/刪除」這兩個選項對用家來講毫無意義 (改極都是得
-        // 返這粒 block 自己用, 不會有第二個 block 正在分享這個名), 徒添混亂。
-        // 改用 FieldLabelSerializable: 純顯示文字、不可以編輯, 但個值一樣會
-        // 存入 XML (field serialization) 給 getFieldValue('VAR') 讀到, 下面
-        // 邏輯完全不用改。
+        // 2026-08 update: previously this used Blockly.FieldVariable, which attached Blockly's built-in
+        // "rename variable / delete variable" context menu. But this variable is only a key in
+        // the simple variables Map inside blockly-run.js (see the getFieldValue
+        // ('VAR') usage). It never goes through the official Blockly workspace variable model,
+        // so "rename/delete" means nothing to the user (a rename only affects this block; no second
+        // block shares the name). It only added confusion. Switch to FieldLabelSerializable:
+        // display-only text, not editable, but the value is still stored in the XML
+        // (field serialization) so getFieldValue('VAR') can read it, and the logic
+        // below needs no change at all.
         //
-        // ⚠️ i18n 刻意跳過: 這個 field 的顯示文字同時是 blockly-run.js
-        // variables Map 的實際 key (存入 XML 那個值), 不僅 UI 顯示。如果
-        // 跟語言切換變成英文, 已經儲存/匯出了的 .xml 程式裡面的變數名會同
-        // 新開的 block 對不上, 令舊程式載入之後讀不到這個變數。所以固定用
-        // 中文, 不跟 uiLang 變, 避免破壞已存在的程式/XML。
+        // Warning: i18n deliberately skips this field. Its display text is also the actual key of the
+        // variables Map in blockly-run.js (the value stored in the XML), not only a UI label. If it
+        // switched to English with the language, variable names in saved or exported .xml programs would no
+        // longer match the blocks made by the new code, and loading an old program could not read the variable.
+        // So it stays Chinese and does not follow uiLang, which protects existing programs/XML.
         .appendField(new Blockly.FieldLabelSerializable('加速度計讀數'), 'VAR');
       this.appendStatementInput('DO');
       this.setColour(clr.sensor);
@@ -782,11 +782,11 @@
       this.appendDummyInput()
         .appendField(t('event_sonar__label'))
         .appendField(t('event_sonar__store_prefix'))
-        // 同 alpha_event_accel_threshold 一樣道理: 這個純粹是
-        // blockly-run.js 自己 variables Map 的 key, 不用 Blockly 官方變數
-        // model 那套「重新命名/刪除」UI, 改用 FieldLabelSerializable。
-        // ⚠️ i18n 刻意跳過, 原因同上 (這個值同時是變數 key, 跟語言變會撞
-        // 散舊 XML)。
+        // Same reasoning as alpha_event_accel_threshold: this is only a key in the
+        // blockly-run.js variables Map. Do not use the Blockly official variable model's
+        // "rename/delete" UI; FieldLabelSerializable is used instead.
+        // Warning: i18n deliberately skips it, same reason as above (the value is also the variable
+        // key; letting it follow the language would scatter old XML).
         .appendField(new Blockly.FieldLabelSerializable('聲納資料'), 'VAR');
       this.appendStatementInput('DO');
       this.setColour(clr.sensor);
@@ -794,12 +794,12 @@
     }
   };
 
-  // PIR「觸發」hat block —— 對應 alpha2_pir_state 事件 (payload 僅
-  // {triggered: true/false}, 見 RobotEventReceiver/registerAlpha2PirAlertListener
-  // 的 comment)。同 sonar 個「由遠變近先觸發」單一方向不同, PIR 用戶要求
-  // 「偵測到/偵測不到」兩個方向都要給用家選 (STATE dropdown), 邏輯上都是
-  // 邊緣觸發 (由上次不同的狀態變過來先算一次, 不會物件持續在同一狀態就不斷
-  // 重複執行), 跟 blockly-run.js 個 pirHandlers 實現。
+  // PIR "trigger" hat block — maps to the alpha2_pir_state event (payload is only
+  // {triggered: true/false}, see the RobotEventReceiver/registerAlpha2PirAlertListener
+  // comment). Unlike sonar, which triggers only in the one "far -> near" direction, for PIR the user asked that
+  // both "detected" and "cleared" be selectable (the STATE dropdown). Both are
+  // edge-triggered (the state must change from the last one to count once; a constant state does not
+  // repeat), matching the pirHandlers implementation in blockly-run.js.
   Blockly.Blocks['alpha_event_pir_triggered'] = {
     init: function () {
       this.appendDummyInput()
@@ -810,8 +810,8 @@
         ]), 'STATE');
       this.appendDummyInput()
         .appendField(t('event_pir__store_prefix'))
-        // 同 event_sonar__var 一樣道理, 見上面那段 comment。
-        // ⚠️ i18n 刻意跳過, 原因同上。
+        // Same reasoning as event_sonar__var, see the comment block above.
+        // Warning: i18n deliberately skips it, same reason as above.
         .appendField(new Blockly.FieldLabelSerializable('PIR資料'), 'VAR');
       this.appendStatementInput('DO');
       this.setColour(clr.sensor);
@@ -820,7 +820,7 @@
   };
 
   // ---------------------------------------------------------------------
-  // 流程控制：等待 / 印出訊息(log) / 重複次數上限保護
+  // Flow control: wait / print message (log) / repeat-count limit protection
   // ---------------------------------------------------------------------
 
   Blockly.Blocks['alpha_wait_seconds'] = {

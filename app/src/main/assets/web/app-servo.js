@@ -1,7 +1,7 @@
 // Open Alpha2 — client logic (app-servo.js)
-// 內容: 媒體音量、servo grid (共用 buildServoGridInto())、聲納。
-// 全部檔案共用 window/global scope (沒有用 ES module), 載入順序由 index.html 的
-// <script src="..."> 順序決定 - 詳見 index.html 頭那段 comment。
+// Content: media volume, servo grid (shared buildServoGridInto()), sonar.
+// All files share the window/global scope (no ES modules). Load order follows the
+// <script src="..."> order in index.html - see the comment block at the top of index.html.
 
 // ---------------- Media volume (STREAM_MUSIC) ----------------
 //
@@ -13,10 +13,10 @@
 
 let servoVolLastPushAt = 0;
 function onVolumeSliderInput(value) {
-  // Live-update the numeric readout while dragging; 同音樂頁一樣，拖曳嗰陣
-  // 150ms 節流即刻推（唔等放手），放手嗰下 onchange 再送一次準數。
+  // Live-update the numeric readout while dragging. Like the music page, a drag pushes
+  // immediately under a 150ms throttle (no wait for release), and the release onchange sends the exact value once more.
   document.getElementById("volumeVal").textContent = value;
-  markVolLocalInput(); // 反向同步 guard：拖緊呢 400ms 唔好畀 WS echo 郁返轉頭
+  markVolLocalInput(); // reverse-sync guard: for 400ms a drag must not get yanked back by the WS echo
   const now = Date.now();
   if (now - servoVolLastPushAt < 150) return;
   servoVolLastPushAt = now;
@@ -33,12 +33,12 @@ function onVolumeSliderInput(value) {
 }
 
 function setVolume(value) {
-  markVolLocalInput(); // 反向同步 guard（見上面 onVolumeChangedEvent）
+  markVolLocalInput(); // reverse-sync guard (see onVolumeChangedEvent above)
   return Alpha2Api.audioVolumeSet( { level: String(value) }).then(function (json) {
     if (json.ok) {
       document.getElementById("volumeSlider").value = json.volume;
       document.getElementById("volumeVal").textContent = json.volume;
-      // 同步共享播放器的音量滑桿
+      // Sync the shared player's volume slider
       const shSlider = document.getElementById("sharedVolumeSlider");
       const shVal = document.getElementById("sharedVolumeVal");
       if (shSlider) { shSlider.max = document.getElementById("volumeSlider").max; shSlider.value = json.volume; }
@@ -64,12 +64,12 @@ function refreshVolume() {
   });
 }
 
-// 反向同步：機械人嗰邊乜路改音量（頭頂 +/- 鍵／語音大細聲／另一個分頁條 slider）
-// 都會經 LedCenter 個 VOLUME_CHANGED receiver 播 volume_changed WS event
-// （見 app-log.js appendLog dispatch）。收到就將兩邊 slider＋讀數撥返去新值。
-// 為免同用家正在拖緊嗰粒爭（server echo 慢半拍，會將拖緊嗰粒扯返去舊值），
-// 本地郁過 slider 400ms 內嘅 event 一律 skip —— 時間戳記喺下面幾個本地
-// push 位＋app-music.js 那邊一齊寫。
+// Reverse sync: whenever the robot side changes the volume by any route (head +/- keys, voice volume commands, another tab's slider),
+// the LedCenter VOLUME_CHANGED receiver broadcasts a volume_changed WS event
+// (see the app-log.js appendLog dispatch). On receipt, set both sliders and the readouts to the new value.
+// To avoid fighting a slider the user is dragging (a late server echo would yank it back to the old value),
+// events within 400ms after a local slider move are all skipped - the timestamps are written by the local
+// push points below and by app-music.js.
 function markVolLocalInput() {
   try { window.__volLastLocalAt = Date.now(); } catch (e) { /* ignore */ }
 }
@@ -102,14 +102,14 @@ function servoTime() {
   return document.getElementById("servoAllTime").value;
 }
 
-/** 建立 servo grid 的共用邏輯, 抽出來做獨立 function 方便日後有第二個 grid 要建
- *  當時不用複製貼上一份幾乎一樣的 code。
- *  @param wrapId       外層容器的 id ("servoGroups")
- *  @param sliderPrefix slider input 的 id prefix ("servoSlider_")
- *  @param valPrefix    數值顯示 span 的 id prefix ("servoSliderVal_")
- *  @param sendFn       (id, angle) => void, 拖完手之後實際送出去robot的call (servo/one)
- *  @param readPrefix   (可選) 「讀取所有角度」結果顯示 span 的 id prefix - 沒有傳的話
- *                       (Alpha2 現在還是這樣) 不會加這欄, 版面同以前一樣。
+/** Shared servo-grid build logic, kept as its own function so a second grid can be built later
+ *  without copying a nearly identical block of code.
+ *  @param wrapId       id of the outer container ("servoGroups")
+ *  @param sliderPrefix id prefix of the slider inputs ("servoSlider_")
+ *  @param valPrefix    id prefix of the value-display spans ("servoSliderVal_")
+ *  @param sendFn       (id, angle) => void, the call that actually goes to the robot after a drag (servo/one)
+ *  @param readPrefix   optional id prefix of the "read all angles" result spans - when it is not passed,
+ *                       (Alpha2 works like that today) the column is not added and the layout stays as before.
  */
 function buildServoGridInto(wrapId, sliderPrefix, valPrefix, sendFn, readPrefix) {
   const wrap = document.getElementById(wrapId);
@@ -167,8 +167,8 @@ function buildServoGrid() {
   }, "servoAngleVal_");
 }
 
-/** 一次過讀全部 22 軸即時角度（servo/back-angle-all：cmd 0x17 純讀，
- *  唔等唔寫回，約半秒），填入每行右邊讀數格。讀不到那顆顯示 -。 */
+/** Read all 22 axis angles at once (servo/back-angle-all: cmd 0x17 pure read,
+ *  no wait, no write-back, about half a second), filling each row's right-hand readout cell. A failed read shows -. */
 function servoReadAllAngles() {
   const rows = document.querySelectorAll("#tab-servo [onclick^='servoRead']");
   const status = document.getElementById("servoReadStatus");
@@ -205,11 +205,11 @@ function servoReadAllAngles() {
   });
 }
 
-/** 「全部回到原位」直接寫入原廠角度 (servoAll)，sliders 顯示值歸 home；實際擺位以寫入為準，
- *  這個 card 純手動微調，不是位置 single source of truth。 */
-// STOP_RECOVERY_ACTION_ID_HINT: 「蹲下站起」(id 1510818174706) - 同
-// MainActivity.java 的 STOP_RECOVERY_ACTION_ID 一致, 兩處各自維護一份常量
-// (前端 JS 同後端 Java 沒有共用常量的機制), 改當時要兩邊一齊改。
+/** "Return all to home" writes the factory angles directly (servoAll) and the sliders show home; the real pose follows the write.
+ *  This card is pure manual fine-tuning, not the position single source of truth. */
+// STOP_RECOVERY_ACTION_ID_HINT: "squat and stand up" (id 1510818174706) - kept
+// equal to STOP_RECOVERY_ACTION_ID in MainActivity.java; each side maintains its own constant copy
+// (the JS front end and Java backend share no constant mechanism), so a change must edit both sides.
 const SERVO_RESET_ACTION_ID = "1510818174706";
 
 function resetServoGrid() {
@@ -224,7 +224,7 @@ function resetServoGrid() {
     const advInp = document.getElementById("advServoVal_" + i);
     if (advInp) advInp.value = cal.home;
   }
-  // 直接寫入原廠截圖角度（1:120 2:120 3:120 4:120 5:120 6:120 7:120 8:65 9:145 10:140 11:120 12:120 13:175 14:95 15:100 16:120 17:120 18:120 19:120 20:120 21:120 22:120），而非播放動作
+  // Write the factory screenshot angles directly (1:120 2:120 3:120 4:120 5:120 6:120 7:120 8:65 9:145 10:140 11:120 12:120 13:175 14:95 15:100 16:120 17:120 18:120 19:120 20:120 21:120 22:120), instead of playing an action
   return Alpha2Api.servoAll({angles: homes.join(","), time: servoTime()});
 }
 
@@ -273,7 +273,7 @@ function toggleSonar() {
   }).catch(function () { return syncSonarUi(); });
 }
 
-// 入頁同步：門檻讀返嚟擺 slider＋開關（0＝關；mapping toggle／別頁改過都會對返）。
+// Enter-page sync: read the threshold back and set the slider + switch (0 = off; a mapping toggle or another page's change re-aligns).
 function syncSonarUi() {
   return Alpha2Api.servoSonarGet().then(function (json) {
     if (!json || !json.ok) return json;
@@ -292,7 +292,7 @@ function syncSonarUi() {
   }).catch(function () { return null; });
 }
 
-// 真機已確認 cmd=72 開關生效，PIR 觸發正常。按 toggle 即送；結果看 API response ok/error，indicator 等 "alpha2_pir_state" WS event 先轉燈色。
+// A real device confirmed cmd=72 switches correctly and PIR triggering works. A toggle press sends at once; read ok/error from the API response, and the indicator changes light colour only on the "alpha2_pir_state" WS event.
 function alpha2SetPir() {
   const on = document.getElementById("alpha2Pir").checked;
   return Alpha2Api.pirSet({on: on}).then(function (json) {
@@ -301,7 +301,7 @@ function alpha2SetPir() {
   }).catch(function () { return syncPirUi(); });
 }
 
-// 獨立於 alpha2SetPir() 硬體開關 — 純開/關「偵測到人就閃紅燈/響鈴」警示反應，對應 MainActivity#setPirAlertEnabledAlpha2()。
+// Separate from the alpha2SetPir() hardware switch - it only enables/disables the "flash red/buzz when a person is detected" alert reaction, matching MainActivity#setPirAlertEnabledAlpha2().
 function alpha2SetPirAlertEnabled() {
   const on = document.getElementById("alpha2PirAlertEnabled").checked;
   return Alpha2Api.pirAlertEnabled( { on: on }).then(function (json) {
@@ -310,7 +310,7 @@ function alpha2SetPirAlertEnabled() {
   }).catch(function () { return syncPirUi(); });
 }
 
-// 入頁同步：硬件開關自記態＋警示開關一次過擺返兩個掣（mapping toggle 改過都會對返）。
+// Enter-page sync: the hardware switch's self-recorded state + the alert switch set both controls at once (a mapping toggle change re-aligns).
 function syncPirUi() {
   return Alpha2Api.pirGet().then(function (json) {
     if (!json || !json.ok) return json;
@@ -369,13 +369,13 @@ function buildAdvTuner() {
   });
   grid.addEventListener('contextmenu', function(e){ e.preventDefault(); });
   grid.addEventListener('selectstart', function(e){ e.preventDefault(); });
-  // init 格留 "-"（未知），不填計出來的 0 — 填 0 會覆蓋掉出廠 trim。
+  // Init keeps "-" in the cells (unknown) and does not fill a computed 0 - a 0 would overwrite the factory trim.
   advTrimScanned = {};
-  // 版本標記：驗瀏覽器有無用舊 JS（見不到這行就是 正在cache舊版，做 Ctrl+F5）。
+  // Version marker: checks whether the browser runs old JS (not seeing this line = a cached old version, press Ctrl+F5).
   const statusEl = document.getElementById("advTunerStatus");
   if (statusEl) statusEl.textContent = t("servo_tuner_ready", { v: "0906l" });
 }
-// 校准按鈕（官方「校准」同款）——將 22 格有效 trim 順序寫入 chest EEPROM（掉電保持）。格內無數／未掃描 skip 並報告；每粒附帶送本身角度（time=100，已在位不會動）。
+// The 校准 button (same as the official 校准 one): write the 22 cells' valid trims in order into the chest EEPROM (kept across power loss). Cells with no value/uns scanned are skipped and reported; each write carries its own angle (time=100, so one already in place does not move).
 function advCalibrateAll() {
   const statusEl = document.getElementById("advTunerStatus");
   const jobs = [];
@@ -416,8 +416,8 @@ function advCalibrateAll() {
   return next();
 }
 let advPrevAngle = {};
-// 本 session 掃描／還原過 trim 的 id：Enter 寫入只跟這些去存 EEPROM，
-// 不會用新頁計出來的數覆蓋出廠 trim（官方工具連線即讀，永遠有 baseline）。
+// Ids whose trim this session scanned/restored: an Enter write stores EEPROM only for these,
+// so a fresh page's computed numbers never overwrite the factory trim (the official tool reads on connect, so it always has a baseline).
 let advTrimScanned = {};
 function advTunerToggle(){
   const en = document.getElementById("advTunerEnabled").checked;
@@ -438,16 +438,16 @@ document.addEventListener('mouseleave', function(e){ if(e.target && e.target.clo
 function advServoTime() {
   return 500;
 }
-// offset 雙來源（同官方 tuner 一致，角:偏 = 1:3）。
-// - 即時值：格內現值 + angle變化×3（掃回來的 trim 做底：-33 再 +1 即 -30）。
-//   格內無數（-/讀失敗）先至用 3×(angle−home) 起步。
-// - 實際讀取值：掃描經 cmd13 讀 chest 存住的 trim 原值。寫入（cmd05）不改 chest
-//   trim，所以不會自動變回存值，下次掃描先對。
+// Two sources for the offset (matching the official tuner, angle:offset = 1:3).
+// - Live value: the cell's current value + angle change ×3 (built on the scanned trim: -33 then +1 gives -30).
+//   When the cell has no number (-/read failed), start from 3×(angle−home) instead.
+// - Real read value: a scan reads the chest's stored trim via cmd13. A write (cmd05) does not change the chest
+//   trim, so the value never reverts automatically; the next scan aligns it.
 function advFmtOff(v) {
   return (v > 0 ? "+" + v : "" + v);
 }
-// 後端 servo 讀數錯誤字串中英對照（後端 Java 無 i18n，前端認住譯；
-// 認不到就原文直出）。
+// Chinese/English map for the backend servo-read error strings (backend Java has no i18n, so the front end recognises and translates;
+// an unrecognised string prints as-is).
 function advErrText(e) {
   if (!e) return "";
   if (String(e).indexOf("no feedback") >= 0) return t("servo_tuner_err_nofeedback");
@@ -457,7 +457,7 @@ function advErrSuffix(e) {
   const m = advErrText(e);
   return m ? ((typeof uiLang !== "undefined" && uiLang === "en" ? ": " : "：") + m) : "";
 }
-// 例外物件後綴（中英冒號；訊息本身是瀏覽器/系統英文，原樣跟）。
+// Exception-object suffixes (zh/en colon pairs; the message itself is browser/system English, keep it as-is).
 function advEx(e) {
   if (e === undefined || e === null || e === "") return "";
   const m = (e && e.message !== undefined) ? e.message : String(e);
@@ -483,7 +483,7 @@ function advNudgeOff(id, deltaAngle) {
   el.textContent = advFmtOff(cur + deltaAngle * 3) + t("servo_tuner_live_suffix");
 }
 function advTunerSend(id, timeMs) {
-  // 加減/輸入格 Enter 一律僅送角度 cmd05（Enter 500ms，加減 100ms）。trim 只經「校准」按鈕成組寫入，這裡不碰 EEPROM。
+  // Step buttons/Enter in cells only send the angle via cmd05 (Enter 500ms, step 100ms). Trims write as a group only through the 校准 button; EEPROM is not touched here.
   if (timeMs === undefined || timeMs === null) timeMs = advServoTime();
   const inp = document.getElementById("advServoVal_" + id);
   let v = parseInt(inp.value, 10);
@@ -539,7 +539,7 @@ function advTunerReadAll() {
   }).catch(function(e){ statusEl.textContent = t("servo_tuner_read_err", { e: e.message }); });
 }
 function advTunerReset() {
-  // 復位 = 成組回home，動完自動重新掃描 trim（chest 存值不受動角度影響）。格設「…」等掃，不填計出來的數；兼清 scanned 旗 — 填 0 會寫入 EEPROM 覆蓋掉出廠 trim。
+  // Reset = the group returns home, then trims rescan automatically (the chest's stored values are not affected by moved angles). Cells show "…" while waiting for the scan, with no computed number filled in; also clear the scanned flag - a filled 0 would write into EEPROM and overwrite the factory trim.
   const homes = [];
   for (let i = 1; i <= 22; i++) {
     const cal = SERVO_CALIBRATION[i];
@@ -564,7 +564,7 @@ function advTunerReset() {
   });
 }
 function _advPerformBackupNow() {
-  // 僅備份 offsets（角度格是即時目標，寫下 file 無用）。讀失敗記 null；有效性經 advTrimScanned 判。
+  // Back up offsets only (angle cells are live targets, so saving them to the file is useless). A failed read stores null; validity comes from advTrimScanned.
   const offsets = {};
   for (let i = 1; i <= 22; i++) {
     if (!advTrimScanned[i]) { offsets[i] = null; continue; }
@@ -592,21 +592,21 @@ function _advPerformBackupNow() {
 }
 function advBackup() {
   const statusEl = document.getElementById("advTunerStatus");
-  // 必須先掃一次 offset，否則沒有結果：檢測仍顯示 "-" 的格子
+  // One offset scan is required first, or there is no result: detect cells still showing "-"
   let needScan = false;
   let unscanned = 0;
   for (let i = 1; i <= 22; i++) {
     const offEl = document.getElementById("advServoOff_" + i);
     const txt = offEl ? offEl.textContent.trim() : "-";
-    // "-"（新頁）/"…"（準備後等掃）先自動掃；數字（pending 或存值）同「讀失敗」
-    // 不掃——不要覆蓋掉用戶 正在tune的數。
+    // "-" (fresh page) and "…" (armed, waiting) trigger the auto scan; numbers (pending or stored) and "read failed"
+    // do not rescan - never overwrite a value the user is tuning.
     if (txt === "-" || txt === "" || txt === "…") { needScan = true; unscanned++; }
   }
   if (needScan) {
     if (statusEl) statusEl.textContent = t("servo_tuner_backup_need_scan") + " " + t("servo_tuner_unscanned", { n: unscanned });
-    // 自動先掃一次，再備份
+    // Auto-scan once first, then back up
     return advTunerReadAll().then(function() {
-      // advTunerReadAll 已將 status 設為讀取完成，緊接覆蓋為備份完成
+      // advTunerReadAll already set status to read-done, so overwrite it next with backup-done
       _advPerformBackupNow();
     }).catch(function(err){
       if (statusEl) statusEl.textContent = t("servo_tuner_backup_fail") + advEx(err);
@@ -624,7 +624,7 @@ function advImport(input) {
   reader.onload = function(e) {
     try {
       const data = JSON.parse(e.target.result);
-      // 僅還原 offsets（舊檔有 angles 都不理，角度格不動）。
+      // Restore offsets only (an old file's angles are ignored, the angle cells do not move).
       let offsets = null;
       if (data && typeof data === "object" && data.offsets) {
         offsets = data.offsets;

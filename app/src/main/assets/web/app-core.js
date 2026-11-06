@@ -1,7 +1,7 @@
 // Open Alpha2 — client logic (app-core.js)
-// 內容: 全局狀態、UI 語言字典、servo 校準表、api()/hwApi() 這些所有其他 app-*.js 都要用的核心 helper。這個檔案要第一個 load。
-// 全部檔案共用 window/global scope (沒有用 ES module), 載入順序由 index.html 的
-// <script src="..."> 順序決定 - 詳見 index.html 頭那段 comment。
+// Contents: global state, UI language dictionary, servo calibration table, and the core helpers api()/hwApi() that every other app-*.js uses. Load this file first.
+// All files share the window/global scope (no ES modules). Load order is set by the
+// <script src="..."> order in index.html - see the comment block at the head of index.html.
 
 // Open Alpha2 — client logic.
 // Talks to the on-robot HTTP server (HttpServer.java) via /api/*, and to the
@@ -10,9 +10,9 @@
 const API = "/api/";
 
 // ---------------- App / project metadata ----------------
-// XIAOZHI_CONSOLE_URL 沒有在這個 web panel 度用 - 版本號/原始碼連結改了擺在
-// 機身/手機原生畫面 (MainActivity.java 個 onCreate() 起那個 TextView UI,
-// 正在顯示 http://<ip>:8888/ 那版)。
+// XIAOZHI_CONSOLE_URL is not used in this web panel. The version number and source link moved to
+// the native robot/phone screens (the TextView UI that MainActivity.java starts in onCreate(),
+// which shows the http://<ip>:8888/ version).
 const XIAOZHI_CONSOLE_URL = "https://xiaozhi.me/";
 
 // ---------------- UI language (whole-panel zh/en translation) ----------------
@@ -82,7 +82,7 @@ const I18N = {
   action_speed_label:    { zh: "變速",            en: "Speed" },        
   action_stop_btn:       { zh: "停止",            en: "Stop" },
 
-  // -- gamepad tab (BT 手柄／鍵盤，兩端共用) --
+  // -- gamepad tab (BT gamepad/keyboard, shared by both ends) --
   gamepad_manage_heading:  { zh: "🎮 藍牙＋已接設備", en: "🎮 Bluetooth + Devices" },
   gamepad_two_ends_hint:   { zh: "手柄／鍵盤直連機器人（本機藍牙配對，離線可用）；下面兩張卡即時顯示按鍵＋改映射。",
                              en: "Pad/keyboard pairs straight to the robot (offline OK); the two cards below show live presses and edit mappings." },
@@ -148,7 +148,7 @@ const I18N = {
   gamepad_mapping_pad_hint:    { zh: "同名鍵兩邊獨立值；改完即存機器人（重啟保留）。", en: "Same names hold separate values per side. Saved on robot." },
   gamepad_mapping_kb_hint:     { zh: "同名鍵兩邊獨立值；改完即存機器人（重啟保留）。", en: "Same names hold separate values per side. Saved on robot." },
 
-  // -- gamepad 映射行下拉（種類＋各值，中英齊，免版面又中又英） --
+  // -- gamepad mapping-row dropdowns (kinds + values, both zh/en, so the panel is never mixed) --
   gamepad_kind_none:   { zh: "無動作", en: "None" },
   gamepad_kind_stop:   { zh: "停止", en: "Stop" },
   gamepad_kind_servo:  { zh: "舵機", en: "Servo" },
@@ -241,7 +241,7 @@ const I18N = {
   servo_tuner_backup_fail:   { zh: "備份失敗",           en: "Backup failed" },
   servo_tuner_unscanned:     { zh: "（{n}/22 未讀）…",   en: "({n}/22 unread)…" },
 
-  // adv tuner 動態狀態字。
+  // adv tuner dynamic status strings.
   servo_tuner_ready:         { zh: "tuner {v} 就緒（加減/輸入僅變動角度；校准先成組寫 EEPROM）", en: "tuner {v} ready (+/- and input move only; Calibrate writes EEPROM)" },
   servo_tuner_read_all:      { zh: "一鍵實際讀取全部 trim 1-22（約幾秒）…", en: "Reading all 22 trims (a few seconds)…" },
   servo_tuner_read_done:     { zh: "實際讀取完成 {ok}/22",   en: "Read done {ok}/22" },
@@ -265,8 +265,8 @@ const I18N = {
   servo_tuner_err_nofeedback: { zh: "無回授（超時或壞舵機）", en: "no feedback (timeout or faulty servo)" },
 
   // -- speech tab --
-  // 對話界面 (全抄小智 tab 做法, 見 app-speech.js 個
-  // appendSpeechChatLine()/sendSpeechChatText() 頂部 comment)。
+  // Conversation UI (copies the XiaoZhi tab approach; see the comment at the top of
+  // appendSpeechChatLine()/sendSpeechChatText() in app-speech.js).
   speech_chat_heading:        { zh: "💬 對話界面",   en: "💬 Conversation" },
   speech_chat_text_placeholder: { zh: "打字模擬 ASR 辨識結果…", en: "Type to simulate an ASR result…" },
   speech_chat_send_btn:       { zh: "送出",           en: "Send" },
@@ -281,7 +281,7 @@ const I18N = {
   vosk_switching_hint:     { zh: "切換中（停舊開新）…", en: "Switching (stopping old, starting new)…" },
   vosk_load_fail_prefix:   { zh: "❌ 載入失敗：", en: "❌ Load failed: " },
   vosk_start_fail_prefix:  { zh: "❌ 開始失敗：", en: "❌ Start failed: " },
-  // 語音頁狀態行跟面板語言（voskRenderStatus 用，不懂的 state 跌回原文）。
+  // Speech-tab status line follows the panel language (used by voskRenderStatus; unknown states fall back to the raw text).
   vosk_state_idle:         { zh: "閒置", en: "Idle" },
   vosk_state_loading:      { zh: "載入中", en: "Loading" },
   vosk_state_ready:        { zh: "就緒", en: "Ready" },
@@ -302,7 +302,7 @@ const I18N = {
   vosk_download_done:      { zh: "✅ 下載＋解壓完成，已自動載入", en: "✅ Downloaded + extracted, auto-loaded" },
   vosk_download_fail_prefix: { zh: "❌ 下載失敗：", en: "❌ Download failed: " },
   vosk_download_cancelled: { zh: "已取消下載", en: "Download cancelled" },
-  // -- 實驗 tab 動作包下載卡（見 ActionsPackController，固定 actions.zip） --
+  // -- Experimental tab actions pack card (see ActionsPackController, fixed actions.zip) --
   actions_pack_heading:   { zh: "⬇ 動作包下載", en: "⬇ Actions Pack Download" },
   actions_pack_disabled_hint: { zh: "開啟後才會顯示動作包下載", en: "Turn on to show actions pack download" },
   actions_pack_hint:      { zh: "更新包有 202 個動作，下載並自動解壓到 sdcard（舊 /sdcard/actions 會改名 /sdcard/actions-backup）。完成後去動作頁重新載入列表。",
@@ -315,14 +315,14 @@ const I18N = {
   actions_pack_done:      { zh: "✅ 下載＋解壓完成，舊動作已備份去 actions-backup（去動作頁重新載入列表）", en: "✅ Downloaded + extracted, old actions backed up to actions-backup (reload the list in the Actions tab)" },
   actions_pack_fail_prefix: { zh: "❌ 下載失敗：", en: "❌ Download failed: " },
   actions_pack_cancelled: { zh: "已取消下載", en: "Download cancelled" },
-  // -- 實驗 tab 資源下載卡（二合一：Vosk＋動作包，見 DownloadGate 單通道） --
+  // -- Experimental tab resource download card (combines Vosk + actions pack; see the DownloadGate single channel) --
   res_dl_heading: { zh: "📦 資源下載", en: "📦 Resource Download" },
   res_dl_disabled_hint: { zh: "開啟後才會顯示可下載資源", en: "Turn on to show downloadable resources" },
   res_dl_hint: { zh: "一次只可下載一樣（Vosk 模型、動作包、Google TTS 共用通道）。Vosk 落完自動載入，語音頁即多一個按鍵；動作包落完去動作頁重新載入列表；Google TTS 落完自動開系統安裝器。",
                   en: "One download at a time (Vosk models, the actions pack and Google TTS share one slot). Vosk auto-loads when done, a new button appears in the Speech tab; reload the list in the Actions tab for the pack; Google TTS opens the system installer when done." },
   res_dl_show_unsupported: { zh: "顯示未支持模型 ▸", en: "Show unsupported models ▸" },
   res_dl_hide_unsupported: { zh: "▾ 收起未支持模型", en: "▾ Hide unsupported models" },
-  // -- 資源下載卡 Google TTS 區（見 ApkDownloadController，淨下載去 sdcard） --
+  // -- Resource download card Google TTS section (see ApkDownloadController; download to sdcard only) --
   apk_dl_heading: { zh: "📱 Google TTS 下載", en: "📱 Google TTS Download" },
   apk_dl_hint: { zh: "下載指定版本 Google TTS，落完自動開系統安裝器（經 scrcpy mouse 撳確認）。同卡其他下載共用通道，一次一樣。",
                   en: "Download the pinned Google TTS; the system installer opens when done (confirm with the scrcpy mouse). Shares the one download slot." },
@@ -373,26 +373,26 @@ const I18N = {
   color_name_white:      { zh: "白",               en: "White" },
   walk_follow_label:     { zh: "行路跟",           en: "Walk Follow" },
 
-  // -- Alpha2 版 PIR card (見 index.html/app-servo.js/app-accel.js 的 comment) --
-  // 真機已確認 PIR 觸發正常。
+  // -- Alpha2 PIR card (see the comments in index.html/app-servo.js/app-accel.js) --
+  // Confirmed on the real robot: the PIR trigger works.
   alpha2_pir_heading:       { zh: "PIR 感應器", en: "PIR Sensor" },
   alpha2_pir_switch_label:  { zh: "感應器開關", en: "Sensor Switch" },
   alpha2_pir_alert_label:   { zh: "警示反應 (LED+鈴聲)", en: "Alert Reaction (LED + Chime)" },
 
   // -- Alpha2 speech tab (TTS engine/voice buttons) --
-  // tts_engine_android_btn 保留 (小智頁 Android 按鈕還正在用)。
+  // tts_engine_android_btn kept (the XiaoZhi page still uses the Android button).
   tts_engine_android_btn: { zh: "Android 預設", en: "Android Default" },
-  // tts_engine_*_btn 保留 (小智 tab 還正在用)。
+  // tts_engine_*_btn kept (the XiaoZhi tab still uses them).
   tts_android_engine_label: { zh: "TTS 引擎：", en: "TTS Engine:" },
   tts_android_lang_label: { zh: "語言：", en: "Language:" },
   tts_android_lang_keep_option: { zh: "（沿用引擎目前語言）", en: "(Keep engine's current language)" },
-  // Google TTS 每個語言多把聲，選完語言再選聲（無具體語言就成行收起）。
-  // 顯示跟足 Google 系統設定：「語音 I、II、III…」編號（英文面板就 "Voice I…"）。
+  // Google TTS has many voices per language: pick the language first, then the voice (the row collapses when no specific language is set).
+  // Display follows Google system settings exactly: numbered "語音 I、II、III…" (the English panel shows "Voice I…").
   tts_android_voice_label: { zh: "聲音：", en: "Voice:" },
   tts_android_voice_name: { zh: "語音", en: "Voice" },
   tts_android_voice_keep_option: { zh: "（預設聲）", en: "(Default voice)" },
   tts_android_voice_loading: { zh: "載入聲音中…", en: "Loading voices…" },
-  // TTS 跟隨 Vosk（語音 tab 手動掣：開＝手動選擇，關＝自動跟隨，見 TtsCenter 跟隨開關）。
+  // TTS follows Vosk (manual switch on the Speech tab: on = pick manually, off = auto-follow; see the follow switch in TtsCenter).
   tts_follow_vosk_label: { zh: "✋ 手動選擇", en: "✋ Manual selection" },
   tts_follow_vosk_hint: { zh: "開＝手動選擇語言／聲音；關＝自動跟 Vosk 語言包走",
                            en: "On = pick language/voice manually; off = auto-follow the Vosk pack" },
@@ -401,14 +401,14 @@ const I18N = {
                                en: "Follow is on but the engine has no matching voice — using manual selection for now" },
 
   // reboot_confirm/rebooting/
-  // reboot_ok/reboot_failed_prefix/suffix 保留 (app-accel.js UUID 卡個獨立
-  // 重開機按鈕還正在用)。
+  // reboot_ok/reboot_failed_prefix/suffix kept (the separate
+  // reboot button on the app-accel.js UUID card still uses them).
 
-  // asr_reset_failed_unknown 保留
-  // (app-accel.js/app-speech.js 還正在用做通用「未知錯誤」)。
+  // asr_reset_failed_unknown kept
+  // (app-accel.js/app-speech.js still use it as the generic "unknown error").
   asr_reset_failed_unknown: { zh: "未知錯誤", en: "Unknown error" },
 
-  // -- Alpha2 speech tab (對話界面 speech/semantic_simulate 動態字串) --
+  // -- Alpha2 speech tab (Conversation UI dynamic strings for speech/semantic_simulate) --
   speech_chat_simulate_error_prefix: { zh: "配對失敗：", en: "Match failed: " },
   speech_chat_simulate_no_match: { zh: "（1000 條問法裡面找不到對應，沒有回應）",
                                     en: "(No match found among the 1000 phrases — no response)" },
@@ -417,7 +417,7 @@ const I18N = {
   // -- Alpha2 speech tab (service config + 3-in-1 test dynamic strings) --
   speech_test_enter_text_alert: { zh: "請輸入文字", en: "Please enter some text" },
 
-  // -- xiaozhi (小智 AI 對話) --
+  // -- xiaozhi (小智 AI chat) --
   nav_xiaozhi:                { zh: "🤖 小智",              en: "🤖 XiaoZhi" },
   xiaozhi_heading:            { zh: "🤖 小智 AI 對話",       en: "🤖 XiaoZhi AI Chat" },
   xiaozhi_phase4_hint:        { zh: "開關開＝配對／連線／隨時語音對話，關＝斷開。首次要在 xiaozhi.me 輸入機械人讀出的配對碼。",
@@ -431,7 +431,7 @@ const I18N = {
                                  en: "Please enter the pairing code below at <a href=\"https://xiaozhi.me/console/\" target=\"_blank\" rel=\"noopener\">xiaozhi.me</a>:" },
   xiaozhi_activation_modal_dismiss: { zh: "知道了", en: "Got it" },
   xiaozhi_session_toggle_label: { zh: "🤖 小智（開＝連線並隨時語音對話，關＝斷開）", en: "🤖 XiaoZhi (on = connect & voice chat anytime, off = disconnect)" },
-  // -- 開機語音模式三選一（實驗 tab 卡，後端 boot_voice/get|set） --
+  // -- Boot voice mode, pick one of three (Experimental tab card, backend boot_voice/get|set) --
   boot_voice_heading:        { zh: "🔌 開機語音模式", en: "🔌 Voice mode on boot" },
   boot_voice_disabled_hint:  { zh: "開啟後才會顯示開機語音設定", en: "Turn on to show the boot voice settings" },
   boot_voice_hint:           { zh: "請選擇其中一個：會在下次開啟 App 時自動執行。現在選擇只會儲存設定，不會立刻連線或立刻開始聆聽。",
@@ -628,7 +628,7 @@ const I18N = {
   chest_upgrade_confirm: { zh: "確定要燒錄胸板固件嗎？中途斷電或重啟會導致變磚！電量須 ≥50%，全程約 1–2 分鐘（小鏡像速度較快），請勿觸碰機器人。完成後必須手動開關機兩次才會生效（第一次開機寫入固件，待電源鍵變紅後再關機，第二次開機正常啟動；僅重啟系統無效）。", en: "Flash the chest firmware? Power loss or reboot during flashing will brick the device! Battery must be ≥50%, about 1–2 minutes (small image is faster). Do not touch the robot. After success, you must manually power-cycle twice to apply (the first boot writes the firmware — wait until the power button turns red, then shut down; the second boot starts normally; rebooting Android alone is NOT enough)." },
   chest_upgrade_done_power: { zh: "✅ 燒錄完成！必須手動開關機兩次才會生效：先長按電源鍵關機斷電；第一次開機為寫入固件，開機後等待約 10 秒，待電源鍵變紅後再長按關機；第二次開機即可正常啟動。注意：僅重啟系統無效。", en: "✅ Flash completed! You must manually power-cycle twice to apply: first long-press the power button to shut down completely; the first power-on writes the firmware — after it boots, wait about 10 seconds until the power button turns red, then long-press to shut down again; the second power-on boots normally. Note: reboot alone is NOT enough." },
 
-  // -- 實驗 tab 面板 token 認證（見 PanelAuth.java，後端 system/auth/*） --
+  // -- Experimental tab panel token auth (see PanelAuth.java, backend system/auth/*) --
   panel_auth_heading:    { zh: "🔐 面板認證",      en: "🔐 Panel Token" },
   panel_auth_card_disabled_hint: { zh: "開啟先會顯示面板認證設定", en: "Turn on to show panel token settings" },
   panel_auth_hint:       { zh: "啟用後，整個面板（全部 API＋上載，含其他分頁）要帶 token。預設關閉（全開）。未啟用時輸入新值按儲存即啟用；已啟用時輸入現有值按儲存即解鎖（如需更換新值，先清除再儲存）。Token 記在瀏覽器，同一個面板地址跨 tab 共用。",
@@ -660,13 +660,13 @@ const I18N = {
  *  the static-element equivalent. */
 function t(key, params) {
   const entry = I18N[key];
-  // 缺 key 即 warn。
+  // Warn when a key is missing.
   if (!entry) {
     if (typeof console !== "undefined" && console.warn) console.warn("i18n missing: " + key);
     return key;
   }
   let s = entry[uiLang] || entry.zh;
-  // {name} 參數替換（舊調用 t(key) 不受影響）。
+  // Replace {name} parameters (old t(key) calls are unaffected).
   if (params) {
     for (const k in params) {
       s = s.split("{" + k + "}").join(String(params[k]));
@@ -718,40 +718,40 @@ function setUiLanguage(lang) {
   // would reset every slider back to its calibrated home position and lose whatever
   // angle the person currently has dialled in.
   relabelServoGrid();
-  // 進階 Tuner 同步重建以更新每格中英對照（範圍/角度/偏移）
+  // Rebuild the advanced tuner too, so each cell updates its zh/en pairing (range/angle/offset)
   try {
     const advEnabled = document.getElementById("advTunerEnabled");
     if (advEnabled && advEnabled.checked && typeof buildAdvTuner === "function") {
       const scrollPos = document.getElementById("advServoTunerGrid").scrollTop;
       buildAdvTuner();
-      // 保留捲動位置
+      // Keep the scroll position
       document.getElementById("advServoTunerGrid").scrollTop = scrollPos;
     }
   } catch(e) {}
-  // Vosk 模型鍵＋下載鍵＋兩條狀態行都是動態起（名跟 uiLang），重畫一次就一併轉換語言。
+  // Vosk model keys, download keys, and both status lines are built dynamically (names follow uiLang). One redraw converts them.
   try {
     if (typeof voskApplyUiLanguage === "function") voskApplyUiLanguage();
   } catch(e) {}
-  // 動作包狀態行一樣動態起，重畫一次就轉語言（不用再問後端）。
+  // The actions pack status line is also built dynamically. One redraw converts it (no new backend call).
   try {
     if (typeof actionsPackApplyUiLanguage === "function") actionsPackApplyUiLanguage();
   } catch(e) {}
-  // 舵機 ID 卡左右接口提示行一樣動態起（跟輸入＋語言），轉語言即重畫（唔使再撳）。
+  // The servo ID card port-side hint lines are also built dynamically (from the inputs + language). Language switch redraws them; no extra press needed.
   try { if (typeof servoIdBusUpdate === "function") servoIdBusUpdate(); } catch(e) {}
-  // TTS 跟隨狀態行一樣動態起，重畫一次就轉語言（不用再問後端）。
+  // The TTS follow status line is also built dynamically. One redraw converts it (no new backend call).
   try {
     if (typeof ttsFollowApplyUiLanguage === "function") ttsFollowApplyUiLanguage();
   } catch(e) {}
-  // APK 狀態行一樣動態起，重畫一次就轉語言（不用再問後端）。
+  // The APK status line is also built dynamically. One redraw converts it (no new backend call).
   try {
     if (typeof apkApplyUiLanguage === "function") apkApplyUiLanguage();
   } catch(e) {}
-  // 音樂 EQ preset 藍掣＋播放中行隨機動作／節奏燈狀態字一樣動態起，就地重標
-  // （唔 rebuild，推桿位／開關狀態唔郁）。
+  // The music EQ preset blue buttons and the Now Playing random-move/rhythm-LED status words are also built
+  // dynamically. Relabel them in place (no rebuild; slider positions and switch states stay).
   try {
     if (typeof musicEqApplyUiLanguage === "function") musicEqApplyUiLanguage();
   } catch(e) {}
-  // 手柄映射表動態下拉一樣動態起，就地重標（唔 rebuild，未存改動保留，唔問後端）。
+  // The gamepad mapping dropdowns are also built dynamically. Relabel them in place (no rebuild; unsaved edits stay; no backend call).
   try {
     if (typeof gamepadApplyUiLanguage === "function") gamepadApplyUiLanguage();
   } catch(e) {}
@@ -775,7 +775,7 @@ function relabelServoGrid() {
       labelEl.textContent = "#" + id + " " + servoNameOf(id);
     });
   });
-  // 進階 Tuner 同步中英對照
+  // Advanced tuner: sync the zh/en pairing
   document.querySelectorAll(".servo-tuner-cell").forEach(function (cell) {
     const label = cell.querySelector("div");
     if (!label) return;
@@ -787,7 +787,7 @@ function relabelServoGrid() {
 }
 
 // ---------------- Backend ----------------
-// currentBackend 保留：app-camera.js/app-mic.js 有 "if (currentBackend !== 'alpha2') return;" guard，留常數等它們照樣 work。
+// currentBackend kept: app-camera.js/app-mic.js have an "if (currentBackend !== 'alpha2') return;" guard. Keep the constant so they still work.
 const currentBackend = "alpha2";
 
 // Surface any uncaught JS exception to console.error, which MainActivity's
@@ -806,8 +806,8 @@ window.onerror = function (message, source, lineno, colno, error) {
 // robot. Used to clamp input so a typo or an out-of-range value can't be sent to a
 // servo and force it against its mechanical limit.
 // Home-point values confirmed directly against the robot by the user.
-// 手柄 jog／搖桿／觸控板行同一套（見 ApiValidator SERVO_CAL_*，一字不差 copy；
-// 改一邊記得改另一邊＋跑 test-apivalidator.py）。
+// The gamepad jog/stick/touchpad rows use this same table (see ApiValidator SERVO_CAL_*, copied exactly;
+// change one side and you must change the other, then run test-apivalidator.py).
 const SERVO_CALIBRATION = {
   1:  { min: 5,   max: 235, home: 120 },
   2:  { min: 50,  max: 210, home: 120 },
@@ -867,7 +867,7 @@ const SERVO_NAMES = {
   22: { zh: "擴展22",    en: "Extra 22" },
 };
 
-/** 取回一個 servo 的顯示名, 跟主 UI 語言 (uiLang)。 */
+/** Return the display name of one servo, following the main UI language (uiLang). */
 function servoNameOf(id) {
   const entry = SERVO_NAMES[id];
   if (!entry) return String(id);
@@ -892,7 +892,7 @@ const SERVO_GROUPS = [
 // api() call now route failures through here so the UI always shows *something*.
 
 function showError(context, err) {
-  // 鎖屏中：後面 init 的 API 401 是預期之內，不洗版（浮層已經講明要解鎖）。
+  // Panel locked: API 401s from the later init are expected, so do not flood the banner (the overlay already says how to unlock).
   if (typeof window !== "undefined" && window.__panelLocked) return;
   const banner = document.getElementById("errorBanner");
   const msg = (err && err.message) ? err.message : String(err);
@@ -942,12 +942,12 @@ function hwApi(path, params) {
   return api(path, params);
 }
 
-// Namespaced fetch helpers - 同 api() 一樣形狀, 僅前綴不同, 對應
-// MainActivity 三個獨立路由 (見開頭 dispatch): sysApi() -> /api/system/*
-// (handleSystemApi), directApi() -> /api/direct/* (handleDirectApi)。
-// xiaozhiApi() 住在 app-xiaozhi.js (它要跟小智 UI 狀態, 不放這裡)。
-// api-client.js (Alpha2Api.*) 會按 OpenAPI path 自動選中的一個, 直接用
-// api('system/...') 會打去 /api/alpha2/system/... 而 404, 不要這麼做。
+// Namespaced fetch helpers - same shape as api(), only the prefix differs. They map to
+// MainActivity's three separate routes (see the dispatch at the top): sysApi() -> /api/system/*
+// (handleSystemApi), directApi() -> /api/direct/* (handleDirectApi).
+// xiaozhiApi() lives in app-xiaozhi.js (it must track XiaoZhi UI state, so it stays there).
+// api-client.js (Alpha2Api.*) picks the right helper automatically from the OpenAPI path. Calling
+// api('system/...') directly would hit /api/alpha2/system/... and 404 - do not do that.
 function sysApi(path, params) {
   clearError();
   const qs = apiQuery(params);
@@ -984,15 +984,15 @@ function directApi(path, params) {
   });
 }
 
-// ---------------- Panel token（實驗 tab 認證，見 PanelAuth.java） ----------------
+// ---------------- Panel token (Experimental tab auth, see PanelAuth.java) ----------------
 //
-// 範圍：opt-in，預設關＝全開。啟用後整個面板上鎖（全部 /api/*＋/upload/*＋/stream/*＋/ws
-// 要帶 token；僅 auth/*＋靜態頁開放），其他 tab／Blockly 照跟同一粒 token（下面自動帶）。
-// token 放 localStorage（同一個 browser＋同一個面板地址跨 tab 共用，關 browser 都還記得；
-// 要忘記就按「清除」）。
-// 傳遞：/api／upload 行 Authorization: Bearer header（不入 URL／logcat，見 panelAuthHeaders）；
-// 設不到 header 的 <img>／WebSocket 先用 ?panel_token= query fallback（見 withPanelToken）。
-// 舊 ?token= 別名已移除（同小智 ota token 撞名，見 PanelAuth），curl 請用 header 或 panel_token。
+// Scope: opt-in, default off = everything open. When enabled the whole panel locks (all /api/* + /upload/* + /stream/* + /ws
+// need the token; only auth/* and static pages stay open). Other tabs/Blockly use the same token (attached automatically below).
+// The token lives in localStorage. Same browser + same panel address shares it across tabs, and it survives closing the browser.
+// Press "Clear" to forget it.
+// Transport: /api and upload use the Authorization: Bearer header (kept out of URLs/logcat, see panelAuthHeaders);
+// <img>/WebSocket that cannot set a header use the ?panel_token= query fallback (see withPanelToken). The old ?token= alias
+// was removed (name clash with the XiaoZhi OTA token, see PanelAuth). For curl, use the header or panel_token.
 function panelTokenGet() {
   try { return localStorage.getItem("panel_token") || ""; } catch (e) { return ""; }
 }
@@ -1001,19 +1001,19 @@ function panelTokenSet(t) {
   try {
     if (t) localStorage.setItem("panel_token", t);
     else localStorage.removeItem("panel_token");
-  } catch (e) { /* private mode 等寫不入就當無記住，不阻操作 */ }
+  } catch (e) { /* if the write fails (private mode etc.) treat it as not remembered; do not block the action */ }
 }
 
-/** 記住的 token 轉 Authorization header（無 token 即 {}，fetch 照發）。
- *  params 顯式帶 panel_token 時優先用佢（舊調用位向後兼容；query 本身會經 strip 剝走）。 */
+/** Turn the remembered token into an Authorization header (no token = {}, fetch still runs).
+ *  If params explicitly carries panel_token it wins (backward compatibility for old call sites; the query key itself is stripped later). */
 function panelAuthHeaders(params) {
   const tok = (params && params.panel_token) ? params.panel_token : panelTokenGet();
   if (!tok) return {};
   return { "Authorization": "Bearer " + tok };
 }
 
-/** 去掉 params 入面嘅 panel_token 認證 key（轉咗行 header，唔再放 URL；token／current
- *  業務參數唔郁——auth/set 新值、ota token、current 證明照行 query）。 */
+/** Drop the panel_token auth key from params (auth now travels in the header, no longer in the URL). The token/current
+ *  business parameters stay untouched - auth/set new value, OTA token, and the current proof still go in the query. */
 function stripPanelToken(params) {
   if (!params) return params;
   if (params.panel_token == null) return params;
@@ -1022,15 +1022,15 @@ function stripPanelToken(params) {
   return out;
 }
 
-/** /api query string（panel_token 剝走行 header，見上）。 */
+/** /api query string (panel_token is stripped and travels in the header, see above). */
 function apiQuery(params) {
   const clean = stripPanelToken(params);
   return clean ? "?" + new URLSearchParams(clean).toString() : "";
 }
 
-/** 將記住的 token 混入 params query（只給設不到 header 的 <img>／WebSocket／舊調用位用；
- *  /api／upload 新 code 請用 panelAuthHeaders()＋apiQuery()，唔經呢度。
- *  無 token 即原樣；已有 panel_token 不覆寫）。 */
+/** Mix the remembered token into params as a query key (only for <img>/WebSocket/old call sites that
+ *  cannot set a header; new /api and upload code should use panelAuthHeaders() + apiQuery() instead.
+ *  No token = return params unchanged; an existing panel_token is never overwritten). */
 function withPanelToken(params) {
   const tok = panelTokenGet();
   if (!tok) return params;
@@ -1040,8 +1040,8 @@ function withPanelToken(params) {
   return out;
 }
 
-// ---------------- 認證卡開關（同 UUID 卡 uuidCardToggle 一致寫法） ----------------
-// 預設收起詳情，用戶揭開先看到／用到；不記狀態，每次入頁預設關。
+// ---------------- Auth card toggle (same pattern as the UUID card's uuidCardToggle) ----------------
+// Details collapse by default. The user opens the card before seeing or using them. State is not remembered; every page visit starts closed.
 function panelAuthCardToggle() {
   const enabled = document.getElementById("panelAuthCardEnabled");
   const body = document.getElementById("panelAuthCardBody");
@@ -1064,7 +1064,7 @@ function panelAuthSay(key, extra) {
   if (els.msg) els.msg.textContent = t(key) + (extra ? " " + extra : "");
 }
 
-/** Page load／操作後刷新狀態行（未啟用／已啟用未解鎖／已啟用已解鎖）。 */
+/** Refresh the status line on page load / after an action (disabled / enabled-locked / enabled-unlocked). */
 function panelAuthRefreshStatus() {
   const els = panelAuthElements();
   if (!els.status) return;
@@ -1079,7 +1079,7 @@ function panelAuthRefreshStatus() {
       els.status.textContent = t("panel_auth_enabled_locked");
       return;
     }
-    // 有記住 token 都要 verify（可能在另一 tab 清了／改了）。
+    // Even with a remembered token, verify it (another tab may have cleared or changed it).
     Alpha2Api.systemAuthVerify({}).then(function (v) {
       els.status.textContent = t(v && v.ok && v.valid
         ? "panel_auth_enabled_unlocked" : "panel_auth_enabled_locked");
@@ -1087,10 +1087,11 @@ function panelAuthRefreshStatus() {
   });
 }
 
-/** 儲存（單一輸入框，一兼三職）。
- * 送 token（新值）＋current（舊值證明，同一個值）：未啟用→後端忽略 current，
- * 直接啟用；已啟用＋相符現有值→後端當無改（set 同值）回 ok，前端記住＝解鎖；
- * 已啟用＋打錯→401。要換新值就先清除再儲存。成功即記住（localStorage）。 */
+/** Save (one input box, three jobs).
+ *  Sends token (new value) + current (proof of the old value, same string). Not enabled: the backend ignores
+ *  current and enables directly. Enabled + matching value: the backend treats it as unchanged (set same value) and
+ *  returns ok, so the frontend remembers it = unlocked. Enabled + wrong value: 401. To replace the value, Clear
+ *  first, then Save. On success the token is remembered (localStorage). */
 function panelAuthSet() {
   const els = panelAuthElements();
   const token = els.input ? (els.input.value || "").trim() : "";
@@ -1106,7 +1107,7 @@ function panelAuthSet() {
   });
 }
 
-/** 清除（停用）。單一輸入框：打現有值證明擁有權（防同網段人亂清）。 */
+/** Clear (disable). One input box: type the current value to prove ownership (stops random people on the LAN from clearing it). */
 function panelAuthClear() {
   const els = panelAuthElements();
   const current = els.input ? (els.input.value || "").trim() : "";
@@ -1122,7 +1123,8 @@ function panelAuthClear() {
   });
 }
 
-/** 中英雙語（鎖屏浮層＋眼仔 title 用：語言按鈕收起在面版後面，不知正在看邊種文，兩種一次過 show）。 */
+/** zh/en bilingual text (for the lock overlay + the eye button title: the language switch is hidden behind the panel, so nobody
+ *  knows which language is showing; show both at once). */
 function tBoth(key) {
   const entry = (typeof I18N !== "undefined" && I18N[key]) || null;
   if (!entry) return key;
@@ -1130,7 +1132,7 @@ function tBoth(key) {
   return entry.zh + " / " + entry.en;
 }
 
-/** 密碼框「眼仔」開關：按一下看到正在打什麼，再按收到（token 輸入框用，見 index.html）。 */
+/** Password box "eye" toggle: one press shows what is being typed, the next hides it again (used by the token input, see index.html). */
 function togglePwVisibility(inputId, btn) {
   const el = document.getElementById(inputId);
   if (!el) return;
@@ -1142,29 +1144,30 @@ function togglePwVisibility(inputId, btn) {
   }
 }
 
-// ---------------- 面板鎖屏浮層（見 index.html #panelLockOverlay） ----------------
-// auth 啟用＋記住的 token 驗不過→開浮層蓋住整個面版不 show 內容。浮層解鎖同儲存
-// 同一個語義（token＋current 同值），得即記住＋reload，成頁用正常流程重行。
-// 注意：HTML／JS 靜態檔本身擋不住下載（瀏覽器要載入先行到），真正敏感數據靠後端
-// 全面板閘口（未解鎖 API 一律 401）；浮層只是不 show 操作面。
+// ---------------- Panel lock overlay (see index.html #panelLockOverlay) ----------------
+// Auth enabled + the remembered token fails verification: open the overlay, cover the whole panel, and show no
+// content. Unlocking here has the same semantics as Save (token + current with one value); on success remember it
+// and reload, so the whole page runs the normal flow again.
+// Note: the static HTML/JS files themselves cannot block downloads (the browser must load them first). The real
+// protection is the backend all-panel gate (locked APIs always return 401); the overlay only hides the controls.
 function panelLockCheck() {
   if (typeof Alpha2Api === "undefined" || !Alpha2Api.systemAuthStatus) return;
   Alpha2Api.systemAuthStatus({}).then(function (res) {
-    if (!res || !res.ok || !res.enabled) return;  // 停用＝全開，什麼都不做
+    if (!res || !res.ok || !res.enabled) return;  // Auth disabled. The panel stays open. Do nothing.
     const open = function () {
-      window.__panelLocked = true;  // 壓住 showError：後面 init 的 401 不洗版
+      window.__panelLocked = true;  // Suppress showError. The 401 responses from init do not flood the screen.
       const ov = document.getElementById("panelLockOverlay");
       if (ov && ov.classList) ov.classList.add("open");
     };
-    if (!panelTokenGet()) { open(); return; }  // 記住都無，直接鎖
-    // 有記住都要 verify（可能在另一 tab 清了／改了）。
+    if (!panelTokenGet()) { open(); return; }  // No remembered token exists. Lock the panel directly.
+    // Even with a remembered token, verify it (another tab may have cleared or changed it).
     Alpha2Api.systemAuthVerify({}).then(function (v) {
       if (!(v && v.ok && v.valid)) open();
     });
   });
 }
 
-/** 浮層解鎖按鈕（＋Enter）：得即記住＋reload；不得留在鎖屏 show 錯。 */
+/** Overlay unlock button (+ Enter): on success remember the token and reload; on failure stay locked and show the error. */
 function panelLockUnlock() {
   const input = document.getElementById("panelLockInput");
   const msg = document.getElementById("panelLockMsg");

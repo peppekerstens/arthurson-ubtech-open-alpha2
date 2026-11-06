@@ -1,39 +1,39 @@
 // Open Alpha2 — client logic (app-xiaozhi.js)
-// 小智 (XiaoZhi) AI 對話 tab - 連出去 xiaozhi.me 的 client-side WebSocket (XiaozhiClient.java
-// 在 server 端做), 這個檔案負責: 單一開關 (連接/斷開/隨時語音對話三合一)、文字輸入、
-// 狀態顯示、將 EventBus 送過來的 xiaozhi_* WebSocket event 渲染做對話氣泡。
+// 小智 (XiaoZhi) AI chat tab - the client-side WebSocket out to xiaozhi.me is done
+// server-side (XiaozhiClient.java). This file owns: a single toggle (connect/disconnect/always-on voice
+// chat in one), text input, status display, and rendering xiaozhi_* WebSocket events from the EventBus as chat bubbles.
 //
-// UI 設計: 僅一個開關 (xiaozhiSessionToggle) - 開 = 連接 + 自動開始聽, 隨時語音
-// 對話; 關 = 斷開、釋放 mic。按開那刻觸發的是一個 OTA/device-activation flow
-// (check_version -> 讀出配對碼 -> poll -> 先至真正連 WebSocket), 不用用戶自己填
-// WS URL/token - 這些改由 server 經 xiaozhi.me 官方 OTA endpoint 取回。見
-// XiaozhiOtaClient.java / MainActivity#runXiaozhiActivationFlow() class javadoc。
-// 連接完成之後自動一併開啟 server 端的 auto_mode (見 xiaozhiPollActivationStatus() 的
-// "connected" case), 之後每次 TTS 播完都自動再聽一次 (由 server 端
-// XiaozhiClient.TtsStateListener 驅動, 這個檔案不用自己 poll TTS 狀態)。文字輸入用
-// listen state:detect 帶 text (見 XiaozhiClient#sendListenDetectText() 的 javadoc,
-// 這個是借用 wake-word-detected 的 message shape, 未 100% 官方保證行得通, 實測為準)。
+// UI design: exactly one toggle (xiaozhiSessionToggle) - on = connect + auto-start listening, voice
+// chat anytime; off = disconnect, release the mic. Flipping it on triggers an OTA/device-activation flow
+// (check_version -> read out the pairing code -> poll -> only then connect the WebSocket). The user does not fill in
+// the WS URL/token - the server fetches those from the official xiaozhi.me OTA endpoint. See
+// XiaozhiOtaClient.java / MainActivity#runXiaozhiActivationFlow() class javadoc.
+// After the connect finishes, the server-side auto_mode is turned on too (see the
+// "connected" case in xiaozhiPollActivationStatus()). After each TTS playback it listens again automatically (driven by server-side
+// XiaozhiClient.TtsStateListener; this file does not poll TTS state itself). Text input uses
+// listen state:detect with text (see the javadoc of XiaozhiClient#sendListenDetectText().
+// This borrows the wake-word-detected message shape; it is not 100% officially guaranteed to work - trust the field tests).
 //
-// 全部檔案共用 window/global scope (沒有用 ES module), 載入順序由 index.html 的
-// <script src="..."> 順序決定 - 詳見 index.html 頭那段 comment。
+// All files share the window/global scope (no ES modules). Load order is set by the
+// <script src="..."> order in index.html - see the comment block at the head of index.html.
 //
-// 依賴 app-log.js 的 escapeHtml()/nowTimeStr()/MAX_LOG_LINES (雖然 app-log.js 在
-// index.html 裡面排在這個檔案之後 load) - 安全的原因: 這裡所有用到這幾個
-// identifier 的地方都在 function body 裡面 (xiaozhiAppendChatLine()), 不是 module
-// top-level 直接執行, 實際 call 到當時全部 <script> 都已經 load 完 (DOMContentLoaded
-// 之後先有用戶操作/WebSocket event 觸發這些 function)。如果之後要在這個檔案的
-// top-level (就是函數外面) 直接用這幾個 identifier, 就必須將 <script src="app-log.js">
-// 搬到這個檔案之前, 否則會 ReferenceError。
+// Depends on escapeHtml()/nowTimeStr()/MAX_LOG_LINES from app-log.js (app-log.js loads
+// after this file in index.html). This is safe: every use of these
+// identifiers here sits inside a function body (xiaozhiAppendChatLine()), not in module
+// top-level code. At actual call time all <script> tags are already loaded (DOMContentLoaded
+// passes first, then user actions/WebSocket events trigger these functions). If you later use these
+// identifiers directly at top level (outside functions) in this file, you must move <script src="app-log.js">
+// ahead of this file, otherwise you get a ReferenceError.
 
-// api()/hwApi() 都是 alpha2/lynx 專屬 (加 "alpha2/"/"lynx/" 前綴) - 小智這個
-// namespace 在 server 端是 backend-agnostic ("/api/xiaozhi/...", 見
-// MainActivity#handleXiaozhiApi), 所以這裡自己起一個, 不跟 api()/hwApi() 那種
-// backend 前綴邏輯。
+// api()/hwApi() are alpha2/lynx specific (they add the "alpha2/"/"lynx/" prefix). The 小智
+// namespace on the server is backend-agnostic ("/api/xiaozhi/...", see
+// MainActivity#handleXiaozhiApi), so this file defines its own helper and does not follow the
+// backend prefix logic of api()/hwApi().
 function xiaozhiApi(path, params) {
   clearError();
-  // 實驗 tab 面板 token：同 api()/sysApi() 一樣行 Authorization: Bearer header
-  //（panelAuthHeaders＋apiQuery 住 app-core.js；boot_voice/set 啟用中要驗，不帶即 401）。
-  // ota_config/set 個業務 token 照行 query——同 header panel token 唔同 key，不會撞（見 PanelAuth）。
+  // Experimental tab panel token: like api()/sysApi(), it travels in the Authorization: Bearer header
+  // (panelAuthHeaders + apiQuery live in app-core.js; boot_voice/set needs it when auth is on, missing = 401).
+  // The business token of ota_config/set still goes in the query - it is a different key from the header panel token, so they never clash (see PanelAuth).
   const clean = (typeof stripPanelToken === "function") ? stripPanelToken(params) : params;
   const qs = clean ? "?" + new URLSearchParams(clean).toString() : "";
   const hdrs = (typeof panelAuthHeaders === "function") ? panelAuthHeaders(params) : {};
@@ -52,38 +52,39 @@ function xiaozhiApi(path, params) {
   });
 }
 
-// 全域 flag, 由 xiaozhiCheckSupport() 在 page load 設定一次 - 連接了還未夠, 這部機
-// 還要支援 Opus 先真正可以語音對話 (不支援的話 unsupportedNotice 會顯示提示,
-// 但單一開關本身不會因為這個而 disable, 純文字對話仍然用得)。
+// Global flag, set once at page load by xiaozhiCheckSupport(). Connecting is not enough - the device
+// must also support Opus before voice chat really works (if unsupported, unsupportedNotice shows a hint,
+// but the single toggle itself is not disabled for this; plain text chat still works).
 let xiaozhiAudioSupported = false;
 let xiaozhiMicActive = false;
 let xiaozhiAutoModeOn = false;
-// TTS 輸出引擎選擇 - "xiaozhi" (預設) = 原本行為, server 送 opus 聲, 由後端
-// XiaozhiAudioController 解碼播放; 選 "iflytek"/"nuance"/"android" 就後端會
-// 靜音那段 opus (見 MainActivity.xiaozhiTtsEngine field javadoc), 這裡改用
-// xiaozhiTtsQueue 排隊, 逐句在 xiaozhi_tts 的 "sentence_start" 到那刻 call 本地
-// speech/tts API (同 app-speech.js 個 speakTts() 正在用那個 API 一樣) 讀出。
-// 頁面載入時由 xiaozhiLoadTtsConfig() 讀回後端存低的上次選擇, 同步這個變數同
-// 按鈕 active 狀態。
+// TTS output engine choice. "xiaozhi" (default) = original behavior: the server sends opus audio and
+// the backend XiaozhiAudioController decodes and plays it. Pick "iflytek"/"nuance"/"android" and the backend
+// mutes that opus stream (see the MainActivity.xiaozhiTtsEngine field javadoc); this file then queues via
+// xiaozhiTtsQueue and, sentence by sentence at each xiaozhi_tts "sentence_start", calls the local
+// speech/tts API (the same API speakTts() in app-speech.js uses) to read it out.
+// At page load xiaozhiLoadTtsConfig() reads back the last choice stored on the backend, and syncs this variable with the
+// button active state.
 // Poll timer handle for the activation flow (checking/awaiting_code/polling/
 // connecting stages) - cleared once CONNECTED or ERROR is reached. Kept as a module
 // -level variable (not a closure-local) so xiaozhiDisconnect()/a page reload mid
 // -activation can't leave a stray setTimeout still firing after the fact.
 let xiaozhiActivationPollTimer = null;
 
-// 本地 TTS 引擎讀小智回覆的句子隊列 - 見 xiaozhiHandleEvent() 個 "xiaozhi_tts"
-// case comment。一段回應可能連續觸發多次 "sentence_start" (相隔可能得百幾
-// ms), 如果一到就即刻 stop 上一句再讀新一句, 上一句還未讀完就會被人腰斬
-// (「iFlytek 只能講到頭幾隻字」, nuance/android 沒有事純粹是剛巧個 gap 未撞到)。
-// 現在改做排隊: 新句入隊尾, 僅在沒有東西正正在播當時先即刻讀; 正在讀當時新句僅
-// 入隊, 等 tts_end event (後端 robot-side TTS 的 onServerPlayEnd / Android
-// TTS 的 UtteranceProgressListener 都會 publish, 見 MainActivity 兩處
-// comment) 話這句讀完先讀下一句。
+// Queue of XiaoZhi reply sentences for the local TTS engine to read - see the comment in the
+// "xiaozhi_tts" case of xiaozhiHandleEvent(). One reply can fire several "sentence_start" events
+// in a row (sometimes only ~100 ms apart). If each arrival stopped the previous sentence and read the new one,
+// the unfinished sentence would be cut off mid-way ("iFlytek only said the first few words"; nuance/android looked fine
+// purely because the gap never landed there). So now: queue. A new sentence joins the tail and reads immediately only when
+// nothing is playing; while reading, a new sentence only queues, and the next one starts when the
+// tts_end event says this sentence finished (the backend robot-side TTS onServerPlayEnd and the Android
+// TTS UtteranceProgressListener both publish it, see the two
+// comments in MainActivity).
 let xiaozhiTtsQueue = [];
 let xiaozhiTtsSpeaking = false;
 
-/** 選了本地 TTS 引擎當時, 將一句小智回覆入隊 - 沒有東西正正在播就即刻讀, 否則排在
- *  隊尾等 xiaozhiProcessTtsQueue() (由 tts_end event 觸發) 輪到它。 */
+/** When a local TTS engine is selected, enqueue one XiaoZhi reply sentence. If nothing is playing, read it
+ *  at once; otherwise it waits at the queue tail for xiaozhiProcessTtsQueue() (triggered by the tts_end event). */
 function xiaozhiEnqueueTts(text) {
   xiaozhiTtsQueue.push(text);
   if (!xiaozhiTtsSpeaking) {
@@ -91,9 +92,9 @@ function xiaozhiEnqueueTts(text) {
   }
 }
 
-/** 讀隊頭一句 (如果有) - xiaozhiTtsSpeaking 在這裡設做 true, 等對應那句的
- *  tts_end event 回來先清除做 false 再讀下一句 (見 xiaozhiHandleEvent() 個
- *  "tts_end" case)。 */
+/** Read the head sentence of the queue (if any). xiaozhiTtsSpeaking is set to true here, and
+ *  cleared back to false only when that sentence's tts_end event arrives, then the next
+ *  sentence is read (see the "tts_end" case in xiaozhiHandleEvent()). */
 function xiaozhiProcessTtsQueue() {
   if (xiaozhiTtsQueue.length === 0) {
     xiaozhiTtsSpeaking = false;
@@ -104,8 +105,8 @@ function xiaozhiProcessTtsQueue() {
   Alpha2Api.speechTts( { text: text, engine: xiaozhiTtsEngine });
 }
 
-/** 引擎切換 (xiaozhiSetTtsEngine())/斷線都要清空隊列 - 不是就換掉engine之後,
- *  隊列裡面舊引擎正在排的句子會用新引擎來讀, 對不上用戶看到的切換時機。 */
+/** Clear the queue on engine switch (xiaozhiSetTtsEngine()) and on disconnect. Otherwise, after the
+ *  engine changes, sentences queued for the old engine would be read by the new one, which does not match the switch moment the user sees. */
 function xiaozhiResetTtsQueue() {
   xiaozhiTtsQueue = [];
   xiaozhiTtsSpeaking = false;
@@ -132,10 +133,10 @@ function xiaozhiSetStatus(stateKey, extraText) {
   el.textContent = t(stateKey) + (extraText ? " " + extraText : "");
 }
 
-/** 反映 mic 擁有權燈號 - 綠色 = 這個 app 現在拿住 mic (releaseMicForAudioIo() 已生效,
- *  語音對話正在用), 灰色 = 已釋放給機械人自己的 wake-word 引擎。同 xiaozhiMicActive
- *  這個純 UI flag 不同 - 這個燈號反映的是 server 端 xiaozhiMicHeld 的真實狀態
- *  (見 MainActivity#startXiaozhiMic()/stopXiaozhiMic() 同 XIAOZHI_MIC_STATE_EVENT)。 */
+/** Mic ownership light. Green = this app holds the mic now (releaseMicForAudioIo() has taken effect,
+ *  voice chat is using it). Grey = released back to the robot's own wake-word engine. This differs from the
+ *  xiaozhiMicActive pure-UI flag: the light reflects the real server-side state of
+ *  xiaozhiMicHeld (see MainActivity#startXiaozhiMic()/stopXiaozhiMic() and XIAOZHI_MIC_STATE_EVENT). */
 function xiaozhiSetMicLed(held) {
   const els = xiaozhiElements();
   if (els.micLed) {
@@ -147,14 +148,14 @@ function xiaozhiSetMicLed(held) {
   }
 }
 
-// 一個開關代表整個 session 的狀態: 開 = 已連接 (連線 + auto_mode/mic 隨時語音對話),
-// 關 = 未連接。這個 function 僅反映開關本身同文字輸入的 enable 狀態, 不再有獨立
-// mic 按鈕/badge - 語音對話狀態靠 statusBadge 反映就夠。
+// One toggle stands for the whole session state: on = connected (link + auto_mode/mic, voice chat anytime),
+// off = not connected. This function only mirrors the toggle itself and the enable state of the text input. There is no separate
+// mic button/badge - the statusBadge is enough to show the voice chat state.
 function xiaozhiSetConnectedUi(connected) {
   const els = xiaozhiElements();
   if (els.sessionToggle) els.sessionToggle.checked = connected;
-  // 文字輸入不經 mic/Opus, 純文字 message, 僅要連接了就得 - 見
-  // MainActivity#handleXiaozhiApi 的 "send_text" case 的 comment。
+  // Text input does not go through mic/Opus; it is a plain text message and only needs a connection - see
+  // the comment in the "send_text" case of MainActivity#handleXiaozhiApi.
   if (els.sendTextBtn) els.sendTextBtn.disabled = !connected;
   if (!connected) {
     xiaozhiMicActive = false;
@@ -164,7 +165,7 @@ function xiaozhiSetConnectedUi(connected) {
 
 let xiaozhiLastShownActivationCode = null;
 
-/** 配對碼 append 落 xiaozhiChatLog；用 xiaozhiLastShownActivationCode 防同一 code 重複插入 (activation_status 輪詢會不斷拿到同一 code)。els.activationBox 保持 display:none。 */
+/** Append the pairing code into xiaozhiChatLog; xiaozhiLastShownActivationCode stops the same code being inserted twice (the activation_status poll keeps returning it). els.activationBox stays display:none. */
 function xiaozhiShowActivationCode(code) {
   const els = xiaozhiElements();
   if (els.activationCode) els.activationCode.textContent = code || "";
@@ -174,10 +175,10 @@ function xiaozhiShowActivationCode(code) {
   }
 }
 
-/** 配對碼只經對話界面顯示；留兩個 no-op stub 防舊快取頁面 ReferenceError。 */
+/** The pairing code shows only in the conversation UI; two no-op stubs stay so old cached pages do not hit ReferenceError. */
 
-function xiaozhiShowActivationModal() { /* 配對碼只經對話界面顯示 */ }
-function xiaozhiHideActivationModal() { /* 見上 */ }
+function xiaozhiShowActivationModal() { /* the pairing code shows only in the conversation UI */ }
+function xiaozhiHideActivationModal() { /* see above */ }
 
 function xiaozhiHideActivationCode() {
   const els = xiaozhiElements();
@@ -240,8 +241,8 @@ function xiaozhiPollActivationStatus() {
         xiaozhiHideActivationCode();
         xiaozhiSetStatus("xiaozhi_status_connected", res.sessionId ? "(" + res.sessionId + ")" : "");
         xiaozhiSetConnectedUi(true);
-        // 單一開關的設計: 一連接好就即刻一併開啟 auto_mode, 等於自動搶 mic、隨時語音
-        // 對話, 不用用戶再按多一下 - 見 index.html 個開關 label。
+        // Single-toggle design: once connected, auto_mode turns on in the same step, which means auto mic grab and
+        // voice chat anytime, so the user never presses a second time - see the toggle label in index.html.
         xiaozhiAutoModeOn = true;
         Alpha2Api.xiaozhiAutoMode({ enabled: "true" });
         break;
@@ -267,8 +268,8 @@ function xiaozhiDisconnect() {
   // clears auto_mode itself, so the local flag should reset here too rather than
   // staying true against a session that's about to go away.
   xiaozhiAutoModeOn = false;
-  // 斷線之後隊列裡面正在排的句子已經沒有意義 (小智已經斷了, 不會再有新對話接
-  // 下去), 一齊清空, 不留下啲舊句子等下次連接先再讀。
+  // After a disconnect, sentences still queued are meaningless (XiaoZhi is gone and no new conversation will
+  // follow). Clear them all; do not leave old sentences waiting for the next connect to read them.
   xiaozhiResetTtsQueue();
   Alpha2Api.xiaozhiDisconnect({}).then(function () {
     xiaozhiSetStatus("xiaozhi_status_disconnected");
@@ -276,11 +277,12 @@ function xiaozhiDisconnect() {
   });
 }
 
-/** 單一開關: 開 = 連接 (內部觸發 OTA/activation flow, 完成後自動開 auto_mode 搶
- *  mic, 隨時語音對話), 關 = 斷開 (auto_mode 同 mic 一齊停)。用戶僅要理解「開就用得, 關就不用」。
- *  開關本身即時反映用戶操作的意圖; 真正的連接狀態由 xiaozhiPollActivationStatus()/
- *  xiaozhiHandleEvent() 的 xiaozhi_state 事件驅動, 如果連接失敗會經
- *  xiaozhiSetConnectedUi(false) 將開關撥回去。 */
+/** Single toggle: on = connect (it internally runs the OTA/activation flow, then auto_mode grabs the
+ *  mic automatically, giving voice chat anytime), off = disconnect (auto_mode and mic stop together). The user only needs
+ *  "on means usable, off means not". The toggle mirrors the user's intent at once; the real
+ *  connection state is driven by xiaozhi_state events from xiaozhiPollActivationStatus()/
+ *  xiaozhiHandleEvent(), and a failed connect flips the toggle back through
+ *  xiaozhiSetConnectedUi(false). */
 function xiaozhiToggleSession() {
   const els = xiaozhiElements();
   const wantOn = !!(els.sessionToggle && els.sessionToggle.checked);
@@ -291,10 +293,10 @@ function xiaozhiToggleSession() {
   }
 }
 
-// 打字送出進行中旗標 — 見 xiaozhiSendText()。放 function 外 (module 級，
-// 同 xiaozhiTtsQueue 一樣經 window/global scope 共用)。
+// Flag for a text send in progress - see xiaozhiSendText(). Kept outside the function (module level,
+// shared through the window/global scope like xiaozhiTtsQueue).
 let xiaozhiSendTextInFlight = false;
-// 最近一次打字送出嘅原文＋時間 — 見下面 xiaozhi_stt 過濾。
+// The original text + time of the last typed send - see the xiaozhi_stt filtering below.
 let xiaozhiLastSentText = "";
 let xiaozhiLastSentAtMs = 0;
 
@@ -303,18 +305,19 @@ let xiaozhiLastSentAtMs = 0;
  *  relies on) rather than through the mic/Opus path - works regardless of
  *  xiaozhiAudioSupported since no audio codec is involved.
  *
- *  Server echo (stt message) 是 chat log 唯一來源 — 這個 function 只清 input，不自己 append。
+ *  The server echo (stt message) is the only source for the chat log - this function only clears the input, it never appends itself.
  */
 function xiaozhiSendText() {
-  // 打字連送兩次 (Enter+撳掣同時觸發、㩒住 Enter key-repeat) 會開兩個相同
-  // LLM turn，server 跟住落兩個 take_photo，相機撞車＋server 掟線。單線程
-  // 內同步檢查+上鎖：第一個入到，之後嘅 (包括未回之前嘅 Enter repeat) 全部
-  // 食咗佢。回包先解鎖 (下面 then)，唔靠 button disabled (Enter 路唔經佢)。
+  // Two rapid typed sends (Enter plus button at once, or holding Enter with key-repeat) open two identical
+  // LLM turns; the server then queues two take_photo calls, the camera collides, and the server drops the line. Synchronous
+  // check + lock inside the single thread: the first call gets in, every later one (including Enter repeats before the
+  // response) is swallowed. The lock releases only on the response (see the then below); a button disabled flag is not
+  // enough because the Enter path does not go through it.
   if (xiaozhiSendTextInFlight) return;
   const els = xiaozhiElements();
   const text = els.textInput ? (els.textInput.value || "").trim() : "";
   if (!text) return;
-  // 防禦性檢查：真機 WebView autofill 可能將 placeholder 誤填入 .value；若文字同 placeholder 翻譯一致，當非用戶輸入，不送出並提示重打。
+  // Defensive check: the real-device WebView autofill can put the placeholder into .value by mistake. If the text equals the placeholder translation, treat it as non-user input: do not send, and prompt to retype.
   if (text === t("xiaozhi_text_placeholder")) {
     xiaozhiAppendChatLine("xiaozhi-msg-system", t("xiaozhi_send_text_error"));
     if (els.textInput) els.textInput.value = "";
@@ -322,15 +325,15 @@ function xiaozhiSendText() {
   }
   xiaozhiSendTextInFlight = true;
   if (els.sendTextBtn) els.sendTextBtn.disabled = true;
-  // 認回音用嘅時間戳一定要喺 fetch 之前同步記：兩句 STT (phantom＋回音)
-  // 行 WebSocket，分分鐘快過呢個 HTTP 回包先到；擺喺 then 先記就永遠太遲。
+  // The timestamp used for echo matching must be recorded synchronously before the fetch: the two STT lines
+  // (phantom + echo) travel over the WebSocket and can beat this HTTP response; recording it in the then would always be too late.
   xiaozhiLastSentText = text;
   xiaozhiLastSentAtMs = Date.now();
   Alpha2Api.xiaozhiSendText({ text: text }).then(function (res) {
     if (res.ok) {
       if (els.textInput) els.textInput.value = "";
     } else {
-      // 送失敗就當冇送過，免之後 2.5 秒內嘅真語音 STT 被誤殺。
+      // If the send failed, act as if nothing was sent, so real voice STT within the next 2.5 s is not killed by mistake.
       xiaozhiLastSentAtMs = 0;
       xiaozhiAppendChatLine("xiaozhi-msg-system", res.error || t("xiaozhi_send_text_error"));
     }
@@ -339,28 +342,28 @@ function xiaozhiSendText() {
   });
 }
 
-/** 總停鍵 — 一次過中斷動作播放 (action/stop)、TTS (speech/stop，見 handleApi() "speech/stop" case)、本地音樂
- *  (audio/local_music/stop)。用 api() 不是 xiaozhiApi() — 這些 endpoint 屬於
- *  alpha2/lynx backend-specific namespace (見 handleApi())，不是
- *  handleXiaozhiApi() backend-agnostic "xiaozhi/" namespace。
+/** Stop-all button - interrupts in one press: action playback (action/stop), TTS (speech/stop, see the
+ *  handleApi() "speech/stop" case), and local music (audio/local_music/stop). Uses api(), not
+ *  xiaozhiApi() - these endpoints belong to the alpha2/lynx backend-specific namespace (see
+ *  handleApi()), not the backend-agnostic "xiaozhi/" namespace of handleXiaozhiApi().
  *
- *  三個 request 用 Promise.all 同時發出 (不是逐個 await), 理由: (1) 這三件事本身
- *  互不相干, 垮一個不應該延遲另外兩個開始執行的時間; (2) 用戶按這個按鈕通常是想
- *  「即刻閉嘴」, 反應時間敏感, 逐個 sequential 送會令總體延遲變成三個 request
- *  時間之和。單一 request 失敗 (例如沒有某個 backend 支援) 不應該影響其餘兩個 -
- *  api() 本身已經在 network/non-ok response 個 case 自己處理了 showError(), 這裡
- *  不用額外再包一層 try/catch。 */
+ *  The three requests go out together via Promise.all (not awaited one by one). Reasons: (1) the three
+ *  jobs are independent, so one failing must not delay when the other two start; (2) a user pressing this
+ *  button usually wants "shut up now", which is latency-sensitive, and sequential sends would make the total delay the sum
+ *  of the three request times. A single failed request (for example a backend without support) must not affect the
+ *  other two. api() already calls showError() itself in its network/non-ok response case, so no extra
+ *  try/catch layer is needed here. */
 function xiaozhiStopAll() {
-  // 按了總停鍵就是用戶想即刻靜完 - 隊列裡面正在排的句子不應該之後又自己彈出來
-  // 讀, 一齊清空。
+  // Pressing stop-all means the user wants instant silence - queued sentences must not pop out and read
+  // themselves later. Clear them all.
   xiaozhiResetTtsQueue();
   Promise.all([
     Alpha2Api.actionStop(),
     Alpha2Api.speechStop(),
     Alpha2Api.audioLocalMusicStop(),
-    Alpha2Api.audioRadioStop(), // FM/網絡電台都是「播放中」一種，跟本地音樂一齊納入總停鍵。
-    Alpha2Api.ledHeadSet({ preset: "stop" }), // 總停埋頭燈（嘴燈跟 TTS 停，見 speech/stop）。
-    Alpha2Api.ledEyeSet({ preset: "stop" }), // 眼燈同上。
+    Alpha2Api.audioRadioStop(), // FM/internet radio are also "playing" states, so they join local music under the stop-all button.
+    Alpha2Api.ledHeadSet({ preset: "stop" }), // Stop-all also stops the head LED (the mouth LED follows the TTS stop, see speech/stop).
+    Alpha2Api.ledEyeSet({ preset: "stop" }), // Eye LED: same as above.
   ]);
 }
 
@@ -375,7 +378,7 @@ function xiaozhiClientIsConnected() {
 
 /** Appends one chat-log line. roleClass drives the bubble's CSS styling
  *  (xiaozhi-msg-user/xiaozhi-msg-assistant/xiaozhi-msg-system - see style.css).
- *  時間戳保留 (每句底下細字顯示發送時間)。 */
+ *  The timestamp stays (small text under each sentence shows the send time). */
 function clearXiaozhiChatLog() {
   const log = xiaozhiElements().chatLog;
   if (log) log.innerHTML = "";
@@ -400,8 +403,9 @@ function xiaozhiAppendChatLine(roleClass, text) {
   log.scrollTop = log.scrollHeight;
 }
 
-/** MCP 工具調用卡片 — 跟 xiaozhi.me console「歷史對話」樣式，可展開「🔧 工具呼叫」卡，顯示 tool＋參數。
- *  耗時不跟：request/response 是獨立 event 無共同 id (見 EVT_MCP)，計耗時要額外對應，價值不成正比。 */
+/** MCP tool-call card - follows the xiaozhi.me console "歷史對話" style: an expandable "🔧 工具呼叫"
+ *  card that shows the tool and its arguments. Elapsed time is not tracked: request/response are separate events with no shared id
+ *  (see EVT_MCP), so timing would need extra matching, and the value does not justify the cost. */
 function xiaozhiAppendMcpToolCallCard(toolName, argsObj) {
   const log = xiaozhiElements().chatLog;
   if (!log) return;
@@ -452,20 +456,20 @@ function xiaozhiHandleEvent(type, data) {
         xiaozhiAppendChatLine("xiaozhi-msg-system", data.message || "error");
       }
       break;
-    // 對話畫面僅顯示真正的對話內容 (用戶講/打字 + 小智回覆), 靠右/靠左分色 - 見
-    // xiaozhiAppendChatLine() 同 style.css 的 .xiaozhi-msg-user/.xiaozhi-msg-assistant。
-    // MCP 工具調用 (xiaozhi_mcp)、emotion hint (xiaozhi_llm)、system 指令
-    // (xiaozhi_system) 這些協議層雜訊不會再入對話 log - 完整內容仍然正在入主 event
-    // log (eventLog, 見 app-log.js 的 appendLog()), 僅不顯示在這個對話畫面。
-    // xiaozhi_alert 例外: 這個是伺服器主動推送的警示 (例如電量不足), 用戶應該
-    // 在對話畫面見到, 所以保留。
+    // The chat view shows only real conversation (user speech/typing + XiaoZhi replies), right/left aligned and
+    // color-coded - see xiaozhiAppendChatLine() and .xiaozhi-msg-user/.xiaozhi-msg-assistant in style.css.
+    // MCP tool calls (xiaozhi_mcp), emotion hints (xiaozhi_llm), and system commands
+    // (xiaozhi_system) are protocol noise and no longer enter the chat log - the full content still goes into the main event
+    // log (eventLog, see appendLog() in app-log.js); it just stays out of this chat view.
+    // xiaozhi_alert is the exception: it is a server-pushed warning (for example low battery) that the user should
+    // see in the chat view, so it is kept.
     case "xiaozhi_stt":
-      // 打字會帶出兩行：後端送 detect 之前要先停 mic，server 會將 stop 之前
-      // 已收到嘅背景聲尾段結算成一句 phantom STT (例如 "嗯"/"我"，實測永遠喺
-      // 自己嗰句回音之前幾百 ms 到)，搞到每次打字出兩行、第一行無關。
-      // 認回音：同最近一次送出原文 (去尾標點比) 唔啱、又係送出後 2.5 秒內到
-      // 嘅，一律當 phantom 唔入對話氣泡。主 event log (appendLog) 那邊照收，
-      // 查嘢唔會唔見。語音講嘢唔經呢度 (冇 lastSent)，唔受影響。
+      // Typing produces two lines: before sending detect the backend stops the mic, and the server
+      // settles the leftover background audio received before the stop into a phantom STT sentence (for example "嗯"/"我"; in tests it
+      // always lands a few hundred ms before the echo of your own sentence). That makes every typed send show two lines, the first one unrelated.
+      // Echo matching: any STT that differs from the last sent original text (compared with trailing punctuation removed) and arrives within
+      // 2.5 s of the send is treated as phantom and kept out of the chat bubbles. The main event log (appendLog) still records
+      // everything, so debugging loses nothing. Spoken voice does not pass here (no lastSent) and is unaffected.
       if (data.text) {
         const norm = function (s) { return (s || "").replace(/[ 。？！!?….]+$/g, ""); };
         const ageMs = Date.now() - xiaozhiLastSentAtMs;
@@ -475,9 +479,9 @@ function xiaozhiHandleEvent(type, data) {
       }
       break;
     case "xiaozhi_tts":
-      // 小智實際回覆的文字是這個 event 的 "sentence_start" (對話氣泡本身都是
-      // 用這個顯示) - xiaozhi_llm 個 data.text 其實是表情 emoji (例如 "😆"),
-      // 不是對話內容, 不可以用來讀。
+      // The real XiaoZhi reply text is this event's "sentence_start" (the chat bubbles are
+      // rendered from it too). xiaozhi_llm's data.text is actually an emotion emoji (for example "😆"),
+      // not conversation content, so it must never be read aloud.
       if (data.state === "sentence_start" && data.text) {
         xiaozhiAppendChatLine("xiaozhi-msg-assistant", data.text);
         if (xiaozhiTtsEngine !== "xiaozhi") {
@@ -491,20 +495,20 @@ function xiaozhiHandleEvent(type, data) {
         xiaozhiMicActive = true;
       }
       break;
-    // 本地 TTS 引擎讀完一句 (後端 robot-side onServerPlayEnd /
-    // Android TTS UtteranceProgressListener 都會 publish 這個 event, 見
-    // MainActivity 兩處 comment) - 觸發隊列讀下一句。這個 event 不止小智 tab
-    // 觸發的 speech/tts 會收到, speech tab 手動測試的 speakTts() 都會收到,
-    // 但那邊沒有隊列邏輯, 不受影響。event type 不帶 "xiaozhi_" 前綴 (tts_end 是
-    // 全域 TTS 完成訊號, 不止小智專用) - dispatch 在 app-log.js 個 appendLog()
-    // 獨立一句轉過來, 不行 "xiaozhi_" 前綴 catch-all 那條路, 見那邊 comment。
+    // The local TTS engine finished one sentence (both the backend robot-side onServerPlayEnd and
+    // the Android TTS UtteranceProgressListener publish this event, see the two comments in
+    // MainActivity) - this triggers the queue to read the next sentence. Not only the XiaoZhi tab's
+    // speech/tts calls receive it; speakTts() manual tests on the Speech tab also receive it, but that side has no
+    // queue logic, so it is unaffected. The event type has no "xiaozhi_" prefix (tts_end is the
+    // global TTS-done signal, not XiaoZhi-only). The dispatch is a separate line in app-log.js's appendLog()
+    // that forwards it; it must not rely on the "xiaozhi_" prefix catch-all path - see the comment there.
     case "tts_end":
       xiaozhiProcessTtsQueue();
       break;
     case "xiaozhi_alert":
       xiaozhiAppendChatLine("xiaozhi-msg-system", "⚠ " + data.status + ": " + data.message);
       break;
-    // 僅選 direction:"in" 且 method:"tools/call" payload (server 要求執行工具那刻，不是 initialize/tools/list 雜訊，亦不是 response)，插「工具呼叫」卡。
+    // Select only the direction:"in" payload with method:"tools/call" (the moment the server asks to run a tool; not initialize/tools/list noise, and not the response), then insert the「工具呼叫」card.
     case "xiaozhi_mcp": {
       const payload = data.payload;
       if (data.direction === "in" && payload && payload.method === "tools/call"
@@ -575,12 +579,14 @@ function xiaozhiRefreshStatus() {
   });
 }
 
-/** 背景常駐輪詢，每 8 秒 check 一次 — 背景自動重連 (xiaozhiScheduleReconnect() -> runXiaozhiActivationFlow()) 不會主動通知前端，
- *  若重連要重新拿配對碼 (token 失效／server 取消綁定)，這裡持續留意狀態轉變，不用手動刷新。同短間隔輪詢不衝突：共用 xiaozhiStopActivationPolling() 清 timer，不會重複輪詢。 */
+/** Background resident poll, one check every 8 seconds. The background auto-reconnect
+ *  (xiaozhiScheduleReconnect() -> runXiaozhiActivationFlow()) does not notify the frontend on its own, so if a
+ *  reconnect needs a new pairing code (token expired / server unbound), this keeps watching for state changes without a manual refresh.
+ *  It does not clash with the short-interval poll: both share xiaozhiStopActivationPolling() to clear the timer, so no double polling. */
 function xiaozhiBackgroundStatusWatch() {
-  // 已經有一個 activation polling loop 在這裡正在行 (xiaozhiActivationPollTimer 不是
-  // null), 就是說用戶剛剛手動按了連接或者已經响 awaiting_code/polling/connecting
-  // 度 - 不用這裡的慢速輪詢再插一腳。
+  // An activation polling loop is already running here (xiaozhiActivationPollTimer is not
+  // null). That means the user just pressed connect manually, or is in awaiting_code/polling/connecting.
+  // This slow poll does not need to step in.
   if (!xiaozhiActivationPollTimer) {
     Alpha2Api.xiaozhiStatus({}).then(function (res) {
       if (!res.ok) return;
@@ -594,8 +600,8 @@ function xiaozhiBackgroundStatusWatch() {
         Alpha2Api.xiaozhiActivationStatus({}).then(function (actRes) {
           if (actRes.ok && (actRes.stage === "checking" || actRes.stage === "awaiting_code"
               || actRes.stage === "polling" || actRes.stage === "connecting")) {
-            // 找到一個背景先至開始了的 activation attempt (通常是自動重連觸發)
-            // - 交回給原本那套短間隔輪詢, 等個配對碼/狀態即時反映出來。
+            // Found an activation attempt that just started in the background (usually triggered by auto-reconnect).
+            // Hand it back to the original short-interval poll so the pairing code/state shows up live.
             xiaozhiPollActivationStatus();
           } else {
             xiaozhiSetConnectedUi(false);
@@ -607,9 +613,9 @@ function xiaozhiBackgroundStatusWatch() {
   setTimeout(xiaozhiBackgroundStatusWatch, 8000);
 }
 
-/** 讀回家陣自訂 server 設定 (見 MainActivity 的 "ota_config/get" endpoint), 反映落
- *  個開關同輸入框 - page load 就要 call, 等用戶見到之前選了的設定, 不會每次開個
- *  panel 都變回做未設定過咁。 */
+/** Read back the saved custom server settings (see the MainActivity "ota_config/get" endpoint) and
+ *  reflect them in the toggle and input boxes. Call at page load so the user sees the settings they picked
+ *  before, instead of the panel resetting to "never configured" every time it opens. */
 function xiaozhiLoadOtaConfig() {
   Alpha2Api.xiaozhiOtaConfigGet({}).then(function (res) {
     if (!res.ok) return;
@@ -628,9 +634,9 @@ function xiaozhiLoadOtaConfig() {
   });
 }
 
-/** 開關切換 - 開就顯示輸入框等用戶填 URL (未即刻儲存, 要按「儲存」先真正生效,
- *  見 xiaozhiSaveOtaCustom()); 關就即刻儲存 (遵循官方 xiaozhi.me, 不用等用戶
- *  額外按東西) 並隱藏輸入框。 */
+/** Toggle switch - on shows the input box and waits for the user to fill the URL (nothing saves yet; press「儲存」to take effect,
+ *  see xiaozhiSaveOtaCustom()); off saves at once (follow the official xiaozhi.me; do not make the user
+ *  press anything extra) and hides the input box. */
 function xiaozhiToggleOtaCustom() {
   const toggle = document.getElementById("xiaozhiOtaCustomToggle");
   const box = document.getElementById("xiaozhiOtaCustomBox");
@@ -643,16 +649,16 @@ function xiaozhiToggleOtaCustom() {
       }
     });
   }
-  // wantOn=true 當時僅顯示個輸入框, 不即刻儲存 - 等用戶真正填了 url 按「儲存」
-  // 先送出去, 避免用戶僅按一下開關 (url 還是空) 就已經觸發 ota_config/set
-  // 令下次連接沒有 url 可用。
+  // When wantOn=true this only shows the input box; it does not save yet. The send waits until the user really fills a
+  // url and presses「儲存」. This stops a lone toggle press (url still empty) from triggering ota_config/set
+  // and leaving the next connect without a url.
 }
 
-/** 「儲存」按鈕 - 送出 OTA URL 同三個可選 override (WebSocket 位址/MAC/Token,
- *  全部留空 = 遵循自動流程, 見 MainActivity 的 "ota_config/set" endpoint
- *  comment)、enabled=true。那個 endpoint 本身會拒絕在已連接狀態下更改同驗證
- *  格式, 所以這裡的錯誤處理主要是將 server 已經做了的驗證結果告訴用戶知, 而不是
- *  重複驗證邏輯。 */
+/** The「儲存」button - sends the OTA URL plus three optional overrides (WebSocket address/MAC/Token;
+ *  all left empty = follow the automatic flow; see the comment on the MainActivity "ota_config/set"
+ *  endpoint) with enabled=true. That endpoint itself rejects changes while connected and validates the
+ *  format, so the error handling here mainly reports the validation the server already did, instead of
+ *  duplicating the validation logic. */
 function xiaozhiSaveOtaCustom() {
   const urlInput = document.getElementById("xiaozhiOtaCustomUrl");
   const wsInput = document.getElementById("xiaozhiWsUrlOverride");
@@ -672,19 +678,19 @@ function xiaozhiSaveOtaCustom() {
         xiaozhiAppendChatLine("xiaozhi-msg-system", t("xiaozhi_ota_custom_saved"));
       } else {
         xiaozhiAppendChatLine("xiaozhi-msg-system", res.error || t("xiaozhi_ota_custom_error"));
-        // Server 拒絕了 (例如連正在接、url 格式錯) - 將開關撥回做 checked 状态保留
-        // (用戶看到個輸入框還在這裡可以改), 不用自動關掉個開關嚇到人, 僅告訴它知
-        // 原因, 等它自己決定是否要改個 url 或者先斷開連接。
+        // The server refused (for example a connect in progress, or a bad url format). Keep the toggle flipped back to
+        // checked so the user still sees the input box and can edit it. Do not auto-off the toggle and scare
+        // them; just tell them the reason and let them decide whether to fix the url or disconnect first.
       }
     });
 }
 
-/** 內置MCP功能列表 card - 頂部一個「展開」開關 (跟自訂 server card 那個
- *  toggle-switch 樣式), 開＝展開整個工具清單 (連逐項 enable/disable 按鈕一齊
- *  顯示), 關＝整個 box 收起完, 什麼都看不到。清單內容讀寫經 MainActivity 的
- *  "mcp_config/set"/"mcp_tools/list" (mcp_tools/list 拿完整清單連逐項 enabled
- *  狀態, mcp_config/set 寫單一 tool 的 enabled 狀態)。首次展開先去拿清單, 之後
- *  收回就僅隱藏, 不會清除已載入的資料, 這樣再展開不用等重新載入。 */
+/** Built-in MCP tool list card - one「展開」toggle at the top (same
+ *  toggle-switch style as the custom server card). On = expand the whole tool list (with per-item enable/disable
+ *  buttons shown too); off = collapse the whole box, nothing visible. List content reads/writes go through MainActivity's
+ *  "mcp_config/set"/"mcp_tools/list" (mcp_tools/list returns the full list with per-item enabled
+ *  state; mcp_config/set writes one tool's enabled state). The first expand fetches the list; after that,
+ *  collapse only hides it and never clears the loaded data, so re-expanding needs no reload. */
 function xiaozhiToggleMcpExpandAll() {
   const toggle = document.getElementById("xiaozhiMcpExpandToggle");
   const box = document.getElementById("xiaozhiMcpToolsBox");
@@ -697,8 +703,8 @@ function xiaozhiToggleMcpTool(toolName, checkbox) {
   const wantOn = !!(checkbox && checkbox.checked);
   Alpha2Api.xiaozhiMcpConfigSet({ tool: toolName, enabled: wantOn ? "true" : "false" }).then(function (res) {
     if (!res.ok) {
-      // Server 拒絕了 - 撥回個 checkbox 做之前個狀態, 不要留下一個「看來改了
-      // 但其實沒有生效」的假象。
+      // The server refused - flip the checkbox back to its previous state. Do not leave the false impression of
+      // "looks changed but nothing took effect".
       if (checkbox) checkbox.checked = !wantOn;
       xiaozhiAppendChatLine("xiaozhi-msg-system", res.error || t("xiaozhi_mcp_tools_error"));
     }
@@ -761,32 +767,32 @@ function xiaozhiLoadMcpTools() {
   });
 }
 
-/** Page load 當時僅初始化開關狀態 (預設收起, 不打 API) - 展開清單要用戶自己
- *  按開個 toggle 先觸發 xiaozhiLoadMcpTools()。 */
+/** At page load this only initializes the toggle state (collapsed by default, no API call). Expanding the list needs the user
+ *  to open the toggle, which then triggers xiaozhiLoadMcpTools(). */
 function xiaozhiLoadMcpConfig() {
-  // 沒有要讀的 persisted 狀態 - 個 toggle 純粹控制展開/收起的 UI, 每次開啟頁面都預設
-  // 收起 (同自訂 server card 一致), 不記住上次狀態。
+  // There is no persisted state to read. The toggle only controls the expand/collapse UI; every page open defaults to
+  // collapsed (same as the custom server card), and the last state is not remembered.
 }
 
-// TTS 輸出引擎選擇 - 見 xiaozhiTtsEngine 變數 javadoc。
+// TTS output engine choice - see the xiaozhiTtsEngine variable javadoc.
 let xiaozhiTtsEngine = "xiaozhi";
 
 function xiaozhiSetTtsEngineUi(engine) {
-  // 只剩下 "xiaozhi"/"android" — 舊設定 (iflytek/nuance) 一律當 "xiaozhi" 顯示。
+  // Only "xiaozhi"/"android" remain - old settings (iflytek/nuance) all display as "xiaozhi".
   if (engine !== "xiaozhi" && engine !== "android") engine = "xiaozhi";
   xiaozhiTtsEngine = engine;
   document.getElementById("xiaozhiTtsEngineXiaozhiBtn").classList.toggle("active", engine === "xiaozhi");
   document.getElementById("xiaozhiTtsEngineAndroidBtn").classList.toggle("active", engine === "android");
-  // 切換引擎 (或者 page load 讀回上次選擇) 都要清空舊隊列 - 不是就換掉
-  // engine 之後, 隊列裡面舊引擎正在排的句子會用新引擎來讀, 對不上用戶看到的
-  // 切換時機, 亦可能因為換了 engine 令 xiaozhiTtsSpeaking 卡在 true (上一個
-  // engine 那句不會再有 tts_end 回來)。
+  // Also clear the old queue on an engine switch (or on the page-load read-back of the last choice). Otherwise, after the
+  // engine changes, sentences queued for the old engine would be read by the new engine. That would not match the switch
+  // moment the user sees, and the engine swap could also leave xiaozhiTtsSpeaking stuck at true (the previous
+  // engine's sentence would never return a tts_end).
   xiaozhiResetTtsQueue();
 }
 
-/** 按鈕按落 - 寫回落後端 (xiaozhi/tts_config/set, 順便令 MainActivity 的
- *  onIncomingOpusFrame sink 即時開始/停止靜音 opus, 不用重連), 成功先更新
- *  按鈕 active 狀態; 失敗就不改, 等用戶見到個按鈕沒有跳、可以再按一次。 */
+/** Button press - writes the choice back to the backend (xiaozhi/tts_config/set, which also makes MainActivity's
+ *  onIncomingOpusFrame sink start/stop muting opus immediately, no reconnect needed). Update the button
+ *  active state only on success; on failure change nothing, so the user sees the button did not jump and can press again. */
 function xiaozhiSetTtsEngine(engine) {
   Alpha2Api.xiaozhiTtsConfigSet({ engine: engine }).then(function (res) {
     if (res && res.ok) {
@@ -795,8 +801,8 @@ function xiaozhiSetTtsEngine(engine) {
   });
 }
 
-/** 開機語音卡開關（實驗 tab）——僅揭開／收起內容，同 UUID 卡同一個做法，
- *  每次入頁預設收起，不記住。 */
+/** Boot voice card toggle (Experimental tab) - it only opens/collapses the content, the same approach as the UUID card.
+ *  Collapsed by default on every page visit; not remembered. */
 function bootVoiceCardToggle() {
   const on = document.getElementById("bootVoiceCardEnabled");
   const body = document.getElementById("bootVoiceCardBody");
@@ -807,13 +813,13 @@ function bootVoiceCardToggle() {
   if (show) bootVoiceLoad();
 }
 
-/** 將三粒 radio 指去指定模式；傳 null/未知值就三粒都不剔。 */
+/** Point the three radios at the given mode; pass null/an unknown value and all three stay unchecked. */
 function bootVoiceUi(mode) {
   const radios = document.querySelectorAll('input[name="bootVoiceMode"]');
   radios.forEach(function (r) { r.checked = (r.value === mode); });
 }
 
-/** Page load／開卡讀回開機語音模式。API 19 舊機沒有 Vosk，就鎖起 Vosk 那顆。 */
+/** Read back the boot voice mode at page load / card open. Old API-19 devices have no Vosk, so lock the Vosk radio there. */
 function bootVoiceLoad() {
   Alpha2Api.xiaozhiBootVoiceGet({}).then(function (res) {
     bootVoiceUi(res && res.ok ? res.mode : null);
@@ -826,7 +832,7 @@ function bootVoiceLoad() {
   });
 }
 
-/** 三選一：選即儲存，下次開 App 生效（不會即刻連線／即刻起聽）。 */
+/** Pick one of three: the choice saves at once and takes effect on the next app start (no immediate connect / immediate listening). */
 function bootVoiceSet(mode) {
   const out = document.getElementById("bootVoiceStatus");
   Alpha2Api.xiaozhiBootVoiceSet({ mode: mode }).then(function (res) {
@@ -840,8 +846,8 @@ function bootVoiceSet(mode) {
   });
 }
 
-/** Page load 讀回上次選低的 TTS 引擎, 同步按鈕 active 狀態 - 對照
- *  xiaozhiLoadOtaConfig() 的做法。 */
+/** Read back the last selected TTS engine at page load and sync the button active state - follows the
+ *  same pattern as xiaozhiLoadOtaConfig(). */
 function xiaozhiLoadTtsConfig() {
   Alpha2Api.xiaozhiTtsConfigGet().then(function (res) {
     if (res && res.ok && res.engine) {
@@ -850,7 +856,7 @@ function xiaozhiLoadTtsConfig() {
   });
 }
 
-/** 講嘢時隨機動作開關 (xiaozhi/filler_action/get|set)，預設開。 */
+/** Random-move-while-speaking toggle (xiaozhi/filler_action/get|set), on by default. */
 function xiaozhiLoadFillerAction() {
   Alpha2Api.xiaozhiFillerActionGet().then(function (res) {
     const box = document.getElementById("xiaozhiFillerToggle");
@@ -861,7 +867,7 @@ function xiaozhiLoadFillerAction() {
 function xiaozhiSetFillerAction(enabled) {
   Alpha2Api.xiaozhiFillerActionSet({ enabled: enabled ? "true" : "false" }).then(function (res) {
     const box = document.getElementById("xiaozhiFillerToggle");
-    // 失敗就讀返後端真實狀態，唔好令個掣同後端唔一致。
+    // On failure re-read the real backend state, so the switch never drifts out of sync with the backend.
     if (box && res && res.ok) box.checked = !!res.enabled;
     else xiaozhiLoadFillerAction();
   });

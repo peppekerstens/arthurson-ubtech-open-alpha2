@@ -194,7 +194,7 @@ button.secondary {
 }
 button.secondary:hover { background: #dbe1ea; }
 
-/* 危險/停止類操作專用 — 小智面板「全部停止」用，跟 .fab-btn.talking 同一紅色調，保持危險操作視覺一致。 */
+/* For dangerous/stop actions — used by the Stop All button on the Xiaozhi panel. Same red tone as .fab-btn.talking, so risky actions stay visually consistent. */
 button.danger-btn {
   background: rgba(220, 38, 38, 0.85);
   color: white;
@@ -260,30 +260,30 @@ pre {
   overflow-y: auto;
 }
 
-/* 小智 (XiaoZhi) AI 對話氣泡 - user/assistant 左右對齊分開, system 行 (連接狀態/
-   MCP 工具調用/錯誤) 用淡色置中, 好似其他聊天介面這麼易分辨邊句是哪個講。 */
+/* Xiaozhi AI chat bubbles - user/assistant align left and right apart, and system lines (connect state/
+   MCP tool calls/errors) use a light centered style. Like other chat UIs, you see at a glance who said each line. */
 .xiaozhi-msg { padding: 6px 10px; border-radius: 12px; margin: 3px 0; max-width: 78%; }
-/* 小智 (assistant) 靠左主題色底；用戶 (user) 靠右中性底 — 顏色同排位雙重區分。
-   用 display:table 縮窄闊度兼保持獨立 block，不用 width:fit-content（舊 WebView，如 Android 5.1，不支援，會撐滿成行分不到左右）。 */
+/* The assistant bubble sits left on the theme color; the user bubble sits right on a neutral background — color and position tell them apart.
+   display:table narrows the bubble and keeps it its own block. Do not use width:fit-content: old WebViews, such as Android 5.1, do not support it, and the bubble would stretch to the full row. */
 .xiaozhi-msg-user { background: var(--accent); color: #fff; margin-left: auto; margin-right: 0;
   text-align: right; display: table; }
 .xiaozhi-msg-assistant { background: var(--card-bg); border: 1px solid var(--border); margin-right: auto;
   margin-left: 0; text-align: left; display: table; }
 .xiaozhi-msg-system { color: var(--muted); font-size: 0.85em; text-align: center; max-width: 100%; margin-left: auto; margin-right: auto; display: block; }
 
-/* 每句同時掛 ".log-line"（見 xiaozhiAppendChatLine），.log-line 排後面會冚 margin:auto；用 .xiaozhi-msg.xiaozhi-msg-user 複合 selector (specificity 高) 重宣告 margin，不用 !important。 */
+/* Every line also carries ".log-line" (see xiaozhiAppendChatLine). A later .log-line rule would override margin:auto, so the compound selector .xiaozhi-msg.xiaozhi-msg-user (higher specificity) re-declares margin. No !important needed. */
 .xiaozhi-msg.xiaozhi-msg-user { margin-left: auto; margin-right: 0; }
 .xiaozhi-msg.xiaozhi-msg-assistant { margin-right: auto; margin-left: 0; }
 
-/* 每句訊息底下的細字時間戳。用戶氣泡本身是實心底色, 細字要用半透明白色先看得清;
-   assistant 氣泡是淡色底, 用回 --muted 就夠。 */
+/* Small timestamp under each message. The user bubble has a solid background, so its small text
+   needs translucent white to stay readable. The assistant bubble is light, so --muted is enough. */
 .xiaozhi-msg-meta { font-size: 0.75em; margin-top: 2px; opacity: 0.75; }
 .xiaozhi-msg-user .xiaozhi-msg-meta { color: rgba(255,255,255,0.85); }
 .xiaozhi-msg-assistant .xiaozhi-msg-meta { color: var(--muted); }
 
-/* MCP 工具呼叫卡片 - 遵循 xiaozhi.me console 「歷史對話」畫面的
-   「🔧 工具呼叫」樣式, 獨立、置中、比一般對話氣泡闊的卡片, 一眼分辨得出這個不是
-   對話內容而是協議層動作。 */
+/* MCP tool call card - follows the "🔧 工具呼叫" card style of the 「歷史對話」 screen in the
+   xiaozhi.me console: a separate, centered card, wider than a normal chat bubble, so you see at
+   once this is a protocol action, not chat text. */
 .xiaozhi-mcp-card { max-width: 92%; margin: 6px auto; border: 1px solid var(--border); border-radius: 10px;
   background: var(--card-bg); overflow: hidden; }
 .xiaozhi-mcp-card-header { padding: 6px 10px; font-size: 0.85em; font-weight: 600; color: var(--muted);
@@ -322,8 +322,8 @@ pre {
   border-color: var(--accent);
 }
 
-/* Vosk 模型按鍵：一次僅一粒有效——有效那顆藍色 (active)，其餘灰色；
-   正在切換那顆閃爍，鎖住當時按不到（disabled）。 */
+/* Vosk model buttons: only one button is active at a time — the active one is blue (active), the rest gray.
+   The button being switched flashes and cannot be pressed while locked (disabled). */
 .vosk-model-btn {
   background: var(--track);
   color: var(--text);
@@ -347,7 +347,7 @@ pre {
   opacity: 0.75;
 }
 .vosk-model-btn.active:disabled {
-  opacity: 1; /* 有效那顆鎖住當時都保持藍色，不要灰埋 */
+  opacity: 1; /* The active button keeps its blue color while locked, never gray */
 }
 
 /* Action sub-tabs (basic/dance/story/yoga/others): each button carries its own
@@ -425,8 +425,8 @@ pre {
   padding: 4px 10px;
   font-size: 12px;
   cursor: pointer;
-  /* 成粒上分類色、白字（JS 經 --chip-color 逐粒落：有子分類跟子分類 tab 同色，
-     無就跟大分類主色；無色即白底預設字，同以前一樣） */
+  /* The whole chip takes the category color with white text (JS sets --chip-color per chip: chips
+     with sub-categories follow the sub-tab color, others the main category color. With no color, white background and default text, as before) */
 }
 .chip[style*="--chip-color"] { color: #fff; }
 .chip:hover { filter: brightness(0.92); }
@@ -505,7 +505,7 @@ input[type="range"] {
   margin-top: 0;
 }
 
-/* 逐粒試燈：頭左右直排＋眼左右圈（方形粒，淨睇位） */
+/* Per-LED test buttons: head left/right columns + eye left/right rings (square dots, position only) */
 .perled-center {
   display: flex;
   justify-content: center;
@@ -545,8 +545,8 @@ input[type="range"] {
   font-size: 12px;
   color: var(--muted);
 }
-/* 音量鍵三角掣（夾喺左右頭燈中間）：v+ 上三角，v- 倒三角，入面無字。
- * 純 CSS 畫（border 砌），唔用字元。著＝黃，熄＝灰。 */
+/* Volume-key triangles (wedged between the left and right head lights): v+ points up, v- points down, no text inside.
+ * Drawn in pure CSS with borders, no characters. On = yellow, off = gray. */
 .perled-pad-col {
   display: flex;
   flex-direction: column;
@@ -576,7 +576,7 @@ input[type="range"] {
   border-bottom: none;
   border-top: 19px solid #9aa0a6;
 }
-/* 熄（灰）嗰陣加黑邊：三角本身就係 border 砌，用 drop-shadow 沿形包黑邊。 */
+/* When off (gray) add a dark edge: the triangle is built from borders, so drop-shadow wraps the shape in black. */
 .pad-tri:not(.on) {
   filter: drop-shadow(1px 0 0 #222) drop-shadow(-1px 0 0 #222) drop-shadow(0 1px 0 #222) drop-shadow(0 -1px 0 #222);
 }
@@ -591,7 +591,7 @@ input[type="range"] {
 .pad-tri:hover {
   background: none;
 }
-/* 咀顯示燈：眼圈中下方，倒半圓（碗形），撳即 toggle（同咀掣一樣）。 */
+/* Mouth lamp: below the middle of the eye ring, an inverted half circle (bowl shape). Press to toggle, same as the mouth button. */
 .perled-mouth-wrap {
   display: flex;
   flex-direction: column;
@@ -643,8 +643,8 @@ input[type="range"] {
 .perled-dot:active {
   outline: none;
 }
-/* 全域 button:hover 係 accent 藍（0-1-1贏過 .perled-dot 0-1-0），
- * 手指撳落去會黐住變藍——呢度撳返住：熄＝深灰，著＝inline 色（inline 永遠贏）。 */
+/* The global button:hover is accent blue (0-1-1 beats .perled-dot 0-1-0), so a held finger sticks and
+ * turns blue. Lock it here: off = dark gray, on = inline color (inline always wins). */
 .perled-dot:hover {
   background: #9aa0a6;
 }
@@ -658,8 +658,8 @@ input[type="range"] {
   border-style: dashed;
 }
 
-/* 系統燈／咀燈 toggle 掣：淨開／熄兩態（熄灰／mute 咀著紅；pad 三角掣另行 pad-tri）。
- * hover 鎖死同色——全域 button:hover 係藍，唔鎖會一掂變藍。 */
+/* System lamp / mouth lamp toggle buttons: two states only (off gray / mute mouth on red; pad
+ * triangles use their own pad-tri rules). Hover is locked to the same color — the global button:hover is blue, and without the lock a touch would turn it blue. */
 .sys-toggle-off { background: #9aa0a6; color: #fff; }
 .sys-toggle-on-red { background: #ff3b3b; color: #fff; }
 .sys-toggle-off:hover { background: #9aa0a6; }
@@ -688,14 +688,14 @@ input[type="range"] {
   box-shadow: 0 0 0 2px var(--accent);
 }
 
-/* EQ preset 選擇掣：跟電台快搜同一隻方鍵（secondary），選中藍、無選中灰 */
+/* EQ preset buttons: the same square key as the radio quick-search (secondary), blue when selected, gray when not */
 button.eq-preset-sq.selected {
   background: #2563eb;
   color: #fff;
 }
 
-/* EQ curve 直拖：canvas touch-action 關捲動（指拖唔會扯走成頁），cursor 提示可拖；
-   頻率背景白色（睇 curve 清楚啲），圓角跟返個框 */
+/* EQ curve direct drag: canvas touch-action blocks scrolling (a drag does not pull the whole page), cursor hints that it is draggable.
+   The frequency background is white (the curve reads clearer), rounded corners follow the frame */
 #musicEqCurve {
   touch-action: none;
   cursor: grab;
@@ -703,7 +703,7 @@ button.eq-preset-sq.selected {
   border-radius: 6px;
 }
 
-/* 二合一頻譜＋EQ：同一幅，白底，頻譜柱做底、curve 疊面 */
+/* Combined spectrum + EQ: one panel, white background, spectrum bars underneath, curve layered on top */
 #musicEqSpectrum {
   touch-action: none;
   cursor: grab;
@@ -711,7 +711,7 @@ button.eq-preset-sq.selected {
   border-radius: 6px;
 }
 
-/* EQ bands 一個物件：有框、上 curve 下推桿、推桿列唔換行、窄 mon 橫滑，唔會散開走位 */
+/* EQ bands as one object: framed, curve above and faders below, fader rows never wrap, narrow monospace scrolls sideways, nothing drifts apart */
 .eq-bands-box {
   display: none;
   margin-top: 6px;
@@ -759,7 +759,7 @@ button.eq-preset-sq.selected {
 .log-type-grammar_error { color: #dc2626; }
 .log-type-offline_mode { color: #9333ea; }
 
-/* .log-type-* 顏色保留 (Event Log 照樣顯示這些 type)。 */
+/* .log-type-* colors stay (the Event Log still shows these types). */
 .asr-mode-label {
   font-size: 12px;
   font-weight: normal;
@@ -820,7 +820,7 @@ button.eq-preset-sq.selected {
   height: 100%;
   object-fit: contain;
   display: block;
-  pointer-events: none; /* 放大時 img 經 transform:scale 會蓋住 joystick/fab hit 區，設 none 讓 pad/fab 收到 pointer */
+  pointer-events: none; /* When zoomed, an img with transform:scale would cover the joystick/fab hit area. None lets pad/fab receive pointer events. */
 }
 
 .camera-viewport .camera-placeholder {
@@ -869,7 +869,7 @@ button.eq-preset-sq.selected {
 }
 .camera-viewport .camera-fps-badge.on { display: flex; }
 
-/* 功能鍵頂欄（解像度 + 自動回中）與 Zoom 滑桿皆懸浮於相機界面內，受功能鍵開關控制 */
+/* The feature-key top bar (resolution + auto-return) and the Zoom slider both float inside the camera view and follow the feature-key switch */
 .camera-top-bar {
   position: absolute;
   left: 50%;
@@ -895,7 +895,7 @@ button.eq-preset-sq.selected {
   min-width: 110px;
 }
 .camera-top-bar .switch-label { color: #fff; font-size: 11px; gap: 6px; }
-/* Zoom slider 懸浮於相機界面內（置中底部，不遮 pad/fab） */
+/* Zoom slider floats inside the camera view (centered at the bottom, clear of pad/fab) */
 .camera-zoom-overlay {
   position: absolute;
   left: 50%;
@@ -910,7 +910,7 @@ button.eq-preset-sq.selected {
   padding: 5px 10px;
   backdrop-filter: blur(4px);
   z-index: 6;
-  /* 不讓 overlay 本身攔截 viewport 的雙擊全屏，只讓內部 input/按鈕可點 */
+  /* Do not let the overlay itself block the viewport's double-click fullscreen. Only the inner input/buttons are clickable */
   pointer-events: auto;
 }
 .camera-zoom-overlay .zoom-icon {
@@ -937,7 +937,7 @@ button.eq-preset-sq.selected {
   border-radius: 10px;
 }
 .camera-zoom-overlay .zoom-reset-btn:hover { background: rgba(255,255,255,0.28); }
-/* 統一風格：解像度（左上原 LIVE 位）、回中（joystick右）、Zoom（相機鍵上）皆為功能鍵內容 */
+/* Unified style: resolution (top-left, the old LIVE spot), auto-return (right of joystick), and zoom (above the camera key) are all feature-key content */
 .camera-resolution-wrap {
   position: absolute;
   left: 8px;
@@ -961,8 +961,8 @@ button.eq-preset-sq.selected {
 }
 .joystick-auto-return-wrap {
   position: absolute;
-  left: 104px; /* joystick 84px @12px left → 右緣96px +8 gap */
-  bottom: 32px; /* 與 joystick 中心對齊（joystick 84px @12px bottom → 中心54px） */
+  left: 104px; /* joystick 84px @12px left → right edge 96px +8 gap */
+  bottom: 32px; /* Aligned with the joystick center (joystick 84px @12px bottom → center 54px) */
   display: none;
   align-items: center;
   background: rgba(20,22,26,0.55);
@@ -1070,7 +1070,7 @@ button.eq-preset-sq.selected {
   position: absolute;
   right: 12px;
   bottom: 12px;
-  display: none; /* hidden by default — matches .crosshair-pad pattern；.active 顯示。 */
+  display: none; /* Hidden by default — matches the .crosshair-pad pattern. .active shows it. */
   gap: 10px;
   z-index: 7;
 }
@@ -1102,9 +1102,9 @@ button.eq-preset-sq.selected {
   border-color: rgba(255, 255, 255, 0.4);
 }
 
-/* #talkFab.talking 沿用 .fab-btn.talking（紅＋pulse）。 */
+/* #talkFab.talking reuses .fab-btn.talking (red + pulse). */
 
-/* 人臉追蹤框：按 face/track/status 的 fx/fy/fw/fh 歸一化座標定位，綠框不攔 pointer */
+/* Face track box: positioned from the fx/fy/fw/fh normalized coordinates of face/track/status. The green box does not block pointer. */
 .face-track-box {
   position: absolute;
   border: 2px solid rgba(34, 197, 94, 0.9);
@@ -1116,7 +1116,7 @@ button.eq-preset-sq.selected {
 }
 .face-track-box.on { display: block; }
 
-/* 顏色追蹤框：同人臉框同一套定位邏輯，橙框區分（兩邊互斥，唔會齊出），不攔 pointer */
+/* Color track box: same positioning logic as the face box, orange to tell them apart (the two are exclusive, never both shown). Does not block pointer. */
 .color-track-box {
   position: absolute;
   border: 2px solid rgba(249, 115, 22, 0.9);
@@ -1288,8 +1288,8 @@ button.eq-preset-sq.selected {
   gap: 8px;
 }
 
-/* Mic 擁有權指示燈 - 綠色 = 這個 app 拿到 mic 擁有權 (setWakeState(false) 已生效,
-   語音對話搶到了), 灰色 = 已釋放 (system 的 wake-word 引擎取回)。 */
+/* Mic ownership indicator - green = this app holds the mic (setWakeState(false) took effect,
+   voice dialogue won it), gray = released (the system wake-word engine got it back). */
 .led-dot {
   display: inline-block;
   width: 10px;
@@ -1340,7 +1340,7 @@ button.eq-preset-sq.selected {
   box-shadow: 0 0 12px 2px rgba(220, 38, 38, 0.55);
 }
 
-/* Vosk 聆聽指示燈 — 綠=正在聽，灰=其他。 */
+/* Vosk listening lamp — green = listening now, gray = anything else. */
 .vosk-state-dot {
   display: inline-block;
   width: 12px;
@@ -1384,7 +1384,7 @@ button.eq-preset-sq.selected {
 }
 
 .music-list {
-  /* 一行三排 (3-column grid) — 歌多掃得快 */
+  /* Three tracks per row (3-column grid) — faster to scan when there are many songs */
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 6px;
@@ -1437,8 +1437,8 @@ button.eq-preset-sq.selected {
   background: #fff;
 }
 
-/* audio spectrum 顯示區 — 深色底令 bar 搶眼 */
-/* （舊獨立頻譜 .music-spectrum 已退役，二合一併入 #musicEqSpectrum，此處不再留樣式） */
+/* Audio spectrum display area — dark background makes the bars stand out */
+/* (The old standalone .music-spectrum is retired, merged into #musicEqSpectrum in the combined panel. No styles kept here.) */
 .music-progress-row input[type="range"] {
   flex: 1 1 160px;
   min-width: 120px;
@@ -1579,9 +1579,9 @@ button.eq-preset-sq.selected {
   }
 }
 
-/* 面板鎖屏浮層（PanelAuth 全面板上鎖＋未解鎖時蓋住整個面版，見 index.html
-   #panelLockOverlay＋app-core.js panelLockCheck/panelLockUnlock；裡面沿用
-   全局 .row／button／input／.hint 樣式，這裡僅定位＋卡盒）。 */
+/* Panel lock overlay (PanelAuth locks the whole panel and covers it while not unlocked; see index.html
+   #panelLockOverlay + app-core.js panelLockCheck/panelLockUnlock. It reuses the
+   global .row/button/input/.hint styles; only positioning and the card box live here). */
 #panelLockOverlay {
   display: none;
   position: fixed;
@@ -1612,9 +1612,9 @@ button.eq-preset-sq.selected {
 }
 
 /* ---------------- Gamepad visual (hardwaretester-style live pad) ----------------
-   純 CSS 手柄示意：十字／ABXY／肩鍵／雙搖桿，.lit 即亮燈（亮燈經 app-gamepad.js
-   三路驅動：瀏覽器 Gamepad API 輪詢本地即亮、瀏覽器按鍵、B 端 WS 回聲＋A 端
-   物理鍵 WS）。 */
+   Pure CSS gamepad diagram: d-pad / ABXY / shoulder keys / twin sticks, .lit lights a key. The
+   lights run through three paths in app-gamepad.js: browser Gamepad API polling lights it locally
+   at once, browser key presses, and B-side WS echo + A-side physical key WS. */
 .gp-pad {
   background: #ffffff;
   border: 1px solid var(--border);
@@ -1719,8 +1719,8 @@ button.eq-preset-sq.selected {
   box-shadow: 0 0 8px rgba(59, 125, 255, 0.8);
 }
 
-/* 映射表行跟手亮：成行轉色（長按一直著），唔使大海撈針。
-   有映射成行藍底白字，無映射成行綠底白字（同兩張圖一致）。 */
+/* Mapping rows light with the key: the whole row changes color (it stays lit while held), so no needle-in-a-haystack.
+   A mapped row is blue with white text; an unmapped row is green with white text (matching the two diagrams). */
 .gprow-lit {
   background: var(--accent);
   border-radius: 8px;
@@ -1735,8 +1735,8 @@ button.eq-preset-sq.selected {
 .gprow-free span:first-child { color: #ffffff; }
 
 /* ---------------- Keyboard visual (full live keyboard) ----------------
-   JS 生成全鍵盤（見 app-gamepad.js gamepadBuildKeyboardDiagram），.lit 亮燈，
-   驅動同上三路。寬鍵用 flex-grow 拉闊。 */
+   JS builds the full keyboard (see app-gamepad.js gamepadBuildKeyboardDiagram). .lit lights a key,
+   driven by the same three paths above. Wide keys use flex-grow to stretch. */
 .kb-board {
   background: #ffffff;
   border: 1px solid var(--border);
@@ -1768,7 +1768,7 @@ button.eq-preset-sq.selected {
 .kb-key.wide { flex-grow: 2.2; }
 .kb-key.wider { flex-grow: 3.2; }
 .kb-key.space { flex-grow: 8; }
-/* 頂行 F 區分組空位。 */
+/* Empty gaps between F-key groups in the top row. */
 .kb-gap { flex: 0.7 1 0; min-width: 4px; }
 .kb-key.lit {
   background: var(--accent);
@@ -1776,7 +1776,7 @@ button.eq-preset-sq.selected {
   color: #ffffff;
   box-shadow: 0 0 8px rgba(59, 125, 255, 0.8);
 }
-/* 未映射的鍵撳落係綠色（有映射先係上面藍色），一眼分到有無嘢做。 */
+/* An unmapped key shows green when pressed (only mapped keys turn the blue above), so you see at a glance whether the key does anything. */
 .kb-key.lit-free {
   background: var(--ok);
   border-color: #ffffff;
@@ -1789,7 +1789,7 @@ button.eq-preset-sq.selected {
   color: #ffffff;
   box-shadow: 0 0 8px rgba(22, 163, 74, 0.8);
 }
-/* 真鍵盤三區排法：主區＋導航＋數字區並排，窄屏自動疊起。 */
+/* Real keyboard in three zones: main + navigation + numpad side by side, stacking automatically on narrow screens. */
 .kb-zones {
   display: flex;
   gap: 10px;
@@ -1798,16 +1798,16 @@ button.eq-preset-sq.selected {
 .kb-zone-main { flex: 5 1 340px; min-width: 0; }
 .kb-zone-nav { flex: 2 1 130px; min-width: 0; }
 .kb-zone-num { flex: 2 1 130px; min-width: 0; }
-/* 右欄：媒體列置頂，導航＋數字區並排喺下（同闊對齊）。 */
+/* Right column: the media row sits on top, navigation + numpad side by side below it (aligned to equal width). */
 .kb-zone-right { flex: 4 1 260px; min-width: 0; display: flex; flex-direction: column; }
 .kb-zones-sub { display: flex; gap: 10px; flex-wrap: wrap; }
 
-/* 相機頁手柄視圖：22 粒 pad 鍵畫喺 viewport 內 canvas（圖形掣，非 HTML）。
-   收埋預設 display:none，開視圖經 inline style 出；touch-action:none 免撳住變捲頁。 */
+/* Camera page gamepad view: 22 pad buttons are drawn on a canvas inside the viewport (graphic keys, not HTML).
+   Hidden by default with display:none; the view shows it via inline style. touch-action:none stops key drags from scrolling the page. */
 .camera-pad-canvas {
   position: absolute; inset: 0; width: 100%; height: 100%;
   z-index: 7; touch-action: none; user-select: none; -webkit-user-select: none;
-  -webkit-touch-callout: none; /* 長按唔彈 callout＋唔震（JS 另有 touchstart 非被動攔截） */
+  -webkit-touch-callout: none; /* No long-press callout and no flash (JS also blocks touchstart as non-passive) */
 }
 
 

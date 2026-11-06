@@ -1,7 +1,7 @@
 // Open Alpha2 — client logic (app-mic.js)
-// 內容: 聽機械人麥克風 (WAV chunk 串流播放)、相機全螢幕。
-// 全部檔案共用 window/global scope (沒有用 ES module), 載入順序由 index.html 的
-// <script src="..."> 順序決定 - 詳見 index.html 頭那段 comment。
+// Content: listen to the robot microphone (WAV chunk stream playback), camera fullscreen.
+// All files share the window/global scope (no ES modules). Load order follows the
+// <script src="..."> order in index.html - see the comment block at the top of index.html.
 
 // ---------------- Mic: listen to the robot's microphone ----------------
 //
@@ -14,65 +14,65 @@
 // rate this AudioContext actually runs at (see MIC_SOURCE_SAMPLE_RATE below), and
 // feeds them into a ScriptProcessorNode's ring buffer for continuous playback.
 //
-// 目標 WebView (RK3288/Android 5.1, Chromium 39) 無 AudioWorklet (Chrome 66 先有)，
-// AudioContext {sampleRate} option 亦無效 (Chromium 39 無視，用 native rate)，故 runtime 讀
-// ctx.sampleRate，將 16kHz 來源 PCM resample 做那個 rate 先入 buffer。
+// The target WebView (RK3288/Android 5.1, Chromium 39) has no AudioWorklet (Chrome 66 added it),
+// and the AudioContext {sampleRate} option does nothing either (Chromium 39 ignores it and uses the native rate), so read
+// ctx.sampleRate at runtime and resample the 16kHz source PCM to that rate before it enters the buffer.
 //
-// 最終方案: ScriptProcessorNode。雖然官方已經 deprecate (建議用
-// AudioWorklet), 但這個 API 在 Web Audio API 推出初期 (2011年) 已經存在,
-// Chromium 39 這類老舊 WebView 廣泛支援 - 這個project 的目標裝置是 Android 5.1
-// 固定了的老 WebView, 沒有得指望日後升級, 這裡的 "deprecated" 對這部機來講不
-// 適用。ScriptProcessorNode 行在主 thread (沒有 AudioWorklet 那種獨立 audio
-// thread 的實時保證), 但完全沒有 decodeAudioData() 那種 async decode 步驟。
+// Final choice: ScriptProcessorNode. Official docs deprecated it (they suggest
+// AudioWorklet), but the API existed since the first Web Audio releases (2011),
+// and old WebViews like Chromium 39 support it widely. The target device of this
+// project is a fixed Android 5.1 old WebView with no future upgrade, so "deprecated" does not
+// apply to this machine. ScriptProcessorNode runs on the main thread (no separate audio
+// thread with real-time guarantees like AudioWorklet), and it skips the async decodeAudioData() step entirely.
 
 let micListening = false;
 let micAbortController = null;
 let micAudioContext = null;
 let micScriptNode = null;
-// micMuted 恆 false（mic-listen 永遠不 mute）。
+// micMuted is always false (mic-listen never mutes).
 let micMuted = false;
 
-// Ring buffer 本身 (Float32, 已經 resample 做 AudioContext 實際 sample rate),
-// 由 feedPcmToBuffer() 寫入、micAudioProcessCallback() 讀出。
+// The ring buffer itself (Float32, already resampled to the AudioContext's actual sample rate),
+// written by feedPcmToBuffer() and read by micAudioProcessCallback().
 let micRingBuffer = null;
 let micRingCapacity = 0;
 let micRingWriteIdx = 0;
 let micRingReadIdx = 0;
-let micRingAvailable = 0; // 多少個未播放的 sample 在 buffer 裡
-// Resample 用的 fractional position - 由於來源 rate (16kHz) 同目標 rate (native,
-// 例如 44100) 通常不是整數倍數, 用一個跨越多次 feedPcmToBuffer() call 都會保留
-// 下來的 fractional position, 令連續幾個 chunk 之間的 resample 不會因為除不盡而
-// 產生 累積誤差/接口爆音。
+let micRingAvailable = 0; // count of samples in the buffer not yet played
+// Fractional position for resampling - the source rate (16kHz) and target rate (native,
+// e.g. 44100) are usually not whole multiples, so keep one fractional position across
+// successive feedPcmToBuffer() calls. That stops the resample between consecutive chunks from
+// building cumulative error or clicks because of the leftover fraction.
 let micResampleFracPos = 0;
 
-// WAV header 固定 44 bytes (PCM, mono, 16-bit - 同 AudioController.java 送出來的
-// 格式一致), 用來由每個 chunk 裡分開 header 同真正的 PCM data。
+// The WAV header is a fixed 44 bytes (PCM, mono, 16-bit - matching the format
+// AudioController.java sends), used to split the header from the real PCM data in each chunk.
 const WAV_HEADER_BYTES = 44;
 
-// Server 端 (AudioController.java) 送出來的 PCM 的實際 sample rate - 這個是
-// "來源" rate, 不是 AudioContext 實際運作的 rate (見上面成段 comment解釋為什麼
-// 兩者可能不一樣)。要同 AudioController.SAMPLE_RATE_HZ 一致。
+// The actual sample rate of the PCM the server side (AudioController.java) sends - this is the
+// "source" rate, not the rate the AudioContext runs at (see the comment block above for why
+// the two can differ). Keep it equal to AudioController.SAMPLE_RATE_HZ.
 const MIC_SOURCE_SAMPLE_RATE = 16000;
 
-// Ring buffer 容量上限 (samples, 以 AudioContext 實際 sample rate 計) - 這個是
-// buffer array 本身的 array size (絕對不可以給 write 溢出), 用 2 秒這麼大隻是為了
-// 應付突發的 network burst, 不代表想給實際聽到的 delay 去到這麼久 - 見
-// MIC_MAX_LATENCY_SEC 才是「想聽到多久延遲」的目標。
+// Ring buffer capacity (samples, at the AudioContext's actual sample rate) - this is the
+// size of the buffer array itself (a write must never overflow it). 2 seconds is deliberately big to absorb
+// sudden network bursts; it does not mean the audible delay may reach that long -
+// MIC_MAX_LATENCY_SEC alone is the target for "how much delay you want to hear".
 const MIC_RING_BUFFER_SEC = 2;
 
-// 想聽到的最大延遲 - 每次寫入新 chunk 之後, 主動將 buffer 水位削下來這個
-// 目標之下 (dropping 最舊的 sample), 令實際聽到的 delay 長期都站在這個水平,
-// 不會等到 MIC_RING_BUFFER_SEC (array size 上限) 先被動地頂住。
+// The maximum audible delay - after each new chunk write, actively trim the buffer level down under
+// this target (dropping the oldest samples), so the actual delay keeps to this level long-term
+// instead of waiting to passively hit MIC_RING_BUFFER_SEC (the array size cap).
 //
-// 這個數值一定要大過單個 server chunk 的時長 (CHUNK_MS=500ms, 見
-// AudioController.java) - 否則一個 chunk 正常噉一次過湧入 buffer 就已經令
-// 水位衝過閾值, 逢 chunk 到達都會誤觸發削減, 表現為斷斷續續 (實測驗證過:
-// 0.3 秒會逢 chunk 必削、每秒斷幾次)。用 1.2 秒 (CHUNK_MS 的 2.4 倍), 保留夠
-// 緩衝給正常的 chunk-to-chunk 到達節奏波動, 代價是聽到的 delay 都跟著有
-// 1.2 秒左右 (加上起始 mic 初始化那 ~0.7 秒一次性 delay, 總延遲大約 1.8-2.2
-// 秒) - 這個是在「不斷」同「delay 短」之間的取捨, 實測證實過細的閾值會斷,
-// 如果想再減 delay, 需要想過另一套機制 (例如在消耗端而不是寫入端 check 水位),
-// 不應該僅再細調這個數值。
+// This value must be bigger than one server chunk (CHUNK_MS=500ms, see
+// AudioController.java). Otherwise a single normal chunk flooding into the buffer already pushes
+// the level past the threshold, every chunk arrival mis-triggers the trim, and audio breaks up (verified in tests:
+// 0.3 s trims on every chunk and breaks up several times a second). 1.2 s (2.4x CHUNK_MS) leaves enough
+// slack for normal chunk-arrival jitter, at the cost of an audible delay around
+// 1.2 s (plus the one-time ~0.7 s mic init at start, total delay about 1.8-2.2
+// s). This is the trade-off between "no breaks" and "short delay"; tests proved a small threshold breaks up.
+// To cut the delay further you need a different mechanism (e.g. check the level at the consumer, not the writer),
+// not just a smaller value here.
 const MIC_MAX_LATENCY_SEC = 1.2;
 
 function micElements() {
@@ -93,9 +93,9 @@ function startMicListen() {
   micListening = true;
   const btn = micElements().btn;
   if (btn) btn.classList.add("listening");
-  // 不傳 {sampleRate: ...} option - 這個 option 在目標 WebView (Chromium 39)
-  // 完全沒有效, 傳了都只是徒添一個誤導人的假象。用回瀏覽器/裝置的 native sample
-  // rate, 下面 feedPcmToBuffer() 會自己 resample 遷就它。
+  // Do not pass the {sampleRate: ...} option - it does nothing on the target WebView (Chromium 39),
+  // and passing it only creates a misleading illusion. Use the browser/device native sample
+  // rate; feedPcmToBuffer() below resamples to match it.
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   micAudioContext = ctx;
 
@@ -107,20 +107,20 @@ function startMicListen() {
   micRingAvailable = 0;
   micResampleFracPos = 0;
 
-  // bufferSize 4096: 大到不會令主 thread 太頻密這麼被 onaudioprocess 中斷, 細到
-  // 不會令延遲太明顯。0 個 input channel (純播放, 不錄音), 1 個 output
-  // channel (mono, 同 AudioController.java 送出來的格式一致)。
+  // bufferSize 4096: big enough that onaudioprocess does not interrupt the main thread too often, small
+  // enough that the delay stays low. 0 input channels (playback only, no recording), 1 output
+  // channel (mono, matching the format AudioController.java sends).
   micScriptNode = ctx.createScriptProcessor(4096, 0, 1);
   micScriptNode.onaudioprocess = micAudioProcessCallback;
   micScriptNode.connect(ctx.destination);
 
   micAbortController = new AbortController();
   runMicStreamLoop(micAbortController.signal);
-  // 頭/眼 LED 綠燈長開改了在 server 端做 (見 MainActivity#handleMicStream/
-  // releaseMicForAudioIo 的 javadoc) - 一定要等機身自己 speech_SetMIC(true) 的
-  // 300ms release 流程完了先送 LED 命令, 否則會同機身自己的 setWakeState 副作用
-  // (自動熄耳朵 LED 的 LED_ACTION 廣播) 有 race, 導致「有時著,有時不著」。
-  // 如果在這裡(前端)一開始就送, 個時序就同機身那個廣播回頭爭, 重現個問題。
+  // The head/eye LED steady green moved to the server side (see the MainActivity#handleMicStream/
+  // releaseMicForAudioIo javadoc). The LED command must wait until the device's own speech_SetMIC(true)
+  // 300ms release flow finishes, otherwise it races the device's own setWakeState side effect
+  // (the LED_ACTION broadcast that auto-switches the ear LED off), and the light comes on only sometimes.
+  // Sending it here (front end) at the start would fight that broadcast again and reproduce the problem.
 }
 
 function stopMicListen() {
@@ -141,13 +141,13 @@ function stopMicListen() {
     micAudioContext = null;
   }
   micRingBuffer = null;
-  // 這裡沒有 race 問題 (沒有再觸發 setWakeState), 照舊由前端主動熄燈 - server 端
-  // handleMicStream() 的 finally 區塊都有一個保底 stop (應付連線中斷沒有經這個按鈕的情況)。
+  // No race here (setWakeState is not triggered again), so the front end still switches the light off on purpose - the server-side
+  // handleMicStream() finally block keeps a safety stop as well (for a dropped connection that bypasses this button).
   setListenLed(false);
 }
 
-/** 聽機械人(🎧)完結時頭/眼 LED 熄返 - alpha2-only, 同 setRecordingLed()/tilt LED/
- *  flashCaptureLed() 一致的做法。開燈在 server 端做 (見上面 comment)。 */
+/** Switch the head/eye LED back off when listening to the robot (🎧) ends - alpha2-only, the same pattern as
+ *  setRecordingLed()/tilt LED/flashCaptureLed(). The light-on side happens on the server (see the comment above). */
 function setListenLed(on) {
   if (currentBackend !== "alpha2") return;
   if (on) {
@@ -170,8 +170,8 @@ function setListenLed(on) {
 async function runMicStreamLoop(signal) {
   const boundaryMarker = "--opensdktestpanelaudio";
   try {
-    // 面板 token 鎖機時要驗（Bearer header；見 PanelAuth。fetch 設到 header，
-    // 唔使用 query，唔入 URL／log）。
+    // When the panel token locks the device, verify it (Bearer header; see PanelAuth. fetch sets it in the header,
+    // not as a query, so it never lands in a URL or log).
     const micHdrs = (typeof panelAuthHeaders === "function") ? panelAuthHeaders() : {};
     const resp = await fetch("/stream/mic?t=" + Date.now(), { signal: signal, headers: micHdrs });
     if (!resp.ok || !resp.body) {
@@ -256,28 +256,28 @@ function feedPcmToBuffer(wavBytes) {
 
   const ctx = micAudioContext;
   if (!ctx) return;
-  const ratio = MIC_SOURCE_SAMPLE_RATE / ctx.sampleRate; // 多少個來源 sample 相當於 1 個輸出 sample
-  // 用回上次跨 chunk 保留下來的 fractional position (見 micResampleFracPos 宣告
-  // 那段 comment), 由 -ratio 裡開始, 保證第一個輸出 sample 都經過同一套邏輯計算,
-  // 不用獨立寫一次「第一個 sample 如何計算」的特殊case。
+  const ratio = MIC_SOURCE_SAMPLE_RATE / ctx.sampleRate; // how many source samples equal one output sample
+  // Resume the fractional position kept from the previous chunk (see the micResampleFracPos declaration
+  // comment). Start it at -ratio so the very first output sample goes through the same logic,
+  // with no special case for "how to compute the first sample".
   let srcPos = micResampleFracPos;
   const outSamples = [];
   while (srcPos < sampleCount) {
     const idx = Math.floor(srcPos);
-    // Nearest-neighbor (取整數位置那個 sample, 不做 linear interpolation) -
-    // 對語音來講已經夠用, 遠比 windowed-sinc resampler 少 code、少運算。
+    // Nearest-neighbor (take the sample at the integer position, no linear interpolation) -
+    // good enough for speech, and far less code and math than a windowed-sinc resampler.
     const clampedIdx = Math.min(idx, sampleCount - 1);
     const int16 = view.getInt16(clampedIdx * 2, true); // true = little-endian
     outSamples.push(int16 / 32768);
     srcPos += ratio;
   }
-  micResampleFracPos = srcPos - sampleCount; // 帶去下一個 chunk 用
+  micResampleFracPos = srcPos - sampleCount; // carried into the next chunk
 
   for (let i = 0; i < outSamples.length; i++) {
     if (micRingAvailable >= micRingCapacity) {
-      // Ring buffer array 本身爆完 (絕對不應該發生 - 下面主動削減邏輯應該老早
-      // 已經頂住個水位, 這裡純粹是最後一道防線) - 犧牲最舊那個 sample, 保持
-      // array 不會 index 溢出。
+      // The ring buffer array itself is full (must never happen - the active trim logic below should
+      // have capped the level long before, so this is only the last line of defence) - sacrifice the oldest
+      // sample so the array index never overflows.
       micRingReadIdx = (micRingReadIdx + 1) % micRingCapacity;
       micRingAvailable--;
     }
@@ -286,11 +286,11 @@ function feedPcmToBuffer(wavBytes) {
     micRingAvailable++;
   }
 
-  // 主動削減 backlog: 如果水位已經超過 MIC_MAX_LATENCY_SEC 想要的目標, 即刻
-  // drop 最舊那批 sample 回到目標水位, 而不是等它慢慢爬到 MIC_RING_BUFFER_SEC
-  // (array size 上限) 先被動地頂住。這裡才是真正決定用家實際聽到多久延遲的
-  // 機制 - 見 MIC_MAX_LATENCY_SEC 宣告那段解釋 (包括為什麼閾值一定要大過
-  // CHUNK_MS, 同這個取捨的實測依據)。
+  // Active backlog trim: when the level passes the MIC_MAX_LATENCY_SEC target, drop the oldest
+  // samples right away back to the target level, instead of waiting for it to crawl up to MIC_RING_BUFFER_SEC
+  // (the array size cap) and only then get passively capped. This is the mechanism that really decides the delay
+  // the user hears - see the MIC_MAX_LATENCY_SEC declaration note (including why the threshold
+  // must exceed CHUNK_MS, and the measured basis of this trade-off).
   const maxLatencySamples = Math.floor(ctx.sampleRate * MIC_MAX_LATENCY_SEC);
   if (micRingAvailable > maxLatencySamples) {
     const toDrop = micRingAvailable - maxLatencySamples;
@@ -299,11 +299,11 @@ function feedPcmToBuffer(wavBytes) {
   }
 }
 
-/** ScriptProcessorNode 的 onaudioprocess callback - 由瀏覽器 audio graph 定時
- *  觸發 (由 bufferSize 決定觸發頻率, 大約每 bufferSize/sampleRate 秒一次,
- *  例如 4096/44100 ≈ 93ms), 在主 thread 執行。由 ring buffer 裡拿夠數的
- *  sample 出來填 output, buffer 不夠就輸出靜音 (underrun), 不會好似
- *  decodeAudioData() 那套做法那樣「跳前一截」。*/
+/** The ScriptProcessorNode onaudioprocess callback - fired by the browser audio graph on a timer
+ *  (bufferSize sets the rate, about once every bufferSize/sampleRate seconds,
+ *  e.g. 4096/44100 ≈ 93ms), running on the main thread. Pull enough samples from the ring buffer
+ *  to fill the output; with too few samples output silence (underrun). It never "skips ahead"
+ *  the way the decodeAudioData() approach does.*/
 function micAudioProcessCallback(event) {
   const output = event.outputBuffer.getChannelData(0); // mono, single channel
   for (let i = 0; i < output.length; i++) {
@@ -312,7 +312,7 @@ function micAudioProcessCallback(event) {
       micRingReadIdx = (micRingReadIdx + 1) % micRingCapacity;
       micRingAvailable--;
     } else {
-      output[i] = 0; // underrun: 播靜音, 好過噉播返舊/垃圾 data
+      output[i] = 0; // underrun: play silence, better than stale/garbage data
     }
   }
 }
@@ -329,7 +329,7 @@ function toggleCameraFullscreen() {
     if (request) {
       request.call(viewport);
     } else {
-      showError("全螢幕", new Error("此瀏覽器不支援 Fullscreen API"));
+      showError(uiLang === "en" ? "Fullscreen" : "全螢幕", new Error(uiLang === "en" ? "This browser does not support the Fullscreen API" : "此瀏覽器不支援 Fullscreen API"));
     }
   }
 }

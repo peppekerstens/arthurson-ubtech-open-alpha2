@@ -1,7 +1,8 @@
 // Open Alpha2 — client logic (app-actions.js)
-// 內容: Alpha2 動作清單/分類/播放, 以及 Advanced tab 的 raw AIDL passthrough (未完全驗證的底層 method)。
-// 全部檔案共用 window/global scope (沒有用 ES module), 載入順序由 index.html 的
-// <script src="..."> 順序決定 - 詳見 index.html 頭那段 comment。
+// Content: Alpha2 action list / categories / playback, plus the raw AIDL passthrough
+// of the Advanced tab (low-level methods, not fully verified).
+// All files share the window/global scope (no ES modules). The load order follows
+// the <script src="..."> order in index.html. See the comment block at its head.
 
 // ---------------- Actions ----------------
 
@@ -19,7 +20,7 @@ const ACTION_CATEGORIES = [
   { key: "yoga",   label: "瑜伽", labelEn: "Yoga",  color: "#16a34a" },
   { key: "others", label: "其他", labelEn: "Other", color: "#6b7280" },
 ];
-// 白名單: 數字 type (actionInfo.txt 靜態格式) 同文字 type (部分機身 runtime 格式) 都對應埋。
+// Whitelist: maps both numeric types (static actionInfo.txt format) and text types (runtime format on some units).
 const ACTION_CATEGORY_MAP = {
   "1": "basic", "2": "dance", "3": "story", "4": "yoga",
   basic: "basic", dance: "dance", story: "story", yoga: "yoga",
@@ -27,20 +28,20 @@ const ACTION_CATEGORY_MAP = {
 let allActions = [];
 let activeActionCategory = "basic";
 
-// 動作 ID -> {main, sub} 的子分類對照表, 由 action_classification.json 讀入 (見
-// action_classified.txt 的整理來源)。這個 mapping 僅在 asset 檔案有出現的動作才會有
-// sub 分類 - 沒有出現的動作仍然遵循 categoryOf() 那個大分類, 但在那個大分類裡面沒有
-// 子分類 tab 可以選 (就是直接混在主列表, 冚方向上等於歸入那個大分類的"其他")。
-// 這個表故意不在 code 裡寫死: 下次要再分類就僅改/換份 json, 不用動 app-actions.js。
+// Action ID -> {main, sub} sub-category table, read from action_classification.json
+// (compiled from action_classified.txt). Only actions present in the asset file get a
+// sub category. Others still follow their categoryOf() main category but no sub tab
+// applies: they mix into the main list, effectively "Other" inside that category. Keep
+// the table out of the code: to re-classify, change or swap the json, not app-actions.js.
 let actionClassification = {}; // id -> {main, sub}
-let activeActionSubCategory = null; // null = 顯示那個大分類裡面全部動作 (未選子分類)
-// 子分類 -> 色（同子分類 tab 同一個 palette、同一個指派，key 帶大分類，
-// 唔同大分類撞名唔會溝亂）：chip 同 tab 永遠同色。
+let activeActionSubCategory = null; // null = show all actions of the main category (no sub category selected)
+// Sub category -> color: same palette and same assignment as the sub-category tabs.
+// The key carries the main category, so name clashes stay apart. Chip and tab always share a color.
 let actionSubColors = {};
 
 function actionSubColorKey(mainCategory, sub) { return mainCategory + "|" + sub; }
 
-/** 大分類主色（tab 嗰隻；無子分類對照嘅 chip 用呢隻）。 */
+/** Main category color (the tab colour; chips without a sub-category mapping use this). */
 function actionMainColor(main) {
   for (let i = 0; i < ACTION_CATEGORIES.length; i++) {
     if (ACTION_CATEGORIES[i].key === main) return ACTION_CATEGORIES[i].color;
@@ -48,7 +49,7 @@ function actionMainColor(main) {
   return "#6b7280";
 }
 
-/** 動作 chip 應該咩色：有子分類跟子分類（同 tab 同色），無就跟大分類。 */
+/** Action chip color: with a sub category follow it (same as the tab); without one, follow the main category. */
 function actionChipColor(a) {
   const main = categoryOf(a.type);
   const sub = subCategoryOf(a);
@@ -66,9 +67,9 @@ function loadActionClassification() {
   }).then(function (json) {
     actionClassification = json || {};
   }).catch(function (e) {
-    // 沒有這個檔案或者讀取失敗都不應該累到整個動作 tab 用不到 - 僅沒有子分類 tab,
-    // 主分類(基本/跳舞/故事/瑜伽/其他)照舊運作。
-    console.warn("action_classification.json 讀取失敗, 子分類 tab 將不會出現:", e);
+    // A missing file or a read failure must not break the whole actions tab. Only the
+    // sub-category tabs disappear. The main categories (Basic/Dance/Story/Yoga/Other) still work.
+    console.warn("action_classification.json read failed, sub-category tabs will not appear:", e);
     actionClassification = {};
   });
 }
@@ -77,14 +78,14 @@ function categoryOf(rawType) {
   return ACTION_CATEGORY_MAP[rawType] || "others";
 }
 
-/** 取回一個動作的子分類名 (例如「移動類」), 沒有對照到就 null。 */
+/** Get an action's sub-category name (for example "移動類"). null when there is no mapping. */
 function subCategoryOf(action) {
   const entry = actionClassification[action.id];
   return entry ? entry.sub : null;
 }
 
-/** 取回一個動作應該顯示的名: 跟主 UI 語言 (uiLang), 但如果那個語言沒有資料 (例如英文名同
- *  中文名一樣, 或者其中一邊是空), 就 fallback 去另一個, 不會顯示空白 chip。 */
+/** Get an action's display name: follow the main UI language (uiLang). When that
+ *  language has no data (equal names, or one side empty), fall back to the other. No blank chip. */
 function displayNameOf(action) {
   if (uiLang === "en") {
     return action.nameEn || action.nameCn;
@@ -94,11 +95,11 @@ function displayNameOf(action) {
 
 function loadActionList() {
   const listEl = document.getElementById("actionList");
-  listEl.textContent = "載入中…";
+  listEl.textContent = uiLang === "en" ? "Loading…" : "載入中…";
   return Promise.all([Alpha2Api.actionList(), loadActionClassification()]).then(function (results) {
     const data = results[0];
     if (!data.ok) {
-      listEl.textContent = "錯誤: " + (data.error || data.code);
+      listEl.textContent = (uiLang === "en" ? "Error: " : "錯誤: ") + (data.error || data.code);
       return;
     }
     allActions = data.actions || [];
@@ -120,7 +121,7 @@ function buildActionSubTabs() {
     btn.textContent = (uiLang === "en" ? c.labelEn : c.label) + " (" + count + ")";
     btn.onclick = function () {
       activeActionCategory = c.key;
-      activeActionSubCategory = null; // 轉了大分類, 子分類篩選重置為「全部」
+      activeActionSubCategory = null; // switching the main category resets the sub-category filter to "All"
       buildActionSubTabs();
       buildActionSubSubTabs();
       renderActionList();
@@ -130,7 +131,7 @@ function buildActionSubTabs() {
   buildActionSubSubTabs();
 }
 
-// Fixed palette for sub-category tabs (移動類/手勢類/...), cycled by index so each
+// Fixed palette for sub-category tabs (Locomotion/Gestures/...), cycled by index so each
 // sub-category gets a distinct, stable colour regardless of which main category it's
 // under - deliberately a separate palette from ACTION_CATEGORIES' colours so the two
 // tab levels stay visually distinguishable from each other.
@@ -162,9 +163,9 @@ const SUB_CATEGORY_LABELS_EN = {
   "西方寓言 / 故事":    "Western Fables / Stories",
 };
 
-/** 取回一個子分類應該顯示的名: 跟主 UI 語言 (uiLang)。內部 filter 仍然用回 `sub`
- *  (中文) 這個 key, 這個 function 僅用在顯示層。沒有對照到就照原文顯示, 不會有
- *  空白 tab。 */
+/** Get a sub-category display name: follow the main UI language (uiLang). The internal
+ *  filter still uses the `sub` key (Chinese). This function only touches the display
+ *  layer. No mapping means show the original text, never a blank tab. */
 function subCategoryDisplayName(sub) {
   if (uiLang === "en") {
     return SUB_CATEGORY_LABELS_EN[sub] || sub;
@@ -172,19 +173,19 @@ function subCategoryDisplayName(sub) {
   return sub;
 }
 
-/** 建立第二層子分類 tab (例如 基本 之下的 移動類/手勢類/頭部類/...) 的邏輯, 抽出來
- *  做獨立 function 方便日後有第二個動作清單要建當時不用複製貼上一份幾乎一樣的
- *  code。僅「哪個 bar element」、「哪個 action 陣列」、「哪個 main category」、
- *  「目前選了哪個子分類 (+如何寫回去)」由 caller 決定。只有
- *  action_classification.json 對這個大分類有出現的子分類才會出 tab - 沒有資料就不
- *  顯示這一層 tab bar, 直接顯示那個大分類裡面整個 flat
- *  清單。An always-present「全部」tab 清空子分類篩選。
- *  @param barElId       子分類 tab bar 容器的 id
- *  @param actions       完整動作陣列 (allActions)
- *  @param mainCategory  目前選了的大分類 key (activeActionCategory)
- *  @param getActiveSub  () => 目前選了的子分類 (null = 全部)
- *  @param setActiveSub  (sub) => void, 寫回去那個 caller 自己的 activeXxxSubCategory 變數
- *  @param onChange      選了新子分類之後要做的東西 (重畫 tab bar + 重畫動作清單)
+/** Extract the logic that builds the second-level sub-category tabs (for example the
+ *  Locomotion/Gestures/Head tabs under Basic) into a standalone function. A future
+ *  second action list can reuse it instead of copying near-identical code. The caller
+ *  decides: which bar element, which action array, which main category, which sub
+ *  category is selected (+ how to write it back). Tabs appear only for sub-categories
+ *  that action_classification.json lists for this main category. Without data, skip
+ *  this tab bar and show the flat list. An always-present "All" tab clears the filter.
+ *  @param barElId       id of the sub-category tab bar container
+ *  @param actions       full action array (allActions)
+ *  @param mainCategory  selected main category key (activeActionCategory)
+ *  @param getActiveSub  () => selected sub-category (null = all)
+ *  @param setActiveSub  (sub) => void, writes back the caller's own activeXxxSubCategory variable
+ *  @param onChange      what to do after a new sub-category pick (redraw tab bar + redraw action list)
  */
 function buildActionSubSubTabsShared(barElId, actions, mainCategory, getActiveSub, setActiveSub, onChange) {
   const bar = document.getElementById(barElId);
@@ -202,7 +203,7 @@ function buildActionSubSubTabsShared(barElId, actions, mainCategory, getActiveSu
 
   if (subsInOrder.length === 0) {
     setActiveSub(null);
-    return; // 這個大分類沒有任何子分類資料 - 不顯示這一層 tab bar
+    return; // this main category has no sub-category data - do not show this tab bar level
   }
 
   const allBtn = document.createElement("button");
@@ -232,12 +233,12 @@ function buildActionSubSubTabsShared(barElId, actions, mainCategory, getActiveSu
   });
 }
 
-/** Builds the second-level sub-category tabs (e.g. 移動類/手勢類/頭部類/... within
- *  基本) for whichever main category is currently active. Only sub-categories that
+/** Builds the second-level sub-category tabs (e.g. Locomotion/Gestures/Head... within
+ *  Basic) for whichever main category is currently active. Only sub-categories that
  *  actually appear in action_classification.json for this main category show up as
  *  tabs - if the classification file doesn't cover a main category at all (or none
  *  of its actions matched), no sub-tab bar appears and the flat action list shows,
- *  same as before this feature existed. An always-present "全部" tab clears the
+ *  same as before this feature existed. An always-present "All" tab clears the
  *  sub-category filter back to showing everything in the main category. */
 function buildActionSubSubTabs() {
   buildActionSubSubTabsShared(
@@ -250,13 +251,13 @@ function buildActionSubSubTabs() {
   );
 }
 
-/** 建立動作 chip 清單的邏輯, 抽出來做獨立 function 方便日後複用。
- *  @param listElId    action list 容器的 id
- *  @param filtered    已經篩選好的 action 陣列
- *  @param nameFn      (action) => 顯示名
- *  @param onPick      (action) => void, 按個 chip 之後要做的東西 (填 input + 播放)
- *  @param emptyText   沒有動作時顯示的文字
- *  @param colorFn     (action) => 色碼（可空；有即 chip 跟分類轉色，經 --chip-color）
+/** Extract the action chip list build logic into a standalone function for reuse.
+ *  @param listElId    id of the action list container
+ *  @param filtered    the already filtered action array
+ *  @param nameFn      (action) => display name
+ *  @param onPick      (action) => void, what a chip click does (fill input + play)
+ *  @param emptyText   text to show when there are no actions
+ *  @param colorFn     (action) => color code (optional. When set, the chip follows its category via --chip-color)
  */
 function renderActionChips(listElId, filtered, nameFn, onPick, emptyText, colorFn) {
   const listEl = document.getElementById(listElId);
@@ -289,12 +290,12 @@ function renderActionList() {
   renderActionChips("actionList", filtered, displayNameOf, function (a) {
     document.getElementById("actionName").value = a.nameEn || a.nameCn;
     playAction();
-  }, "(沒有動作 / 服務未初始化)", actionChipColor);
+  }, (uiLang === "en" ? "(No actions / service not initialized)" : "(沒有動作 / 服務未初始化)"), actionChipColor);
 }
 
 function playAction() {
   const name = document.getElementById("actionName").value.trim();
-  if (!name) { showError("播放動作", "請輸入動作名稱"); return; }
+  if (!name) { showError(uiLang === "en" ? "Play action" : "播放動作", uiLang === "en" ? "Enter an action name" : "請輸入動作名稱"); return; }
   return Alpha2Api.actionPlay( { name: name });
 }
 

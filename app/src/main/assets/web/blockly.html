@@ -55,9 +55,9 @@
   <div id="blocklyDiv" class="bk-canvas"></div>
 
   <div class="bk-side" id="bkSide">
-    <!-- 2026-09: 側欄收起掣 —— 展開/收起都係一粒 32x32 浮動掣 (展開嗰陣
-      騎住畫布同面板條邊, 唔再留 32px 直條 gutter)。箭嘴方向純 CSS 跟
-      .bk-side-collapsed 轉。 -->
+    <!-- 2026-09: sidebar collapse button — expanded and collapsed states use one 32x32
+      floating button (when expanded it straddles the canvas and panel edge, and the 32px
+      gutter strip is gone). The arrow rotates by pure CSS with .bk-side-collapsed. -->
     <div class="bk-side-trigger" id="bkSideTrigger" onclick="toggleSidePanel()"
       data-i18n="page_side_toggle_title" data-i18n-attr="title" title="收起/展開執行紀錄面板">
       <svg viewBox="0 0 8 16" width="8" height="16"><path d="M7 1L1 8l6 7"/></svg>
@@ -79,10 +79,10 @@
 <script src="blocks_compressed.js"></script>
 <script src="blockly_msg_zh-hant.js"></script>
 <script>
-  // 兩份 Blockly 內建 msg 檔 (zh-hant/en) 本來都是直接寫入 Blockly.Msg,
-  // 沒有留下獨立 dictionary 給之後切換用 —— 這裡在 zh-hant load 完、en load
-  // 之前, 影一份快照下來, 等 blockly-i18n.js 之後可以在兩者之間 runtime 切換
-  // (詳見 blockly-i18n.js 開頭註解)。
+  // The two built-in Blockly msg files (zh-hant/en) both write straight into
+  // Blockly.Msg and leave no separate dictionary for later switching. So here, after
+  // zh-hant loads and before en loads, take a snapshot. blockly-i18n.js can then
+  // switch between the two at runtime (see the comment at the top of blockly-i18n.js).
   window.__ALPHA_BLOCKLY_MSG_ZH = Object.assign({}, Blockly.Msg);
 </script>
 <script src="blockly_msg_en.js"></script>
@@ -98,7 +98,7 @@
 <script src="blockly-toolbox.js"></script>
 <script src="blockly-run.js"></script>
 <script src="blockly-page.js"></script>
-<!-- 型別化 API client (同 index.html 一樣, 一定要在提供 window.api 的 blockly-page.js 之後載入) -->
+<!-- Typed API client (same as index.html: load it only after blockly-page.js, which provides window.api) -->
 <script src="api-client.js"></script>
 </body>
 </html>

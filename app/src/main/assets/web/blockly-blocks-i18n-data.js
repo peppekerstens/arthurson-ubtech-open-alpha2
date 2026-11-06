@@ -1,12 +1,12 @@
 // Open Alpha2 — Custom block (blockly-blocks.js) + toolbox (blockly-toolbox.js)
-// 全部中文 label/tooltip 的英文對照表。
+// English table for all Chinese labels and tooltips.
 //
-// 此檔案要在 blockly-blocks.js / blockly-toolbox.js 之前 load (見 blockly.html)。
-// window.t(key) 由 blockly-i18n.js 提供, 讀取 window.getUiLanguage() 選擇 zh/en
-// 的版本, 沒有對應 key 就 fallback 做 zh (再沒有就直接印回 key, 方便發現漏譯)。
+// Load this file before blockly-blocks.js / blockly-toolbox.js (see blockly.html).
+// window.t(key) comes from blockly-i18n.js. It reads window.getUiLanguage()
+// to pick the zh/en version. A missing key falls back to zh, an unknown key prints itself.
 //
-// Key 命名規則: <block_type_或功能>__<field_或用途>, 全部小寫+底線, 純粹方便
-// grep, 無特別語意編碼。
+// Key naming rule: <block_type_or_feature>__<field_or_use>, all lowercase with
+// underscores, only to make grep easy. No extra semantic encoding.
 
 window.ALPHA_BLOCK_I18N = {
   // -- alpha_action_play --
@@ -59,7 +59,7 @@ window.ALPHA_BLOCK_I18N = {
   // -- alpha_speech_stop --
   speech_stop__label:        { zh: '停止 TTS 播放', en: 'Stop TTS playback' },
 
-  // -- alpha_media_stop (三合一: TTS / 鈴聲 / 本地音樂) --
+  // -- alpha_media_stop (three-in-one: TTS / ringtone / local music) --
   media_stop__label:         { zh: '⏹ 停止播放', en: '⏹ Stop playback' },
   media_stop__type_tts:      { zh: 'TTS 語音', en: 'TTS speech' },
   media_stop__type_ringtone: { zh: '系統鈴聲', en: 'System ringtone' },
@@ -77,9 +77,9 @@ window.ALPHA_BLOCK_I18N = {
   speech_set_mic__tooltip:   { zh: '⚠️ 這個不是「開始聆聽」！只是轉手 mic 擁有權, 不會觸發辨識, 也不會主動開始聽。(/api/speech/set_mic)',
                                 en: '⚠️ This is NOT "start listening"! It only hands over mic ownership — it does not trigger recognition or start listening. (/api/speech/set_mic)' },
 
-  // 2026-09 移除: alpha_speech_start_asr / alpha_speech_set_voice /
-  // alpha_speech_set_language / alpha_speech_self_interrupt 的 i18n (block 已移除)。
-  // toggle_on/toggle_off 保留 (其他 block 仍在使用)。
+  // Removed 2026-09: i18n for alpha_speech_start_asr / alpha_speech_set_voice /
+  // alpha_speech_set_language / alpha_speech_self_interrupt (the blocks are gone).
+  // toggle_on/toggle_off stay (other blocks still use them).
   toggle_on:                 { zh: '開啟', en: 'On' },
   toggle_off:                { zh: '關閉', en: 'Off' },
 
@@ -95,11 +95,11 @@ window.ALPHA_BLOCK_I18N = {
   ringtone__type_notification: { zh: '通知', en: 'notification' },
   ringtone__type_phone:      { zh: '電話', en: 'phone' },
 
-  // 2026-09 移除: alpha_speech_ringtone_stop i18n — block 已刪,
-  // 停鈴聲經 alpha_media_stop (media_stop__type_ringtone / media_stop__run_ringtone)。
+  // Removed 2026-09: alpha_speech_ringtone_stop i18n — the block was deleted,
+  // so stopping a ringtone uses alpha_media_stop (media_stop__run_ringtone).
 
   // -- alpha_music_play / alpha_music_stop --
-  // 本地音樂 (/mnt/internal_sd/music), 同 Music 分頁同一套 /api/audio/local_music/*。
+  // Local music (/mnt/internal_sd/music), same /api/audio/local_music/* set as Music tab.
   music__label:             { zh: '🎵 播放本地音樂', en: '🎵 Play local music' },
   music__track_label:       { zh: '曲目', en: 'Track' },
   music__not_loaded:        { zh: '(清單未載入)', en: '(list not loaded)' },
@@ -194,16 +194,16 @@ window.ALPHA_BLOCK_I18N = {
   event_accel__cmp_lt:       { zh: '絕對值 <', en: 'abs value <' },
   event_accel__trigger_suffix: { zh: '觸發', en: 'triggers' },
   event_accel__store_prefix: { zh: '存讀數(x/y/z)入', en: 'store reading (x/y/z) in' },
-  // 注意: 沒有 event_accel__var_label key —— 這個 FieldLabelSerializable 的值
-  // ("加速度計讀數") 刻意 hardcode 在 blockly-blocks.js, 不跟語言切換
-  // (詳見那邊的註解: 這個值同時是已存 XML 程式的變數 key)。
+  // Note: there is no event_accel__var_label key — this FieldLabelSerializable
+  // value (the accelerometer reading label, kept in Chinese) is hardcoded in
+  // blockly-blocks.js and never switches language (see the note there).
   event_accel__tooltip:      { zh: '加速度計事件驅動 hat block: 選一條軸, 讀數的絕對值大於/小於門檻才觸發下面的 block (單位 m/s², 含重力分量)。要先在「感應」分頁開了「加速度計」的開關, WebSocket 才會不斷送 accel 事件過來 — 這顆 block 只是監聽, 不會自己開感應器。事件密度高 (約每 150-250ms 一次), 觸發後請留意不要在 DO 裡做太耗時的事情, 否則會累積。',
                                 en: 'Accelerometer event-driven hat block: pick an axis, and the block below it fires when the absolute reading is above/below the threshold (units m/s\u00B2, includes gravity). The "Accelerometer" toggle on the Sensors tab must be on first for the WebSocket to keep sending accel events — this block only listens, it doesn\u2019t turn the sensor on itself. Events arrive frequently (roughly every 150\u2013250ms), so avoid slow operations inside DO or they will pile up.' },
 
   // -- alpha_event_sonar_triggered --
   event_sonar__label:        { zh: '🔔 當聲納偵測到障礙', en: '🔔 When sonar detects an obstacle' },
   event_sonar__store_prefix: { zh: '存資料入', en: 'store data in' },
-  // 注意: 沒有 event_sonar__var_label key, 原因同上 (見 event_accel__var_label 註解)。
+  // Note: no event_sonar__var_label key, same reason (see the event_accel__var_label note).
   event_sonar__tooltip:      { zh: '聲納事件驅動 hat block: 機械人偵測到障礙物進入設定門檻距離之內才觸發 (也就是 sonar_obstacle 事件的 triggered=true 那一刻, 由遠變近才算, 不會不斷重複觸發)。門檻距離用「伺服」分類的「聲納觸發距離」block 或者「感應」分頁設定。存入變數的資料包含 {triggered, thresholdCm}。',
                                 en: 'Sonar event-driven hat block: fires when the robot detects an obstacle coming within the configured threshold distance (i.e. the moment the sonar_obstacle event\u2019s triggered=true, going from far to near — it doesn\u2019t fire repeatedly). Set the threshold with the "Sonar trigger distance" block in the Servo category, or on the Sensors tab. The stored data includes {triggered, thresholdCm}.' },
 
@@ -212,8 +212,8 @@ window.ALPHA_BLOCK_I18N = {
   event_pir__state_detected: { zh: '偵測到人', en: 'detects a person' },
   event_pir__state_cleared:  { zh: '偵測不到人', en: 'no longer detects a person' },
   event_pir__store_prefix:   { zh: '存資料入', en: 'store data in' },
-  // 注意: 沒有 event_pir__var_label key, 原因同 event_accel__var_label 一樣
-  // (見那邊註解: FieldLabelSerializable 的值同時是已存 XML 的變數 key, 不跟語言切換)。
+  // Note: no event_pir__var_label key, same reason as event_accel__var_label
+  // (a FieldLabelSerializable value is also a variable key in saved XML).
   event_pir__tooltip:        { zh: 'PIR 人體感應器事件驅動 hat block: 選「偵測到人」或「偵測不到人」其中一個方向, 只有那個方向剛好發生的那一刻才觸發 (邊緣觸發, 不會物件持續在同一狀態就不斷重複執行)。要先在「感應」分頁或者「PIR人體感應器」開關 block 開了 PIR, 才會收到事件。存入變數的資料包含 {triggered}。',
                                 en: 'PIR event-driven hat block: pick either "detects a person" or "no longer detects a person" — the block below fires only the moment that particular transition happens (edge-triggered, so it won\u2019t repeatedly fire while staying in the same state). The PIR sensor must be turned on first (via the Sensors tab or the "PIR sensor" toggle block) for events to arrive. The stored data includes {triggered}.' },
 
@@ -244,8 +244,8 @@ window.ALPHA_BLOCK_I18N = {
   toolbox_example1_happy:    { zh: '好開心見到你！', en: 'Happy to see you!' },
   toolbox_tts_default_shadow: { zh: '你好', en: 'Hello' },
 
-  // ==== blockly.html 頁面外框 UI (header/工具列/側邊面板), 用 data-i18n
-  // attribute 標記, 由 blockly-i18n.js 的 applyUiTextLocale() 套用 ====
+  // ==== blockly.html page frame UI (header/toolbar/side panel), marked with
+  // the data-i18n attribute and applied by applyUiTextLocale() in blockly-i18n.js ====
   page_title:                { zh: 'Open Alpha2 — Blockly 積木編程', en: 'Open Alpha2 — Blockly Programming' },
   page_back_title:           { zh: '返回控制面板', en: 'Back to control panel' },
   page_h1:                   { zh: '🧩 Alpha2 積木編程', en: '🧩 Alpha2 Blockly' },
@@ -263,15 +263,15 @@ window.ALPHA_BLOCK_I18N = {
   page_import_btn:           { zh: '⬆ 匯入 .xml', en: '⬆ Import .xml' },
   page_clear_workspace_btn:  { zh: '🧹 清空畫布', en: '🧹 Clear workspace' },
 
-  // -- 剪貼/復原按鈕列 (抄自 NuwaRobotics Code Lab, 現在用 Blockly.ComponentManager
-  // 來做真正的 SVG UI component, 見 blockly-run.js 的 EditFabControls class) --
+  // -- cut/redo button row (copied from NuwaRobotics Code Lab, now a real
+  // SVG UI component built on Blockly.ComponentManager; see EditFabControls) --
   page_edit_undo_title:      { zh: '復原 (Ctrl+Z)', en: 'Undo (Ctrl+Z)' },
   page_edit_redo_title:      { zh: '取消復原 (Ctrl+Y)', en: 'Redo (Ctrl+Y)' },
   page_edit_cut_title:       { zh: '剪下選取的積木 (Ctrl+X)', en: 'Cut selected block (Ctrl+X)' },
   page_edit_copy_title:      { zh: '複製選取的積木 (Ctrl+C)', en: 'Copy selected block (Ctrl+C)' },
   page_edit_paste_title:     { zh: '貼上 (Ctrl+V)', en: 'Paste (Ctrl+V)' },
   page_edit_delete_title:    { zh: '刪除選取的積木 (Delete)', en: 'Delete selected block (Delete)' },
-  // -- 縮放按鈕列 (垂直組, 同上對齊 Code Lab editor-tool: 歸中/放大/縮細) --
+  // -- zoom button row (vertical group, Code Lab style: center/zoom in/zoom out) --
   page_edit_center_title:    { zh: '回到預設視角', en: 'Centre view' },
   page_edit_zoom_in_title:   { zh: '放大', en: 'Zoom in' },
   page_edit_zoom_out_title:  { zh: '縮細', en: 'Zoom out' },
@@ -283,7 +283,7 @@ window.ALPHA_BLOCK_I18N = {
   page_version_badge_title:  { zh: 'Blockly library 版本 (核心 blockly_compressed.js + 標準 blocks_compressed.js)',
                                 en: 'Blockly library version (core blockly_compressed.js + standard blocks_compressed.js)' },
 
-  // ==== blockly-page.js 動態產生的文字 (WebSocket 狀態/錯誤訊息/confirm 對話框) ====
+  // ==== text generated at run time by blockly-page.js (WebSocket status, errors, confirm dialogs) ====
   page_ws_connected:         { zh: '已連接', en: 'connected' },
   page_ws_disconnected_word: { zh: '未連接', en: 'disconnected' },
   page_ws_connect_failed:    { zh: 'WebSocket 連線失敗', en: 'WebSocket connection failed' },
@@ -294,7 +294,7 @@ window.ALPHA_BLOCK_I18N = {
   page_confirm_clear_workspace: { zh: '確定要清空整個畫布？這個動作無法復原 (但是自動儲存已存下的版本仍然可以用「載入」取回)。',
                                 en: 'Clear the entire workspace? This cannot be undone (but the auto-saved version can still be recovered via "Load").' },
 
-  // ==== blockly-run.js 「執行紀錄」面板的 logLine() 訊息 ====
+  // ==== logLine() messages for the run-log panel in blockly-run.js ====
   run_status_running:        { zh: '執行中…', en: 'Running…' },
   run_status_idle:           { zh: '閒置', en: 'Idle' },
   run_unsupported_value_block: { zh: '⚠ 未支援的數值 block 類型: {type}', en: '⚠ Unsupported value block type: {type}' },
@@ -313,16 +313,16 @@ window.ALPHA_BLOCK_I18N = {
   run_mic_ownership:         { zh: '🎙 麥克風擁有權 → {owner}', en: '🎙 Mic ownership \u2192 {owner}' },
   run_mic_owner_robot:       { zh: '機械人', en: 'robot' },
   run_mic_owner_app:         { zh: 'App', en: 'app' },
-  // 2026-09 移除: run_start_listening / run_set_voice / run_set_lang /
-  // run_self_interrupt (死 block 的 log 字串，一齊移除)。
+  // Removed 2026-09: run_start_listening / run_set_voice / run_set_lang /
+  // run_self_interrupt (log strings of dead blocks, removed together).
   run_no_ringtone_selected:  { zh: '⚠ 未選鈴聲', en: '⚠ No ringtone selected' },
   run_ringtone_play:         { zh: '🔔 播放系統鈴聲: {type} {title}{durationNote}', en: '🔔 Play system sound: {type} {title}{durationNote}' },
   run_ringtone_type_notification: { zh: '通知', en: 'notification' },
   run_ringtone_type_phone:   { zh: '電話', en: 'phone' },
   run_ringtone_duration_note: { zh: '（播 {duration} 秒）', en: ' (play for {duration}s)' },
   run_ringtone_duration_full: { zh: '（播到完為止）', en: ' (play to the end)' },
-  // 2026-09 移除: run_ringtone_stop — alpha_speech_ringtone_stop case 已刪,
-  // 停鈴聲 log 經 media_stop__run_ringtone。
+  // Removed 2026-09: run_ringtone_stop — the alpha_speech_ringtone_stop case
+  // was deleted, so the ringtone-stop log uses media_stop__run_ringtone.
   run_no_music_selected:     { zh: '⚠ 未選曲目', en: '⚠ No track selected' },
   run_music_play:            { zh: '🎵 播放本地音樂: {name}{fillerNote}{discoNote}', en: '🎵 Play local music: {name}{fillerNote}{discoNote}' },
   run_music_filler_note:     { zh: ' (隨歌伴舞開)', en: ' (dance along on)' },
@@ -374,13 +374,13 @@ window.ALPHA_BLOCK_I18N = {
   run_action_list_failed:       { zh: '❌ 取得動作清單失敗', en: '❌ Failed to fetch action list' },
   run_action_list_load_failed_option: { zh: '(載入失敗)', en: '(load failed)' },
 
-  // ==== blockly-actions-data.js 的 15 個子分類顯示名 ====
-  // ⚠️ 這些 key 純粹用來顯示 (dropdown label / 分類前綴), 不是 sub 本身的
-  // wire value ——sub 內部值 (例如 "移動類") 保持中文不變, 因為它同時是
-  // alpha_action_play_basic/dance/story/yoga/others 這 5 個 block 的
-  // SUBCATEGORY field 存入 XML 的那個值 (見 blockly-blocks.js/blockly-toolbox.js
-  // 對應註解), 改了內部值會令已存程式讀不到子分類。這裡加的是一層獨立顯示
-  // layer, 用 sub_label_* 這批 key 來給用戶看的版本, 不影響底層資料。
+  // ==== display names of the 15 subcategories in blockly-actions-data.js ====
+  // ⚠️ These keys exist only for display (dropdown labels / category prefixes).
+  // They are not the wire value of the sub itself — the internal sub value (the
+  // Chinese string) stays unchanged, because it is also the value the
+  // SUBCATEGORY field of the 5 alpha_action_play_* blocks writes into the XML
+  // (see the notes in blockly-blocks.js / blockly-toolbox.js). These keys add a
+  // display layer for users only; the underlying data never changes.
   sub_label_move:            { zh: '移動類', en: 'Movement' },
   sub_label_gesture:         { zh: '手勢類', en: 'Gestures' },
   sub_label_head:            { zh: '頭部類', en: 'Head' },
@@ -398,10 +398,10 @@ window.ALPHA_BLOCK_I18N = {
   sub_label_neuron_stand:    { zh: 'Neuron 起身動作', en: 'Neuron get-up actions' },
 };
 
-// t(key, vars?) — 取回 key 對應的字串, 跟 window.getUiLanguage() 選語言,
-// 沒有對應語言就 fallback 做 zh, key 完全找不到就直接印回 key 出來 (方便一眼
-// 看到漏譯了哪個, 不會悄悄顯示 undefined)。支援 {placeholder} 簡單替換,
-// 用在好像 action_category_tooltip 這種要插入分類名的字串。
+// t(key, vars?) — returns the string for a key, choosing the language via
+// window.getUiLanguage(). A missing language falls back to zh, and a missing
+// key prints itself, so an untranslated string is easy to spot.
+// {placeholder} replacement is supported (action_category_tooltip uses it).
 window.t = function (key, vars) {
   const entry = window.ALPHA_BLOCK_I18N[key];
   const lang = (window.getUiLanguage && window.getUiLanguage()) || 'zh';

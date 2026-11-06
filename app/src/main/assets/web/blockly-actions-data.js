@@ -1,44 +1,44 @@
-// Open Alpha2 — 機械人內建動作清單 (靜態資料)。
+// Open Alpha2 — Built-in action list for the robot (static data).
 //
-// ⚠️ 2026-08 更新: 之前這裡拿了 260 個動作 (action_classified.txt 人手分類版本),
-// 但實測發現機械人實機 preset 只有 199 個 (見同目錄外用家提供的 actionInfo.txt,
-// 即機身實際回傳的 action list dump) —— 之前那 260 個裡面, 有 49 個是「舊 id
-// 重複」(同一個動作機身後期換了新 id, 但舊版資料兩個 id 都留下了, 令 dropdown
-// 見到兩份一樣的動作), 還有 12 個是真正完全沒有對應 (連新舊 id 都找不到, 應該是
-// 部分機型/韌體版本先有的擴充動作, 不是全部機都有)。現在這份清單改為完全跟
-// actionInfo.txt 的 id 做 preset (不理個 id 新舊, 正在僅隨機清單為準),
-// main/sub 分類就沿用回舊版 action_classified.txt 已經人手核對好的對照表 (用 id
-// 查回那個動作原本屬於哪個 main/sub, 全部都在舊表裡面找得到, 沒有再重新分類一次
-// 的需要)。
+// ⚠️ 2026-08 update: an earlier version here held 260 actions (the manual
+// split in action_classified.txt). Real-robot tests found the unit has only
+// 199 presets (see actionInfo.txt, supplied by a user outside this folder —
+// the raw action list dump the firmware returns). Of the 260, 49 were
+// "old id duplicates" (the firmware later gave the same action a new id,
+// but the old data kept both ids, so the dropdown showed that action
+// twice). Another 12 had no match at all (neither old nor new id existed),
+// so they are extra actions on some models or firmware versions only. This
+// list now follows the actionInfo.txt ids, old or new. The main/sub split
+// reuses the hand-checked table in action_classified.txt (looked up by id).
 //
-// ⚠️ 2026-08 補充更新: 用家提供了一份完整版 actionInfo.txt (200 個 id, 比第一次
-// 那 199 個多了 1464835936008 / ACT7, 之前漏了沒有收錄), 並且證實了 nameEn 全部
-// 已經是機身原廠英文名 (不是之前為了趕住做 i18n 而人手估譯那批)。已經用這份做
-// 權威來源, 補回 ACT7, 同埋將 18 個之前人手估譯錯了/風格不一致的 nameEn
-// (主要是故事類同幾隻情緒/動作類) 訂正做機身原廠寫法, 包括原廠慣用的細楷開頭
-// 風格 (例如 'the deer and the lion' 不是 'The Deer and the Lion') —— 保持
-// 同其餘 199 個動作一致的大小寫風格, 不要僅那 18 個變完大楷開頭。現在全部
-// 200 個 id 都經核對, 對得上機身 actionInfo.txt 的原廠 nameEn。
+// ⚠️ 2026-08 second update: a user then supplied the full actionInfo.txt
+// (200 ids — 1464835936008 / ACT7 was missing from the first 199) and
+// confirmed every nameEn is a factory English name, not a hand guess from
+// the early i18n rush. That file is now the authoritative source. ACT7 is
+// added back, and 18 wrong or inconsistent nameEn values (mostly stories
+// and a few emotion actions) now match the factory text, including the
+// factory lowercase-first style (for example 'the deer and the lion').
+// All 200 ids are now verified against the factory nameEn values.
 //
-// 分類邏輯: 5 個 main (basic/dance/story/yoga/others) 之下再分 15 個 sub, 對照
-// 如下 (main -> [sub,...]):
-//   basic: 移動類, 手勢類, 頭部類, 表情 / 互動類, 全身 / 其他動作
-//   dance: 兒童歌曲 / 卡通舞蹈, 流行 / 節奏舞蹈, 品牌 / 客製舞蹈
-//   story: 中國寓言, 西方寓言 / 故事
-//   yoga: 站立式 / 平衡式, 伸展式, 騎馬式, 踢腿 / 動態式
-//   others: Neuron 起身動作 (BackStand/FrontStand, 來自 Neuron 專案, 未經
-//     機身實測確認, 見底下 ALPHA_ACTIONS 對應 entry 的註解)
+// Classification logic: 5 main groups (basic/dance/story/yoga/others), each
+// split into 15 sub groups in total, mapped as follows (main -> [sub,...]):
+//   basic: Movement, Gesture, Head, Expression / Interaction, Full body / Other
+//   dance: Kids songs / Cartoon dances, Pop / Rhythm dances, Brand / Custom dances
+//   story: Chinese fables, Western fables / Stories
+//   yoga: Standing / Balance poses, Stretching poses, Horse-riding poses, Kicking / Dynamic poses
+//   others: Neuron get-up actions (BackStand/FrontStand, from the Neuron
+//     project, not confirmed on the real robot, see the ALPHA_ACTIONS entry note)
 //
-// UI 結構: 播放內建動作 block 現在是「主分類 -> 子分類 -> 動作」3 層 dropdown
-// (對應 blockly-blocks.js 的 alpha_action_play_builtin), 子分類轉了要重新過濾
-// 動作清單, 主分類轉了要重新過濾子分類清單, 兩層都要重設落第一個選項。
+// UI structure: the play built-in action block is now a 3-level dropdown
+// main -> sub -> action (see alpha_action_play_builtin in blockly-blocks.js).
+// Each change re-filters the level below it and resets that level to the first option.
 
 (function () {
-  // label 用 window.t() 讀回 blockly-blocks-i18n-data.js 已經有的
-  // action_cat_basic/dance/story/yoga key (同 makeActionCategoryBlock() 用的
-  // 分類名一致, 沒有必要為這個下拉前綴另開一份新字典)。同 blockly-toolbox.js
-  // 一樣的原因, t() 是 call 那一刻計值, 所以要包做 function, 等
-  // blockly-i18n.js 切語言當時可以重新 call 拿新版本。
+  // The label uses window.t() to read the existing keys from
+  // blockly-blocks-i18n-data.js (action_cat_basic/dance/story/yoga — the same
+  // names makeActionCategoryBlock() uses, so no new dictionary is needed for
+  // this dropdown prefix). As in blockly-toolbox.js, t() evaluates at call
+  // time, so wrap it in a function that blockly-i18n.js can re-call on a switch.
   function buildActionCategories() {
     return [
       { key: 'basic',  label: t('action_cat_basic'), color: '#3b7dff' },
@@ -55,7 +55,7 @@
     ACTION_CATEGORIES.push.apply(ACTION_CATEGORIES, buildActionCategories());
   };
 
-  // 子分類次序: 跟 action_classified.txt 裡面出現的次序 (每個 main 之下)。
+  // Sub order: the order the subs appear in action_classified.txt, per main.
   var ACTION_SUBCATEGORIES = {
     basic: ['移動類', '手勢類', '頭部類', '表情 / 互動類', '全身 / 其他動作'],
     dance: ['兒童歌曲 / 卡通舞蹈', '流行 / 節奏舞蹈', '品牌 / 客製舞蹈'],
@@ -65,11 +65,11 @@
   };
   window.ALPHA_ACTION_SUBCATEGORIES = ACTION_SUBCATEGORIES;
 
-  // sub 的內部值 (中文, 上面 ACTION_SUBCATEGORIES 那些字串) 同時是
-  // alpha_action_play_basic/dance/story/yoga/others 的 SUBCATEGORY field 存入
-  // XML 那個值, 不可以改 (詳見 blockly-blocks-i18n-data.js 開頭 sub_label_*
-  // 那段註解)。這個對照表僅用來將內部值 map 去顯示用的 i18n key, 不改內部值
-  // 本身。
+  // The internal sub value (the Chinese strings in ACTION_SUBCATEGORIES
+  // above) is also the value that the SUBCATEGORY field of
+  // alpha_action_play_basic/dance/story/yoga/others writes into the XML, so
+  // it must not change (see the sub_label_* note at the head of
+  // blockly-blocks-i18n-data.js). This table only maps it to a display key.
   var SUB_LABEL_KEY = {
     '移動類': 'sub_label_move',
     '手勢類': 'sub_label_gesture',
@@ -87,8 +87,8 @@
     '踢腿 / 動態式': 'sub_label_kick_yoga',
     'Neuron 企身動作': 'sub_label_neuron_stand',
   };
-  // 顯示用: 將內部 sub 值轉做當前語言的顯示字串; 找不到對應 key 就原樣退回
-  // (保險, 理論上 15 個都齊)。
+  // For display: map an internal sub value to the current-language label, and
+  // fall back to the raw value if no key is found (all 15 should exist).
   function subLabel(sub) {
     var key = SUB_LABEL_KEY[sub];
     return key ? t(key) : sub;
@@ -296,20 +296,20 @@
     { id: '1509004782446', nameCn: '右側腰踢腿式', nameEn: 'right side bow with left leg kick', main: 'yoga', sub: '踢腿 / 動態式' },
     { id: '1511247440171', nameCn: '右踢瑜珈', nameEn: 'right kick yoga', main: 'yoga', sub: '踢腿 / 動態式' },
     { id: '1511247506520', nameCn: '左踢瑜伽', nameEn: 'left kick yoga', main: 'yoga', sub: '踢腿 / 動態式' },
-    // "其他" 分類 —— 來自 Neuron 專案 (alpha2.uk.neuron/MainActivity#
-    // onSensorChanged()) 用的摔倒起身動作名, 未有在 actionInfo.txt 實機清單
-    // 出現過, 就是未經這個 project 自己的機身實測確認, 但它是 Neuron 官方
-    // SDK example 用過的內建動作名, 理應是機身通用的內建動作。如果播不到,
-    // 用「動作」分頁的即時動作清單 (alpha_action_play_dropdown) 核對一下
-    // 你部機到底有沒有這兩個 id。
+    // The "others" category — the get-up-after-fall action names from the
+    // Neuron project (alpha2.uk.neuron/MainActivity#onSensorChanged()) are
+    // not in the real-robot actionInfo.txt dump, so this project has not
+    // confirmed them on hardware. They are built-in names used by the
+    // official Neuron SDK example, so they should work on every unit. If
+    // playback fails, check both ids in the Actions-tab live list.
     { id: 'BackStand', nameCn: '仰躺站立', nameEn: 'BackStand', main: 'others', sub: 'Neuron 企身動作' },
     { id: 'FrontStand', nameCn: '趴著站立', nameEn: 'FrontStand', main: 'others', sub: 'Neuron 企身動作' },
   ];
 
 
-  // actionLabel() 決定 dropdown 度顯示哪個名: 中文模式顯示 "中文 / English"
-  // (方便用家兩種名都對得上), 英文模式僅顯示英文, 不再夾雜中文——這個同
-  // 之前 (2026-08 之前) 不理語言、成日都顯示 "中文 / English" 的寫法不同。
+  // actionLabel() decides which name the dropdown shows. Chinese mode shows
+  // the Chinese name first, then " / ", then the English name, so either can
+  // be matched. English mode shows only English (a change from 2026-08).
   function actionLabel(a) {
     var lang = (window.getUiLanguage && window.getUiLanguage()) || 'zh';
     if (lang === 'zh') {
@@ -318,15 +318,15 @@
     return a.nameEn;
   }
 
-  // 下面這 3 個 dropdown option table (BY_SUBCATEGORY/BY_CATEGORY/ALL) 全部
-  // 用到 actionLabel()/subLabel()/分類 label, 三個都是 t() call time 計值,
-  // 所以要包做一個 rebuild function, 等 blockly-i18n.js 切語言當時可以重新
-  // call 一次, 取回新語言的版本 (同 buildAlphaToolbox()/
-  // rebuildAlphaActionCategories() 一樣的做法)。
+  // The 3 dropdown option tables below (BY_SUBCATEGORY/BY_CATEGORY/ALL) all
+  // use actionLabel()/subLabel()/category labels, and each one evaluates t()
+  // at call time. So they are wrapped in a rebuild function: blockly-i18n.js
+  // re-calls it on a language switch to get the new text (the same approach
+  // as buildAlphaToolbox()/rebuildAlphaActionCategories()).
   function rebuildActionOptionTables() {
-    // 分組: 每個 main -> 每個 sub 一組 [[label, value], ...], 給「動作」dropdown 用
-    // (跟著已選的 main + sub 一齊篩選)。key 用回 sub 的內部值 (中文, wire value),
-    // 不跟語言變 —— 僅 [label, ...] 裡面第一格的顯示字串會跟語言變。
+    // Grouping: per main, one [[label, value], ...] list for each sub, for
+    // the action dropdown (filtered by the chosen main + sub). The keys are
+    // the internal sub values (Chinese wire values), fixed. Only the label changes.
     window.ALPHA_ACTION_OPTIONS_BY_SUBCATEGORY = {};
     ACTION_CATEGORIES.forEach(function (c) {
       window.ALPHA_ACTION_OPTIONS_BY_SUBCATEGORY[c.key] = {};
@@ -337,7 +337,7 @@
       });
     });
 
-    // 分組: 每個 main 一組 (不理 sub), 保留給舊版/其他可能還正在用這個 key 的地方相容。
+    // Grouping: one list per main (subs ignored), kept for older callers.
     window.ALPHA_ACTION_OPTIONS_BY_CATEGORY = {};
     ACTION_CATEGORIES.forEach(function (c) {
       window.ALPHA_ACTION_OPTIONS_BY_CATEGORY[c.key] = window.ALPHA_ACTIONS
@@ -345,8 +345,8 @@
         .map(function (a) { return [actionLabel(a), a.id]; });
     });
 
-    // 全部合併做一個 dropdown 用的選項 (加回分類前綴方便找)。分類前綴同 sub
-    // 前綴都經 t()/subLabel() 取回顯示字串, 跟語言變。
+    // All actions merged into one dropdown list, with a category prefix.
+    // Category and sub prefixes come from t()/subLabel() and follow the language.
     window.ALPHA_ACTION_OPTIONS_ALL = window.ALPHA_ACTIONS.map(function (a) {
       var cat = ACTION_CATEGORIES.filter(function (c) { return c.key === a.main; })[0];
       var prefix = cat ? ('[' + cat.label + ' · ' + subLabel(a.sub) + '] ') : '';
@@ -356,16 +356,16 @@
   rebuildActionOptionTables();
   window.rebuildAlphaActionOptionTables = rebuildActionOptionTables;
 
-  // id -> main category 對照表, 給 blockly-run.js 的「即時動作清單」(refreshActionDropdown,
-  // 抓 /api/action/list 機械人即時回傳的清單) 用來幫每個項目掛回分類前綴。
+  // id -> main category table. blockly-run.js uses it to prefix entries in
+  // the live action list (refreshActionDropdown, fetched from /api/action/list).
   //
-  // 舊版這個 function 僅得個名, 實際是靠機械人回傳的原始 type 數字 (1/2/3/4) 做
-  // 白名單推斷分類, 完全不理個 id 本身。新版資料來自 actionInfo.txt 實機清單 (見
-  // 檔頭 2026-08 更新註解), 對照表本身就是「id -> {main, sub}」, 更準確亦更簡單
-  // 直接查表, 不用再靠 type 數字猜測。機械人即時回傳的 action 裡面, 凡是 id 剛好
-  // 在這個已知清單 (200 個實機 id + 底下額外加的 2 個 Neuron 動作) 裡面的, 就
-  // 會拿到正確分類前綴; 不在清單裡面的 (例如用家自己上載的自訂動作, 或者部分
-  // 機型先有的擴充動作) 就沒有前綴, 屬正常現象, 不是 bug。
+  // The old version of this function had only the name: it inferred the
+  // category from the raw type number (1/2/3/4) the robot returned, through
+  // a whitelist, and ignored the id itself. The new data comes from the real
+  // actionInfo.txt list (see the 2026-08 header note). The table maps
+  // id -> {main, sub}, so a direct lookup is simpler and more accurate.
+  // A live action whose id is in this list (200 real ids + the 2 Neuron
+  // actions below) gets the right prefix. A missing prefix is normal, not a bug.
   var ACTION_MAIN_BY_ID = {};
   window.ALPHA_ACTIONS.forEach(function (a) { ACTION_MAIN_BY_ID[a.id] = a.main; });
   window.ALPHA_ACTION_CATEGORY_OF = function (idOrType) {
