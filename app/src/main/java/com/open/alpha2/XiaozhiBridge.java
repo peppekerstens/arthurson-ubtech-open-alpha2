@@ -881,7 +881,10 @@ public final class XiaozhiBridge {
     }
 
     /** I/O failure in openPushToTalkTurn() (alpha2-brain#16): close what was
-     *  opened, move the machine back to IDLE, no action. */
+     *  opened, clear the active-turn flag (review round 1, F3: an aborted
+     *  re-press must not leave it true, or the uplink gate and the
+     *  auto-continue guard stay suppressed after the machine is back in
+     *  IDLE), move the machine back to IDLE, no action. */
     private void abortPushToTalkTurn(boolean openedPlayback) {
         if (xiaozhiAudioController.isCapturing()) {
             stopXiaozhiCaptureOnly();
@@ -890,6 +893,7 @@ public final class XiaozhiBridge {
             xiaozhiAudioController.stopPlayback();
         }
         robot.speech_SetMIC(false);
+        pttTurnActive = false;
         pushToTalk.abort();
     }
 
