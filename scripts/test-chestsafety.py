@@ -28,7 +28,7 @@ def main() -> int:
     javac = shutil.which("javac")
     java = shutil.which("java")
     if not javac or not java:
-        raise SystemExit("javac/java not found in PATH. Install JDK 11+")
+        raise SystemExit("javac/java not found in PATH. Install a JDK (8 or later)")
 
     src = ROOT / "sdk-module" / "hardware-direct" / "src" / "main" / "java" / "com" / "ubtechinc" / "alpha" / "hardware"
     test = ROOT / "sdk-module" / "hardware-direct" / "src" / "test" / "java" / "com" / "ubtechinc" / "alpha" / "hardware" / "ChestSafetyVectorTest.java"

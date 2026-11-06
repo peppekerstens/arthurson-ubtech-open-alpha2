@@ -3,6 +3,7 @@ package com.ubtechinc.alpha.hardware;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,7 +31,8 @@ import java.util.Map;
  * ({@code SIT_DOWN_19} to {@code sit_down_19}, {@code SIT_DOWN_40} to
  * {@code sit_down_40}, the {@code NOT_WHOLE} prefix to {@code not_whole}).
  *
- * <p>Run: {@code python3 scripts/test-chestsafety.py}
+ * <p>Run: {@code python3 scripts/test-chestsafety.py}. This test runs only
+ * on the host JDK through that script, never on the Android 5.1 device.
  */
 public final class ChestSafetyVectorTest {
     private static int passed = 0;
@@ -76,8 +78,8 @@ public final class ChestSafetyVectorTest {
     }
 
     private static Path vectorPath(String[] args) {
-        if (args.length >= 1) return Path.of(args[0]);
-        return Path.of("tests", "chest_guard_vectors.json");
+        if (args.length >= 1) return Paths.get(args[0]);
+        return Paths.get("tests", "chest_guard_vectors.json");
     }
 
     public static void main(String[] args) {
