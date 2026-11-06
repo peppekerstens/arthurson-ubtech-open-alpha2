@@ -8,9 +8,10 @@
 </head>
 <body>
 
-<!-- 面板鎖屏浮層：auth 啟用＋未解鎖時由 panelLockCheck() 打開（加 .open），蓋住
-     整個面板不顯示內容；浮層解鎖成功即記住 token＋reload。預設收起（display:none），
-     停用認證時永遠不出現，預設行為零影響。 -->
+<!-- Panel lock overlay: panelLockCheck() opens it when auth is enabled and the panel is
+     not unlocked (it adds .open). It covers the whole panel and hides the content. On unlock
+     it saves the token and reloads. It stays hidden by default (display:none). It never appears
+     when auth is disabled, so the default behavior does not change. -->
 <div id="panelLockOverlay">
   <div class="panel-lock-card">
     <h2>🔐 面板已鎖定 / Panel Locked</h2>
@@ -82,7 +83,7 @@
         </div>
         <div class="device-tile">
           <div class="device-label" data-i18n="device_uuid">🤖 機械人 UUID</div>
-          <!-- UUID 直接顯示：入頁自動查 (requestUuid)。 -->
+          <!-- Show the UUID directly: the page queries it on load (requestUuid). -->
           <div id="uuidOut" class="device-value" data-i18n="uuid_querying_hint">-</div>
         </div>
         <div class="device-tile">
@@ -108,11 +109,11 @@
       <canvas id="sonarChart" class="accel-chart" width="900" height="160"></canvas>
     </section>
 
-    <!-- PIR card：toggle 開關＋警示反應開關＋指示燈，用 chest_setPirSensorEnabled()
-         (chest serial cmd=72)。後端 publish "alpha2_pir_state" event，前端不用理背後路徑。
-         indicator id: alpha2PirIndicator（見 app-status.js onAlpha2PirState()）。
-         警示反應（紅燈＋"Heaven" 鈴聲）經 MainActivity#applyAlpha2PirLedAndSound() 實現，
-         預設關。 -->
+    <!-- PIR card: sensor toggle + alert reaction toggle + indicator, via chest_setPirSensorEnabled()
+         (chest serial cmd=72). The backend publishes the "alpha2_pir_state" event. The frontend
+         does not need the path behind it. Indicator id: alpha2PirIndicator (see app-status.js onAlpha2PirState()).
+         The alert reaction (red light + the "Heaven" ringtone) runs through MainActivity#applyAlpha2PirLedAndSound().
+         Off by default. -->
     <section class="card">
       <h2 data-i18n="alpha2_pir_heading">PIR 感應器</h2>
       <div class="row">
@@ -156,8 +157,8 @@
       <canvas id="accelChart" class="accel-chart" width="900" height="220"></canvas>
       <p class="hint" id="accelHint"></p>
 
-      <!-- 4角度傾側控制頭/眼 LED：尾段獨立 <script> 實現（見底）。用開關控制，
-           要先開上面「加速度計」開關才會收到讀數。 -->
+      <!-- 4-angle tilt control for the head/eye LEDs: implemented in the trailing <script> (see bottom).
+           The switch controls it. Turn on the accelerometer switch above first, or no readings arrive. -->
       <div class="row" style="margin-top:8px;">
         <label class="switch-label">
           <span class="toggle-switch">
@@ -216,7 +217,7 @@
     </section>
   </div>
 
-  <!-- ============ TAB: GAMEPAD (BT 手柄／鍵盤，兩端共用映射) ============ -->
+  <!-- ============ TAB: GAMEPAD (BT gamepad/keyboard, mapping shared on both ends) ============ -->
   <div id="tab-gamepad" class="tab-page">
     <section class="card">
       <h2 data-i18n="gamepad_manage_heading">🔷 藍牙</h2>
@@ -249,7 +250,7 @@
           </span>
         </label>
       </div>
-      <!-- 手柄示意（hardwaretester 風即時亮燈：直連手柄按鍵經 WebSocket 亮） -->
+      <!-- Gamepad diagram (hardwaretester-style live light-up: direct pad keys light over WebSocket) -->
       <div class="gp-pad" id="gpPadDiagram">
         <div class="gp-shoulders">
           <div class="gp-sh" id="gpcap-l2">L2</div>
@@ -312,7 +313,7 @@
           </span>
         </label>
       </div>
-      <!-- 全鍵盤示意（JS 生成，直連鍵盤撳鍵即時亮燈，見 gamepadBuildKeyboardDiagram） -->
+      <!-- Full keyboard diagram (built by JS, direct key presses light live, see gamepadBuildKeyboardDiagram) -->
       <div class="kb-board" id="kbBoardDiagram"></div>
       <p class="hint" data-i18n="gamepad_kb_card_hint">直連鍵盤按鍵即時亮燈（經 WebSocket）；字母數字原樣＋控制鍵全覆蓋可映射，a/b/x/y 同手柄同名但獨立值。</p>
       <div class="row">
@@ -335,16 +336,16 @@
 
   <!-- ============ TAB: SPEECH ============ -->
   <div id="tab-speech" class="tab-page">
-    <!-- 對話界面：全抄小智 tab 做法，一個 event-log 樣式 chat log
-         (xiaozhi-msg-user/assistant/system 三種氣泡，見 style.css)，底下文字輸入＋送出。
-         純「顯示層」，不改底層 API。打字當作已辨識完的一句話，送去問法配對引擎
-        （中英文各 1000 條，按有無漢字自動判斷），命中即做 TTS＋動作。
-         底層叫 speech/semantic_simulate，配對答案行 Android 內置 TTS
-        （見 MainActivity.speakAndroidTts()）。 -->
+    <!-- Chat UI: copies the Xiaozhi tab design. One chat log with the event-log style
+         (xiaozhi-msg-user/assistant/system bubbles, see style.css), then a text input and a
+         send button below. This is a display layer only, and it does not change the underlying
+         API. A typed message counts as a fully recognized sentence and goes to the question
+         matcher (1000 entries per language, Han characters pick the language). A hit triggers
+        TTS plus an action. The call below is speech/semantic_simulate, answered by Android built-in TTS (see MainActivity.speakAndroidTts()). -->
     <section class="card">
       <h2 data-i18n="speech_chat_heading">💬 對話界面</h2>
-      <!-- Vosk 聆聽指示燈（綠＝聆聽中，灰＝其他）：放這行，不可以放入上面 h2
-          （applyUiLanguage 會整個 textContent 覆寫）。 -->
+      <!-- Vosk listening indicator (green = listening, gray = other): keep it in this row. Do not
+          put it in the h2 above, because applyUiLanguage overwrites its full textContent. -->
       <div class="row" style="margin-bottom:-4px">
         <span id="voskStateDot" class="vosk-state-dot vosk-state-dot-off"></span>
       </div>
@@ -357,28 +358,28 @@
       </div>
     </section>
 
-    <!-- Vosk 離線 ASR 卡：Model 放 sdcard 頂層 vosk-* 目錄（有 am/final.mdl 即算），
-         開啟頁面自動掃描出鍵；按鍵即載入＋自動開聽，成句經 asr_result 入對話管線
-        （氣泡＋語意配對＋TTS＋動作），partial 即時顯示在下方。辨識限定在問法庫範圍
-        （中文轉簡體先對 acoustic，見 VoskController）。 -->
+    <!-- Vosk offline ASR card: models live in top-level vosk-* folders on the sdcard. A folder
+         with am/final.mdl counts. The page scans them on load and builds buttons. A press loads the
+        model and starts listening. A finished sentence enters the chat pipeline through asr_result
+        (bubble + semantic match + TTS + action), and partial results show live below. Recognition stays inside the question library (Chinese becomes Simplified first, see VoskController). -->
     <section class="card" id="voskCard">
       <h2 data-i18n="vosk_heading">🎙️ 語音辨識 (Vosk 離線)</h2>
       <p class="hint" data-i18n="vosk_hint">模型放 sdcard 頂層（如 vosk-model-small-cn-0.22），開啟頁面自動偵測，不跟 App。載入需幾秒＋約 200MB 記憶體，一次一個。</p>
-      <!-- 有什麼 model 出什麼鍵（名跟面板語言，見 app-vosk.js voskLangName），一次僅一個有效——
-           有效藍色，其餘灰色；一按即先停舊再載入＋自動開聽。 -->
+      <!-- One button per downloaded model (the name follows the panel language, see app-vosk.js voskLangName).
+           Only one model is active at a time: the active button is blue, the rest are gray. A press stops the old model first, then loads and starts listening. -->
       <div class="row">
         <label data-i18n="vosk_model_label">模型：</label>
         <div id="voskModelBtns" style="flex:1; display:flex; gap:6px; flex-wrap:wrap"></div>
       </div>
-      <!-- 僅顯示已下載模型鍵：藍＝聆聽中（再按即停變灰），灰色按即載入＋自動開聽。下載在實驗 tab（資源下載卡）。 -->
+      <!-- Show buttons only for downloaded models: blue = listening (press again to stop and turn gray), gray = press to load and start listening. Downloads live in the advanced tab (resource download card). -->
       <p class="hint" style="margin-top:6px" id="voskPartialOut">—</p>
       <p class="hint" style="margin-top:6px" id="voskStatusOut">—</p>
     </section>
     <section class="card">
       <h2 data-i18n="tts_heading">語音 / TTS</h2>
-      <!-- TTS 手動／自動選擇（掣喺三行上面）：開＝手動選擇（引擎／語言／聲音三行
-           出現，現況不變，預設）；關＝自動跟當前 Vosk 模型走（三行直情收起）。
-           後端見 TtsCenter 跟隨開關＋speech/cur_tts_follow_vosk、speech/set_tts_follow_vosk。 -->
+      <!-- TTS manual/auto pick (the switch sits above the three rows): on = manual pick, the engine/
+           language/voice rows appear (default, current behavior unchanged). Off = follow the active Vosk
+           model automatically and hide the rows. Backend: TtsCenter with the follow switch, plus speech/cur_tts_follow_vosk and speech/set_tts_follow_vosk. -->
       <div class="row" id="ttsFollowVoskRow">
         <label class="switch-label"><span data-i18n="tts_follow_vosk_label">✋ 手動選擇</span>
           <span class="toggle-switch">
@@ -389,19 +390,19 @@
       </div>
       <p class="hint" data-i18n="tts_follow_vosk_hint">開＝手動選擇語言／聲音；關＝自動跟 Vosk 語言包走</p>
       <p class="hint" id="ttsFollowVoskStatus"></p>
-      <!-- TTS 只用 Android 內置；引擎／語言選擇常駐顯示。 -->
+      <!-- TTS uses only the Android built-in engine. The engine/language selectors stay visible. -->
       <div class="row" id="ttsAndroidEngineRow">
         <label for="ttsAndroidEngineSelect" data-i18n="tts_android_engine_label">TTS 引擎：</label>
         <select id="ttsAndroidEngineSelect" onchange="setAndroidTtsEngine()" style="flex:1"></select>
       </div>
-      <!-- Android TTS 語言選擇，語言清單跟著現在選擇的引擎變化 (選新引擎之後要
-           重新載入語言清單)。 -->
+      <!-- Android TTS language picker: the language list follows the selected engine. Reload the
+           language list after a new engine is chosen. -->
       <div class="row" id="ttsAndroidLangRow">
         <label for="ttsAndroidLangSelect" data-i18n="tts_android_lang_label">語言：</label>
         <select id="ttsAndroidLangSelect" onchange="setAndroidTtsLang()" style="flex:1"></select>
       </div>
-      <!-- 聲音選擇：選完具體語言先出現，每個語言的聲音不同
-           （經 speech/tts_voices 按 lang 取得，見 app-speech.js loadAndroidTtsVoices）。 -->
+      <!-- Voice picker: it appears after a concrete language is chosen, because each language has
+           different voices (fetch them per lang through speech/tts_voices, see app-speech.js loadAndroidTtsVoices). -->
       <div class="row" id="ttsAndroidVoiceRow" style="display:none">
         <label for="ttsAndroidVoiceSelect" data-i18n="tts_android_voice_label">聲音：</label>
         <select id="ttsAndroidVoiceSelect" onchange="setAndroidTtsVoice()" style="flex:1"></select>
@@ -417,7 +418,7 @@
 
   <!-- ============ TAB: LED ============ -->
   <div id="tab-led" class="tab-page">
-    <!-- UI 1001a（隱形版本釘：curl 呢頁 grep 就知部機跑緊邊版，唔使問用家） -->
+    <!-- UI 1001a (hidden version pin: curl this page and grep it to find the running version, no need to ask the user) -->
     <section class="card">
       <h2>LED</h2>
       <div class="led-block">
@@ -429,8 +430,8 @@
               <div class="perled-side-label" data-i18n="led_perled_right">右</div>
             </div>
             <div class="perled-pad-col">
-              <button id="padPlusBtn" class="pad-tri up" title="音量+" onclick="sysPadToggle('plus')"></button>
-              <button id="padMinusBtn" class="pad-tri down" title="音量-" onclick="sysPadToggle('minus')"></button>
+              <button id="padPlusBtn" class="pad-tri up" title="音量+ / Vol+" onclick="sysPadToggle('plus')"></button>
+              <button id="padMinusBtn" class="pad-tri down" title="音量- / Vol-" onclick="sysPadToggle('minus')"></button>
             </div>
             <div class="perled-side">
               <div class="perled-strip" id="perledHeadL"></div>
@@ -504,7 +505,7 @@
         <h3 data-i18n="led_mouth_heading">嘴部 LED</h3>
         <div class="perled-center">
           <div class="perled-mouth-wrap">
-            <button id="perledMouthArc" class="perled-mouth-arc" title="咀" onclick="mouthToggle()"></button>
+            <button id="perledMouthArc" class="perled-mouth-arc" title="咀 / Mouth" onclick="mouthToggle()"></button>
           </div>
         </div>
         <div class="row">
@@ -521,7 +522,7 @@
           <button id="muteBtn" class="sys-toggle-off" onclick="sysMuteToggle()" data-i18n="led_mute_btn_title" data-i18n-attr="title" title="靜音燈"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.09-.6-.39-1.14-1-1.14z"/></svg></button>
         </div>
       </div>
-      <!-- 版本標記：驗瀏覽器有無用舊 JS（睇唔到最新號即係 cache 緊舊版，做 Ctrl+F5）。 -->
+      <!-- Version marker: check for cached old JS. If the browser cannot see the newest number, it runs an old build. Press Ctrl+F5. -->
     </section>
   </div>
 </div><!-- /pagesAlpha2 -->
@@ -560,7 +561,7 @@
         </span>
       </label>
     </div>
-    <!-- 追色選擇：同 LED 七色對應（紅綠藍黃紫青白），開咗顏色追蹤先出；點即換（行緊都即時轉，唔使重開） -->
+    <!-- Color track picker: the seven LED colors (red/green/blue/yellow/purple/cyan/white). It shows only while color tracking is on. A click switches the target live, no restart needed. -->
     <div class="row" id="colorTrackPresets" style="display:none;gap:8px;align-items:center">
       <span class="hint" data-i18n="led_color_label" style="margin:0">顏色：</span>
       <span id="colorTrackDots" style="display:flex;gap:8px;align-items:center"></span>
@@ -574,7 +575,7 @@
     <div id="cameraViewport" class="camera-viewport" tabindex="0"
          ondblclick="toggleCameraFullscreen()" oncontextmenu="return false">
       <span class="camera-placeholder" id="cameraPlaceholder"></span>
-      <!-- 解像度：原 LIVE 位罝（左上），同為功能鍵內容 -->
+      <!-- Resolution: the old LIVE position (top-left), also feature-key content -->
       <div id="cameraResolutionWrap" class="camera-resolution-wrap" ondblclick="event.stopPropagation()">
         <select id="cameraResolution" onchange="onResolutionChanged()" onclick="event.stopPropagation()">
           <option value="640x480">640x480</option>
@@ -589,8 +590,8 @@
       <div id="crosshairPad" class="crosshair-pad">
         <div id="crosshairMark" class="crosshair-mark"></div>
       </div>
-      <!-- 回中鍵：放 joystick 右邊，取消文字，僅保留開關 -->
-      <div id="joystickAutoReturnWrap" class="joystick-auto-return-wrap" ondblclick="event.stopPropagation()" title="自動回中">
+      <!-- Auto-return switch: placed right of the joystick. The text is removed and only the switch stays. -->
+      <div id="joystickAutoReturnWrap" class="joystick-auto-return-wrap" ondblclick="event.stopPropagation()" title="自動回中 / Auto-return">
         <label class="switch-label" style="gap:0">
           <span class="toggle-switch">
             <input type="checkbox" id="joystickAutoReturn" checked onchange="joystickAutoReturnToggle()" onclick="event.stopPropagation()">
@@ -598,7 +599,7 @@
           </span>
         </label>
       </div>
-      <!-- Zoom：放相機鍵（📷）上面，垂直佈局，不遮 FPS -->
+      <!-- Zoom: placed above the camera button (📷), vertical layout, clear of the FPS badge -->
       <div id="cameraZoomVertical" class="camera-zoom-vertical" ondblclick="event.stopPropagation()">
         <input id="cameraZoom" type="range" min="1" max="5" step="0.1" value="1"
                oninput="onCameraZoomInput(this.value)" onchange="setCameraZoom(this.value)" onclick="event.stopPropagation()" orient="vertical">
@@ -607,15 +608,15 @@
       <div id="fabRow" class="fab-row">
         <button id="photoFab" class="fab-btn" onclick="capturePhotoAtResolution(4208,3120, this, true)">📷</button>
         <button id="recordFab" class="fab-btn" onclick="toggleRecording()">⏺</button>
-        <button id="robotVideoFab" class="fab-btn" onclick="robotVideoToggle()" title="機端錄影 mp4">🎥</button>
+        <button id="robotVideoFab" class="fab-btn" onclick="robotVideoToggle()" title="機端錄影 mp4 / Robot-side recording mp4">🎥</button>
         <button id="micListenFab" class="fab-btn" onclick="toggleMicListen()">🎧</button>
       </div>
-      <!-- 人臉追蹤框：後端 face/track/status 回 fx/fy/fw/fh（歸一化），前端按 viewport 比例畫綠框 -->
+      <!-- Face track box: the backend face/track/status returns fx/fy/fw/fh (normalized). The frontend scales the green box to the viewport. -->
       <div id="faceTrackBox" class="face-track-box"></div>
-      <!-- 顏色追蹤框：後端 color/track/status 回同一形狀 fx/fy/fw/fh，畫橙框（同人臉追蹤互斥，唔會齊出） -->
+      <!-- Color track box: color/track/status returns the same fx/fy/fw/fh shape, drawn as an orange box. Face tracking and color tracking are exclusive, so only one box shows. -->
       <div id="colorTrackBox" class="color-track-box"></div>
-      <!-- 手柄視圖：22 粒 pad 鍵全畫喺呢塊 canvas（圖形化，唔係 HTML 掣；定義跟手柄映射，
-           經 gamepad/key 注入，見 app-gamepad.js cameraPad*；同功能鍵 overlay 互斥） -->
+      <!-- Gamepad view: all 22 pad buttons are drawn on this canvas (graphics, not HTML buttons. The definitions
+           follow the gamepad mapping, injected through gamepad/key, see app-gamepad.js cameraPad*. Exclusive with the feature-key overlay.) -->
       <canvas id="cameraPadCanvas" class="camera-pad-canvas" style="display:none"></canvas>
       <span class="camera-kbd-hint" id="cameraKbdHint"></span>
     </div>
@@ -627,10 +628,10 @@
   </section>
 </div>
 
-<!-- 小智 AI 對話 - 同 tab-camera 一樣, 不屬於任何一個 AIDL backend (連線/MCP 橋接
-     在 server 端由 handleXiaozhiApi() 處理, 它讀取的 backend 是 call-time 動態選擇的,
-     見 xiaozhiMcpBridge() 的 javadoc), 所以在這裡 top-level 放一份, 兩個 nav 都指向
-     這一份, 不重複建立。 -->
+<!-- Xiaozhi AI chat - like tab-camera, it belongs to no AIDL backend. The connection/MCP bridge
+     runs server-side in handleXiaozhiApi(), which picks the backend dynamically at call time (see
+     the javadoc of xiaozhiMcpBridge()). So one copy sits here top-level. Both navs point to this
+     copy, and nothing is built twice. -->
 <div id="tab-xiaozhi" class="tab-page">
   <section class="card">
     <h2 data-i18n="xiaozhi_heading">🤖 小智 AI 對話</h2>
@@ -665,8 +666,8 @@
 
     <div id="xiaozhiChatLog" class="event-log" style="min-height:200px"></div>
 
-    <!-- 總停鍵在「送出」這行尾：一按停止全部動作播放／TTS／本地音樂／電台，
-         純粹是幾個現有 stop endpoint 的前端 fan-out，沒有新增後端邏輯，詳見 xiaozhiStopAll()。 -->
+    <!-- The stop-all button sits at the end of the send row. One press stops all action playback,
+         TTS, local music, and radio. It is only a frontend fan-out of existing stop endpoints, with no new backend logic. See xiaozhiStopAll(). -->
     <div class="row">
       <input id="xiaozhiTextInput" placeholder="打字與小智聊天…" data-i18n="xiaozhi_text_placeholder" data-i18n-attr="placeholder" autocomplete="off" style="flex:2" onkeydown="if(event.key==='Enter'&&!event.repeat){xiaozhiSendText();}">
       <button id="xiaozhiSendTextBtn" onclick="xiaozhiSendText()" disabled data-i18n="xiaozhi_send_text">送出</button>
@@ -674,9 +675,9 @@
       <button id="xiaozhiStopAllBtn" class="danger-btn" onclick="xiaozhiStopAll()" data-i18n="xiaozhi_stop_all_btn">⏹ 全部停止</button>
     </div>
 
-    <!-- TTS 輸出引擎選擇：「小智」＝ server 送 opus 聲（XiaozhiAudioController 解碼播放）；
-         選 Android 就靜音 opus，改用本地 speech/tts（Android 內置）逐句讀出
-         （見 xiaozhiHandleEvent() "xiaozhi_tts" case 同 MainActivity.xiaozhiTtsEngine）。 -->
+    <!-- TTS output engine: "Xiaozhi" means the server sends opus audio, which XiaozhiAudioController
+         decodes and plays. Choosing Android mutes opus and speaks each sentence through the local
+         speech/tts (Android built-in). See the "xiaozhi_tts" case in xiaozhiHandleEvent() and MainActivity.xiaozhiTtsEngine. -->
     <div class="row">
       <label data-i18n="xiaozhi_tts_engine_label">語音輸出：</label>
       <span class="lang-toggle">
@@ -684,9 +685,9 @@
         <button id="xiaozhiTtsEngineAndroidBtn" onclick="xiaozhiSetTtsEngine('android')" data-i18n="tts_engine_android_btn">Android 預設</button>
       </span>
     </div>
-    <!-- 講嘢時隨機動作開關 (xiaozhi/filler_action/get|set)：關咗 TTS start 只亮嘴燈，唔郁。 -->
+    <!-- Random action while speaking switch (xiaozhi/filler_action/get|set): when off, a TTS start only lights the mouth LED and the robot does not move. -->
     <div class="row" style="align-items:center">
-      <label class="switch-label" title="開啟的話，小智每次開口講嘢機械人會做一個隨機動作">
+      <label class="switch-label" title="開啟的話，小智每次開口講嘢機械人會做一個隨機動作 / When on, the robot does a random action each time Xiaozhi speaks">
         <span data-i18n="xiaozhi_filler_heading">💃 講嘢時隨機動作</span>
         <span class="toggle-switch">
           <input type="checkbox" id="xiaozhiFillerToggle" checked onchange="xiaozhiSetFillerAction(this.checked)">
@@ -696,9 +697,9 @@
     </div>
   </section>
 
-  <!-- 自訂小智 server：進階／一次性設定，擺 XiaoZhi 面板最底。四個欄位僅 OTA 位址必要，
-       其餘三個（WebSocket 位址／MAC／Token）留空即自動由 OTA response 取得，
-       可選 override 應付要手動配置的情況（見 MainActivity "ota_config/set"）。 -->
+  <!-- Custom Xiaozhi server: advanced, one-time setup, placed at the bottom of the Xiaozhi panel.
+       Of the four fields only the OTA address is required. The other three (WebSocket address/MAC/Token)
+       come from the OTA response when left blank. Optional overrides serve manual configuration (see MainActivity "ota_config/set"). -->
   <section class="card">
     <h3 data-i18n="xiaozhi_ota_custom_heading">⚙️ 自訂小智 server</h3>
     <div class="row">
@@ -720,15 +721,15 @@
       </div>
       <div class="row">
         <label for="xiaozhiWsUrlOverride" style="flex:0 0 110px" data-i18n="xiaozhi_ota_field_ws">WebSocket 位址</label>
-        <input type="text" id="xiaozhiWsUrlOverride" placeholder="ws://your-server:8000/xiaozhi/v1/（留空自動）" style="flex:1">
+        <input type="text" id="xiaozhiWsUrlOverride" placeholder="ws://your-server:8000/xiaozhi/v1/（留空自動）/ blank = auto" style="flex:1">
       </div>
       <div class="row">
         <label for="xiaozhiDeviceIdOverride" style="flex:0 0 110px" data-i18n="xiaozhi_ota_field_mac">MAC (Device-Id)</label>
-        <input type="text" id="xiaozhiDeviceIdOverride" placeholder="aa:bb:cc:dd:ee:ff（留空自動）" style="flex:1">
+        <input type="text" id="xiaozhiDeviceIdOverride" placeholder="aa:bb:cc:dd:ee:ff（留空自動）/ blank = auto" style="flex:1">
       </div>
       <div class="row">
         <label for="xiaozhiTokenOverride" style="flex:0 0 110px" data-i18n="xiaozhi_ota_field_token">Token</label>
-        <input type="text" id="xiaozhiTokenOverride" placeholder="Access Token（留空自動）" style="flex:1">
+        <input type="text" id="xiaozhiTokenOverride" placeholder="Access Token（留空自動）/ blank = auto" style="flex:1">
       </div>
       <div class="row">
         <button id="xiaozhiOtaCustomSaveBtn" onclick="xiaozhiSaveOtaCustom()" data-i18n="xiaozhi_ota_custom_save">儲存</button>
@@ -736,11 +737,11 @@
     </div>
   </section>
 
-  <!-- 內置MCP功能列表 card（read-only）：顯示經 xiaozhiMcpBridge() 暴露給遠端 LLM 的
-       MCP tool 清單（name/description），同 xiaozhi.me console「MCP接入點」是兩回事
-       （那個是第三方工具連入用的獨立 websocket 端口）。device 側 tool 經
-       WebSocket "initialize"/"tools/list" 自動交換，無手動配置。頂部開關純粹是「展開」
-       （跟自訂 server card 樣式）：開＝展開清單＋逐項 enable/disable，關＝收起。 -->
+  <!-- Built-in MCP tool list card (read-only): shows the MCP tools (name/description) that
+       xiaozhiMcpBridge() exposes to the remote LLM. This differs from the "MCP access point" in the
+       xiaozhi.me console, which is a separate websocket port for third-party tools. Device side tools
+       swap automatically over WebSocket "initialize"/"tools/list", with no manual setup. The top switch
+       only expands (same style as the custom server card): on = show the list and enable/disable each item, off = collapse. -->
   <section class="card">
     <h3 data-i18n="xiaozhi_mcp_tools_heading">🔧 內置MCP功能列表</h3>
     <p class="hint" data-i18n="xiaozhi_mcp_tools_hint">
@@ -763,7 +764,7 @@
     </div>
   </section>
 
-  <!-- 小智控制台快速連結 card：新分頁開 https://xiaozhi.me/（看配對狀態、對話紀錄等）。 -->
+  <!-- Xiaozhi console quick link card: opens https://xiaozhi.me/ in a new tab for pairing status and chat history. -->
   <section class="card">
     <h3 data-i18n="xiaozhi_console_heading">🌐 小智控制台</h3>
     <div class="row">
@@ -772,17 +773,17 @@
   </section>
 </div>
 
-<!-- 本地音樂 tab：前端純 UI，真播／隨機動作全在 server 端
+<!-- Local music tab: the frontend is UI only. Real playback and random actions run server-side
      (MainActivity.java playLocalMusicFile()/
-     startMusicFillerActionLoop())。歌在 /mnt/internal_sd/music/，
-     同小智語音「播放音樂」同一套後端。 -->
+     startMusicFillerActionLoop()). Songs live in /mnt/internal_sd/music/, and the backend is the
+     same one the Xiaozhi voice phrase "播放音樂" uses. -->
 <div id="tab-music" class="tab-page">
-  <!-- 本地／電台共用同一套播放器（頻譜／音量／隨機動作） -->
-  <!-- 來源卡：本地曲庫 -->
+  <!-- Local and radio share one player (spectrum/volume/random action) -->
+  <!-- Source card: local song library -->
   <section class="card">
     <h2 data-i18n="music_heading">🎵 本地音樂</h2>
     <p class="hint" data-i18n="music_scan_hint">機身音樂資料夾: /mnt/internal_sd/music/</p>
-    <!-- 拖放上載 -->
+    <!-- Drag and drop upload -->
     <div id="musicDropZone" class="music-drop-zone"
          ondragover="musicOnDragOver(event)"
          ondragleave="musicOnDragLeave(event)"
@@ -799,7 +800,7 @@
     <div id="musicListContainer" class="music-list"></div>
   </section>
 
-  <!-- 來源卡：網絡電台 (radio-browser.info) -->
+  <!-- Source card: internet radio (radio-browser.info) -->
   <section class="card" id="radioCard">
     <h2 data-i18n="radio_heading">📻 網絡電台</h2>
     <p class="hint"><a href="https://www.radio-browser.info/" target="_blank" rel="noopener">radio-browser.info</a> · <span data-i18n="radio_browser_hint">全球公開電台：搜尋即列出 50 個隨機結果，點擊名稱即播</span></p>
@@ -824,17 +825,17 @@
       <button class="secondary" onclick="radioQuickSearch('jazz')">jazz</button>
       <button class="secondary" onclick="radioQuickSearch('classical')">classical</button>
       <button class="secondary" onclick="radioQuickSearch('news')">news</button>
-      <button class="secondary" onclick="radioQuickSearch('香港')">香港</button>
+      <button class="secondary" onclick="radioQuickSearch('香港')">香港 / Hong Kong</button>
       <button class="secondary" onclick="radioQuickSearch('pop')">pop</button>
     </div>
     <p id="radioSearchStatus" class="hint"></p>
     <div id="radioListContainer" class="radio-list"></div>
   </section>
 
-  <!-- 網上點歌卡：Internet Archive 免費音樂，無需 login。搜尋＋metadata 經瀏覽器
-       直打 archive.org（機械人 TLS 太舊打不到 https），拿到 http MP3 直鏈之後經
-       現成 audio/radio/play_url 叫機械人播（見 app-archive.js）。內容期望：
-       現場／獨立／舊錄音，無商業流行榜歌。 -->
+  <!-- Online song request card: free Internet Archive music, no login. Search and metadata go from
+       the browser straight to archive.org (the robot TLS stack is too old for https). With an http MP3
+       direct link, the existing audio/radio/play_url makes the robot play it (see app-archive.js). Expect
+       live, indie, and old recordings. No commercial chart music. -->
   <section class="card" id="archiveCard">
     <h2 data-i18n="arc_heading">🌐 網上點歌</h2>
     <p class="hint" data-i18n="arc_hint">Internet Archive 免費音樂（現場／獨立／舊錄音），無需登入；搜尋經你的瀏覽器，播放經機械人。</p>
@@ -846,13 +847,13 @@
     <div id="archiveListContainer" class="radio-list"></div>
   </section>
 
-  <!-- 共用播放器：頻譜 / 進度 / 控制 / 音量+隨機動作 — 本地與電台共用 -->
+  <!-- Shared player: spectrum / progress / controls / volume + random action — used by local and radio -->
   <section class="card" id="sharedPlayerCard">
     <h3 data-i18n="music_now_playing_heading">播放中</h3>
-    <!-- 共用顯示：本地或電台，JS 同步更新 #musicNowPlaying/#radioNowPlaying/#sharedNowPlaying -->
+    <!-- Shared display: local or radio. JS updates #musicNowPlaying/#radioNowPlaying/#sharedNowPlaying together. -->
     <div class="row" id="sharedNowPlayingRow" style="gap:8px;align-items:center;flex-wrap:wrap">
       <p id="sharedNowPlaying" class="hint" data-i18n="music_now_playing_none" style="margin:0;flex:1;min-width:120px">未播放</p>
-      <label class="switch-label" style="border-left:1px solid var(--border); padding-left:12px;" title="開啟的話，播歌/播電台期間機械人會不定時自己動，停止才停">
+      <label class="switch-label" style="border-left:1px solid var(--border); padding-left:12px;" title="開啟的話，播歌/播電台期間機械人會不定時自己動，停止才停 / When on, the robot moves on its own at random times while music or radio plays, and stops when playback stops">
         <span data-i18n="music_filler_heading">💃 隨機動作</span>
         <span class="toggle-switch">
           <input type="checkbox" id="musicFillerToggle" onchange="musicSetFillerActionEnabled(this.checked)">
@@ -860,7 +861,7 @@
         </span>
       </label>
       <span id="musicFillerStateLabel" class="hint" data-i18n="music_filler_on" style="margin:0;">開</span>
-      <label class="switch-label" style="border-left:1px solid var(--border); padding-left:12px;" title="開啟的話，播歌期間頭做水位錶、眼跟人聲轉色、嘴跟大細聲呼吸">
+      <label class="switch-label" style="border-left:1px solid var(--border); padding-left:12px;" title="開啟的話，播歌期間頭做水位錶、眼跟人聲轉色、嘴跟大細聲呼吸 / When on, during playback the head works as a level meter, the eyes change color with the voice, and the mouth breathes with the volume">
         <span data-i18n="music_disco_heading">🪩 Disco LED</span>
         <span class="toggle-switch">
           <input type="checkbox" id="musicDiscoToggle" onchange="musicSetDiscoEnabled(this.checked)">
@@ -871,11 +872,11 @@
     </div>
     <p id="musicNowPlaying" class="hint" style="display:none">未選擇歌曲</p>
     <span id="radioNowPlaying" class="hint" style="display:none">未播放電台</span>
-    <!-- 板面次序（定案）：播放中 → 二合一 canvas → EQ preset → 進度＋播放掣 → 音量 -->
+    <!-- Panel order (final): now playing -> combined canvas -> EQ preset -> progress + play buttons -> volume -->
     <div id="musicEqBands" class="eq-bands-box">
       <canvas id="musicEqSpectrum" style="width:100%;height:150px;display:block;touch-action:none;cursor:grab"></canvas>
     </div>
-    <!-- EQ：無開關（預設開，一開就係標準 preset） -->
+    <!-- EQ: no switch. It starts on, and the standard preset applies right away. -->
     <div class="row" id="musicEqRow" style="display:none;gap:8px;align-items:center;flex-wrap:wrap">
       <span class="hint" data-i18n="music_eq_heading" style="margin:0">🎚️ 等化器</span>
       <span id="musicEqPreset" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"></span>
@@ -888,21 +889,21 @@
       <span id="musicDurationLabel">0:00</span>
     </div>
     <div class="row" id="sharedTransportRow">
-      <button onclick="musicPlayPrev()" title="上一首">⏮</button>
+      <button onclick="musicPlayPrev()" title="上一首 / Previous">⏮</button>
       <button id="musicPlayPauseBtn" onclick="musicTogglePlayPause()">▶</button>
-      <button onclick="musicPlayNext()" title="下一首">⏭</button>
+      <button onclick="musicPlayNext()" title="下一首 / Next">⏭</button>
       <button onclick="musicPlayRandom()" title="隨機連播（播完自動再隨機）" data-i18n="music_random_btn">🔀</button>
       <button onclick="musicPlayAll()" data-i18n="music_playall_btn">▶ 全部</button>
       <button class="danger-btn" onclick="musicStopAll()" data-i18n="music_stop_btn">⏹ 全部停止</button>
     </div>
-    <!-- 共用音量（SYSTEM MUSIC）：板尾 -->
+    <!-- Shared volume (SYSTEM MUSIC): the last row of the panel -->
     <div class="row volume-row" id="sharedVolumeRow">
       <span class="volume-icon">🔈</span>
       <input id="sharedVolumeSlider" type="range" min="0" max="15" value="7"
              oninput="onSharedVolumeInput(this.value)" onchange="setSharedVolume(this.value)">
       <span id="sharedVolumeVal" class="volume-val">-</span>
       <span class="volume-icon">🔊</span>
-      <!-- 保留舊 per-track 音量滑桿作兼容（隱藏），JS 仍可讀寫 -->
+      <!-- Keep the old per-track volume slider hidden for compatibility. JS can still read and write it. -->
       <input id="musicVolumeSlider" type="range" min="0" max="100" value="100" style="display:none">
     </div>
     <p id="musicResult" class="hint"></p>
@@ -911,19 +912,19 @@
 </div>
 
   <!-- ============ TAB: ADVANCED ============ -->
-  <!-- 機械人 ID 變更器：一張 card 涵蓋查詢／複製／QR 顯示、輸入新 ID 即時在 canvas
-       預覽新 QR（oninput，未寫入 EEPROM）、寫入 EEPROM、手動重開機提示。
-       QR 內容 "robotSeq=<ID>"（同官方 bind QR 一致），離線生成（app-qr.js）。
-       寫入後請長按電源鍵手動重開機（App 無 REBOOT 權限）。
-       高風險操作（直寫 chest EEPROM），預設收起，要開關展開後顯示；
-       每次入頁預設關閉，不記狀態（見 uuidCardToggle()）。 -->
+  <!-- Robot ID changer: one card covers query/copy/QR display. Typing a new ID previews the new
+       QR on the canvas live (oninput, nothing is in EEPROM yet), then writes to EEPROM, with a manual
+       reboot reminder. The QR content is "robotSeq=<ID>", the same as the official bind QR, and it
+       is built offline (app-qr.js). After a write, long-press the power key to reboot by hand (the app
+       has no REBOOT permission). This is a high-risk operation (it writes chest EEPROM directly), so it
+       stays collapsed by default. It starts closed on every page load and keeps no state (see uuidCardToggle()). -->
   <div id="tab-advanced" class="tab-page">
-    <!-- 面板 token 認證（opt-in，預設關＝全開）：啟用後整個面板上鎖
-         （全部 /api/*＋/upload/* 要帶 token；僅 auth/*＋靜態頁＋ws/stream 開放），
-         其他分頁＋Blockly 照跟同一個 token（localStorage，同 browser 通用）。
-         後端見 PanelAuth＋system/auth/*，前端 token 自動帶見 app-core.js
-         withPanelToken（blockly-page.js 獨立一份）。這張卡預設收起，用開關
-         展開後顯示詳情（同 UUID 卡一致，每次入頁預設關閉，不記狀態）。 -->
+    <!-- Panel token auth (opt-in, off by default = fully open): when enabled it locks the whole panel.
+         Every /api/* and /upload/* call must carry a token. Only auth/*, static pages, and ws/stream
+         stay open. Other tabs and Blockly use the same token from localStorage, shared across the browser.
+         The backend is PanelAuth plus system/auth/*. app-core.js adds the token to requests automatically
+         through withPanelToken (blockly-page.js keeps its own copy). This card starts collapsed and shows
+         details after the switch expands it, same as the UUID card: closed on every page load, no remembered state. -->
     <section class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
         <h2 style="margin:0" data-i18n="panel_auth_heading">🔐 面板認證</h2>
@@ -951,8 +952,8 @@
       </div>
     </section>
 
-    <!-- 開機語音模式三選一：先用開關展開內容，radio 3 選 1（off／開機連小智／開機用 Vosk），
-         選擇即儲存、下次開 App 生效，不會立刻連線／立刻開始聆聽。後端見
+    <!-- Boot voice mode, one of three: the switch expands the content, a radio picks 1 of 3 (off /
+         connect Xiaozhi at boot / use Vosk at boot). A pick saves at once and applies at the next app start. It does not connect or start listening right away. Backend: see
          XiaozhiConfig boot_voice/get|set＋XiaozhiBridge.maybeBootVoice()。 -->
     <section class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
@@ -992,12 +993,12 @@
       </div>
     </section>
 
-    <!-- 資源下載卡（二合一）：Vosk 模型＋動作包共用單一下載通道，每次只准一樣。
-         開關揭開先顯示 10 種有對話 Vosk＋動作包；無對話（只聽寫）嗰區要再撳鍵先展開。
-         Vosk 後端見 VoskController DL_CATALOG＋vosk/catalog、vosk/download、
-         vosk/download_status、vosk/download_cancel；動作包後端見
+    <!-- Resource download card (two in one): Vosk models and the action pack share one download
+         channel, and only one item may run at a time. The switch first reveals the 10 dialogue Vosk
+         models plus the action pack. The dictation-only area needs another button press to expand. The Vosk
+         backend is VoskController DL_CATALOG with vosk/catalog, vosk/download, vosk/download_status, vosk/download_cancel. Action pack backend: see
          ActionsPackController＋action/pack/download|status|cancel；
-         互斥見 DownloadGate。 -->
+         Exclusivity: see DownloadGate. -->
     <section class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
         <h2 style="margin:0" data-i18n="res_dl_heading">📦 資源下載</h2>
@@ -1203,14 +1204,14 @@
     </section>
 
     <section class="card">
-      <h3>ℹ️ Open Alpha2 版本</h3>
+      <h3>ℹ️ Open Alpha2 版本 / Version</h3>
       <div class="row">
         <button onclick="window.open('https://github.com/arthurson/ubtech-open-alpha2/releases','_blank','noopener')" style="font-weight:700;">Open Alpha2 beta 7 ↗</button>
       </div>
     </section>
   </div>
 
-  <!-- ============ EVENT LOG (常駐，在 main 的捲動區域內，不屬於任何一個tab) ============ -->
+  <!-- ============ EVENT LOG (always visible, inside the main scroll area, belongs to no tab) ============ -->
   <section class="card event-log-card">
     <h2 data-i18n="event_log_heading">即時事件 Log (WebSocket)</h2>
     <div class="row">
@@ -1227,12 +1228,12 @@
 
 </main>
 
-<!-- 全部檔案共用 window/global scope（沒有用 ES module），所以順序有講究：
-       1. app-core.js 第一：定義 api()/hwApi()、SERVO_CALIBRATION、I18N 等核心 helper。
-       2. app-log.js 最尾：它的 DOMContentLoaded handler 會 call 上面定義的 build*()/refresh*()。
-       3. 中間檔案之間沒有排序依賴（function hoisting），保持原 section 順序方便對照。
-     尾段 inline <script> 會覆寫 window.onAccelSample，假設 app-accel.js 已定義原本版本——
-     所以全部 <script src> 一定要行完先到那個 inline script。 -->
+<!-- All files share the window/global scope (no ES modules are used), so the load order matters:
+       1. app-core.js first: it defines the core helpers api()/hwApi(), SERVO_CALIBRATION, and I18N.
+       2. app-log.js last: its DOMContentLoaded handler calls the build*()/refresh*() defined above.
+       3. The middle files have no order dependency (function hoisting), so keep the original section order.
+     The inline <script> at the end overwrites window.onAccelSample and assumes app-accel.js defined
+     the original version first. So every <script src> must finish running before that inline script. -->
 <script src="app-core.js?v=20261001f"></script>
 <script src="api-client.js?v=20261001d"></script>
 <script src="app-status.js?v=20261001a"></script>
@@ -1256,20 +1257,20 @@
 <script src="app-log.js?v=20261001a"></script>
 
 <!-- ============================================================
-     Sample: 4角度傾側控制頭/眼 LED
+     Sample: head/eye LED tilt control, 4 angles
      ============================================================
-     獨立在這個 <script>、不寫入 app-accel.js：app-accel.js 的 onAccelSample()
-     只負責畫圖／讀數，不驅動「反應」行為。做法：保留原本參照，用 wrapper
-     覆寫 window.onAccelSample，wrapper 先 call 原本（保住畫圖），再做傾側判斷。
-     appendLog() 在執行那刻先解析 window.onAccelSample，所以會拿到覆寫版。
+     It stands alone in this <script>, not in app-accel.js, because onAccelSample() in app-accel.js
+     only draws and reads. It does not drive "reaction" behavior. Method: keep the original reference
+     and overwrite window.onAccelSample with a wrapper. The wrapper calls the original first (drawing
+     stays), then does the tilt test. appendLog() resolves window.onAccelSample at run time, so it gets the wrapper.
 
-     四方向四色（同一組頭／眼 LED 一次只顯示一色，用 tiltActiveOrder 記最後觸發者為贏）:
-       y >  9 -> 開; y <  6 -> 關   -> 黃 (yellow)
-       y < -9 -> 開; y > -6 -> 關   -> 紅 (red)
-       x >  9 -> 開; x <  6 -> 關   -> 青 (cyan)
-       x < -9 -> 開; x > -6 -> 關   -> 紫 (purple)
+     Four directions, four colors (one head/eye LED set shows one color at a time. tiltActiveOrder keeps the last trigger as the winner):
+       y >  9 -> on, y <  6 -> off   -> yellow
+       y < -9 -> on, y > -6 -> off   -> red
+       x >  9 -> on, x <  6 -> off   -> cyan
+       x < -9 -> on, x > -6 -> off   -> purple
 
-     用 api("led/head/set", {preset:"flash", ...})（5-mic 序列協議）。
+     Uses api("led/head/set", {preset:"flash", ...}) (5-mic serial protocol).
 -->
 <script>
 (function () {
@@ -1279,23 +1280,23 @@
     { id: "xHigh", axis: "x", onThresh: 9, offThresh: 6, sign: 1, color: 6, name: "青", nameEn: "Cyan" },
     { id: "xLow", axis: "x", onThresh: -9, offThresh: -6, sign: -1, color: 5, name: "紫", nameEn: "Purple" },
   ];
-  const tiltState = {}; // id -> boolean (目前是否觸發中)
+  const tiltState = {}; // id -> boolean (true while that direction is triggered)
   TILT_DIRECTIONS.forEach(function (d) { tiltState[d.id] = false; });
-  let tiltActiveOrder = []; // 目前觸發中的 id, 舊的排前面, 最後觸發的排最後
-  let tiltCurrentColor = null; // 頭/眼 LED 目前顯示的顏色碼, null = 已關閉
+  let tiltActiveOrder = []; // ids currently triggered, older first, newest last
+  let tiltCurrentColor = null; // the color code the head/eye LEDs show now, null = off
 
   function setHint(text) {
     const el = document.getElementById("tiltLedHint");
     if (el) el.textContent = text;
   }
 
-  /** 關閉頭/眼 LED。 */
+  /** Turn off the head/eye LEDs. */
   function stopTiltLed() {
     api("led/head/set", { preset: "stop" });
     api("led/eye/set", { preset: "stop" });
   }
 
-  /** 用指定顏色開啟頭/眼 LED (「閃燈」preset, 5-mic 序列協議)。 */
+  /** Turn on the head/eye LEDs in the given color (the "flash" preset, 5-mic serial protocol). */
   function applyTiltLed(wantColor) {
     const headBrightness = document.getElementById("headBrightness").value;
     const eyeBrightness = document.getElementById("eyeBrightness").value;
@@ -1325,14 +1326,14 @@
       if (nowActive === wasActive) return;
       tiltState[d.id] = nowActive;
       tiltActiveOrder = tiltActiveOrder.filter(function (id) { return id !== d.id; });
-      if (nowActive) tiltActiveOrder.push(d.id); // 最後觸發的排最後
+      if (nowActive) tiltActiveOrder.push(d.id); // the newest trigger goes last
     });
 
     const winnerId = tiltActiveOrder.length > 0 ? tiltActiveOrder[tiltActiveOrder.length - 1] : null;
     const winner = winnerId ? TILT_DIRECTIONS.find(function (d) { return d.id === winnerId; }) : null;
     const wantColor = winner ? winner.color : null;
 
-    if (wantColor === tiltCurrentColor) return; // 應該顯示的顏色沒變, 不用再送
+    if (wantColor === tiltCurrentColor) return; // the color to show did not change, no need to send again
     tiltCurrentColor = wantColor;
     setHint(winner ? (t("tilt_led_direction_prefix") + (uiLang === "en" ? winner.nameEn : winner.name)) : "");
 
@@ -1349,8 +1350,8 @@
     updateTiltLed(data);
   }
 
-  // 保留一份原本 (app-accel.js 定義的那份, 只負責畫圖/讀數) 的參照, wrapper 裡面先
-  // call 回它, 再執行這裡的傾側判斷 - 兩者職責分開, 不互相取代。
+  // Keep a reference to the original (the version app-accel.js defines, which only draws and
+  // reads). The wrapper calls it first, then runs the tilt test here. Their duties stay separate.
   const previousOnAccelSample = window.onAccelSample;
   window.onAccelSample = function (data) {
     if (typeof previousOnAccelSample === "function") previousOnAccelSample(data);

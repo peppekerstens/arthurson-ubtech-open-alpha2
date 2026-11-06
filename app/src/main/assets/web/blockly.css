@@ -1,14 +1,14 @@
-/* Open Alpha2 — Blockly 頁面樣式。
-   刻意不重新定義色系, 全部食 style.css 已有的 CSS 變數 (--bg/--accent/--border/...),
-   等這頁同「控制面板」個幾個 tab 看來是同一個產品, 不是外掛第三方風格。 */
+/* Open Alpha2 — Blockly page styles.
+   Intentionally does not redefine the color scheme. It eats the CSS variables style.css already
+   has (--bg/--accent/--border/...), so this page and the control panel tabs look like one product, not a bolted-on third-party style. */
 
 /* ------------------------------------------------------------------
-   Desktop 同手機共用嘅 layout 底 (2026-09 對齊):
-   - body 用 100dvh (desktop 瀏覽器縮細嗰陣一樣唔會跳, fallback vh)
-   - toolbar 單行橫向捲動, 唔換行食高度
-   - header/toolbar 左右 padding 收窄, 畫布同 chrome 用哂成闊
-   - 側欄第一次入預設收起 (用家展開過就記住 localStorage)
-   手機額外嘢留喺下面 @media (max-width: 900px)。
+   Layout base shared by desktop and phone (aligned 2026-09):
+   - body uses 100dvh (shrinking a desktop browser window does not cause jumps, fallback vh)
+   - toolbar scrolls sideways on one row, no wrapping that eats height
+   - header/toolbar side padding is narrowed, canvas and chrome use the full width
+   - the sidebar starts collapsed on first visit (once the user expands it, localStorage remembers)
+   Phone-only rules stay below in @media (max-width: 900px).
    ------------------------------------------------------------------ */
 body.blockly-body {
   height: 100vh;
@@ -38,15 +38,15 @@ body.blockly-body {
   flex: 0 0 auto;
 }
 
-/* 2026-08 修正: 之前這個 class 完全沒有任何 rule - showError() (blockly-page.js)
-   僅支援得 banner.style.display = 'block'/'none' 去切換, 但個 <div id="errorBanner">
-   本身在 HTML 裡面沒有 inline style, 亦沒有對應 css rule 提供預設 display:none, 令它
-   一開始 (未觸發任何錯誤) 就用回瀏覽器 <div> 的 default display:block 正在顯示 -
-   雖然因為沒有文字/沒有 padding 大部分情況下不算好顯眼, 但一旦真正有錯誤發生, 個
-   banner 顯示出來的是完全沒有樣式的純黑字, 沒有背景色沒有邊框, 達不到「警示」這個
-   UX 目的。這裡補回: 預設用 display:none (同 showError()/clearError() 的
-   assumption 一致), 出現錯誤當時用回這個 project 已有的 --err 紅色系, 同
-   .bk-btn-danger 保持一致的設計語言。 */
+/* 2026-08 fix: this class had no rule at all before. showError() (blockly-page.js)
+   only toggles banner.style.display = 'block'/'none', but <div id="errorBanner"> has
+   no inline style in the HTML, and no CSS rule gave it a default display:none. So at
+   page start (no error yet) it used the browser's default display:block and showed.
+   With no text and no padding it was barely visible in most cases, but when a real
+   error fired, the banner showed bare black text with no background and no border,
+   which fails the "warning" UX goal. Fixed here: default display:none (matching the
+   assumption in showError()/clearError()), and on error it uses the project's existing
+   --err red family, consistent with .bk-btn-danger. */
 .error-banner {
   display: none;
   flex: 0 0 auto;
@@ -240,31 +240,32 @@ body.blockly-body {
   position: relative;
 }
 
-/* 2026-08: 復原/取消復原/剪下/複製/貼上 5 粒按鈕, 同「收起/展開執行紀錄
-   面板」那顆 ›/‹ 按鈕, 之前用的是獨立在 Blockly 之外的 HTML <div>/<button>,
-   靠 CSS position:absolute + JS 度度 Blockly 垃圾桶現在在哪正在裡隨它 ——
-   試過兩次都始終同 Blockly 真正的內部排位邏輯對不實 (scrollbar/toolbox
-   闊度/zoom 等因素動態影響垃圾桶實際位置, HTML overlay 怎麼追都會慢半拍或者
-   量錯)。現在改用 Blockly 官方的 Blockly.ComponentManager +
-   Blockly.uiPosition 這一套 IPositionable 機制重寫這幾組按鈕, 同垃圾桶用回
-   完全同一套定位管線 (WorkspaceSvg 內部會將所有已註冊的
-   POSITIONABLE component 按 weight 排序, 逐個 call .position(metrics,
-   alreadyPositionedRects) 再取回 .getBoundingRectangle() 傳給下一個, 等
-   它們自動 stacking 不會重疊), 所以這幾組按鈕現在是真正的 Blockly SVG UI
-   component (在 blockly-run.js 的 EditFabControls/ZoomFabControls
-   class 度實現), 不再需要這裡有對應的 HTML/CSS ——
-   這幾組按鈕自己的視覺 style 直接用 inline SVG attribute/CSS class
-   (.bk-svg-fab 系列, 定義在下面) 控制。
-   2026-09: 浮動掣排位/結構對齊 Code Lab (42px 圓、均勻排、無 disabled、
-   實心 icon、zoom 垂直組、垃圾桶改裝), 但配色跟返本站淺色主題 (Code Lab
-   成個站深色先用 #333 圓; 這裡用白圓＋主題藍 hover, 經 CSS variables 接
-   主題, 見下面)。 */
+/* 2026-08: the five buttons Undo/Redo/Cut/Copy/Paste, and the ›/‹ button of the "collapse/expand run log
+   panel" button, previously were plain HTML <div>/<button> outside Blockly, tracked with
+   CSS position:absolute + JS measuring where the Blockly trashcan sits and following it — two
+   attempts still never matched Blockly's real internal layout logic (scrollbar/toolbox width/
+   zoom and other factors move the trashcan dynamically, so an HTML overlay always lagged half a
+   step or measured wrong). Now these button groups are rewritten with Blockly's official Blockly.ComponentManager +
+   Blockly.uiPosition IPositionable mechanism, and they use the same positioning pipeline as the
+   trashcan (inside WorkspaceSvg every registered POSITIONABLE component is sorted by
+   weight, each one is call .position(metrics, alreadyPositionedRects) in turn, and its
+   .getBoundingRectangle() is handed to the next, so they stack automatically without overlap).
+   So these button groups are now real Blockly SVG UI components (implemented in the
+   EditFabControls/ZoomFabControls classes in blockly-run.js), so this file needs no
+   corresponding HTML/CSS for them any more.
+   Their own visual style is controlled directly with inline SVG attributes/CSS classes
+   (the .bk-svg-fab series, defined below).
+   2026-09: floating button placement/structure aligns with Code Lab (42px circles, even spacing, no
+   disabled state, solid icons, vertical zoom group, repurposed trashcan), but the colors follow this
+   site's light theme (Code Lab is a dark site, so it uses #333 circles. Here: white circles +
+   theme-blue hover, wired to the theme through CSS variables, see below). */
 .bk-svg-fab-group {
   cursor: pointer;
 }
-/* 本站淺色主題版: 白圓＋淺灰邊常駐 (浮喺 #f5f7fa 畫布上面靠條邊分辦),
-   icon 深灰, hover/active 底轉淺藍＋icon 轉主題藍 (同頂欄 .bk-btn 藍色系)。
-   全部經 CSS variables, 轉主題會自動跟。無 disabled 狀態 (5 粒永遠可按)。 */
+/* Light-theme version for this site: white circle + light gray border always (floating on the
+   #f5f7fa canvas, the border tells them apart). Icon dark gray; on hover/active the fill turns
+   light blue and the icon turns theme blue (same blue family as the top bar .bk-btn). All through
+   CSS variables, so a theme switch follows automatically. No disabled state (all 5 always pressable). */
 .bk-svg-fab-circle {
   fill: #ffffff;
   stroke: var(--border);
@@ -285,12 +286,12 @@ body.blockly-body {
   fill: var(--accent);
 }
 /* ------------------------------------------------------------------
-   改裝垃圾桶 (blockly-run.js patchAlphaTrashcan 起的 DOM):
-   .trash-bg 白圓底＋淺灰邊, .trashcan-icon 蓋/身 vector 深灰, 打開/hover
-   變主題藍。注意: Blockly 13 內建 CSS 有 .blocklyTrash { opacity: 0.4 }, 而且是
-   inject 當時 runtime 先插入 <style> (排在我這份 static CSS 之後, 同級
-   specificity 會贏), 所以這裡用 !important 鎖死全實, 等垃圾桶同 edit/zoom
-   按鈕睇落係同一個系列 (Code Lab 個垃圾桶都係全實、淨係開合變色)。
+   Repurposed trashcan (the DOM built by blockly-run.js patchAlphaTrashcan):
+   .trash-bg white circle fill + light gray border, .trashcan-icon lid/body vector dark gray,
+   open/hover turns theme blue. Note: Blockly 13 built-in CSS has .blocklyTrash { opacity: 0.4 }, and
+   it inserts that <style> at runtime during inject (after this static CSS, and equal
+   specificity wins there). So !important locks it fully solid here, making the trashcan and the edit/zoom
+   buttons look like one family (Code Lab's trashcan is also fully solid, and only the open/close state changes color).
    ------------------------------------------------------------------ */
 .blocklyInjectionDiv .blocklyTrash {
   opacity: 1 !important;
@@ -303,10 +304,10 @@ body.blockly-body {
 .blocklyTrash:hover .trash-bg {
   stroke: var(--accent);
 }
-/* 蓋 (原生 g.blocklyTrashLid 裡面) 同身 (.trashcan-icon 裡面) 一齊深灰,
-   打開 / hover 一齊變主題藍 (同上面浮動掣同一套 hover 語言, 同一個系列)。
-   注意蓋唔喺 .trashcan-icon 裡面 —— 佢要留喺原生 .blocklyTrashLid
-   wrapper 先食到 Blockly 13 嘅開合 rotate 動畫。 */
+/* Lid (inside the native g.blocklyTrashLid) and body (inside .trashcan-icon) share dark gray,
+   and open/hover turns both to theme blue (same hover language and family as the floating
+   buttons above). Note the lid is NOT inside .trashcan-icon — it must stay in the native
+   .blocklyTrashLid wrapper to get Blockly 13's open/close rotate animation. */
 .blocklyTrash .trashcan-icon,
 .blocklyTrash .blocklyTrashLid {
   fill: var(--text);
@@ -317,18 +318,20 @@ body.blockly-body {
 .blocklyTrash:hover .blocklyTrashLid {
   fill: var(--accent);
 }
-/* 開合動畫本身係 Blockly 13 內建 (.blocklyTrashLid rotate: 有嘢 5deg / 打開
-   45deg), 這裡只改鉸鏈位: 原生 46px 12px 係舊 sprite 闊蓋嘅右端, 而家個蓋
-   窄咗 (x ~9.5..37.8), 鉸鏈改做佢自己右端中間 (~38px 15px) 先自然。
-   (舊 WebView 不支援 CSS rotate 會靜默冇動畫, 顏色都照變, 屬正常退化。) */
+/* The open/close animation itself is built into Blockly 13 (.blocklyTrashLid rotate: 5deg with
+   content / 45deg open). Only the hinge moves here: the native 46px 12px was the right end of
+   the old sprite's wide lid. The lid is narrower now (x ~9.5..37.8), so the hinge goes to its
+   own right-end middle (~38px 15px) to look natural. (Old WebViews without CSS rotate support
+   silently lose the animation but keep the color change — normal graceful degradation.) */
 .blocklyInjectionDiv .blocklyTrash .blocklyTrashLid {
   transform-origin: 38px 15px;
 }
 /* ------------------------------------------------------------------
-   側欄收起掣 — 2026-09: 展開/收起都係一粒獨立浮動掣, 唔再喺展開嗰陣
-   浪費一條 32px 直條 gutter。
-   展開: 掣騎住畫布同面板嗰條邊 (left:-16px, 一半喺畫布一半喺面板);
-   收起: 側欄闊度 0, 掣浮喺畫布右緣 (left:-40px)。箭嘴 ‹/› 純 CSS 轉。
+   Sidebar collapse button — 2026-09: expanded and collapsed states use one standalone floating
+   button, and expanding no longer wastes a 32px vertical gutter strip.
+   Expanded: the button straddles the canvas/panel border (left:-16px, half on each side).
+   Collapsed: sidebar width is 0, the button floats on the canvas right edge (left:-40px). The ‹/›
+   arrow rotates by pure CSS.
    ------------------------------------------------------------------ */
 .bk-side-trigger {
   position: absolute;
@@ -345,7 +348,7 @@ body.blockly-body {
   cursor: pointer;
   z-index: 5;
 }
-/* 收起嗰陣側欄得返 0 闊, 掣要再伸出去啲浮喺畫布上面 (離邊 8px)。 */
+/* When collapsed the sidebar has 0 width, so the button must reach further out and float on the canvas (8px from the edge). */
 .bk-main.bk-side-collapsed .bk-side-trigger {
   left: -40px;
 }
@@ -356,8 +359,8 @@ body.blockly-body {
   transition: transform 0.18s ease;
   vertical-align: middle;
 }
-/* 收起嗰陣顯示 ‹ (撳落去向左展開); 展開嗰陣轉 180° 變 › (撳落去向右收起) ——
-   同 Code Lab .trigger.active 轉法一致, 方向純 CSS 跟 .bk-side-collapsed。 */
+/* Collapsed shows ‹ (press to expand leftward); expanded rotates 180° into › (press to collapse
+   rightward) — same trick as Code Lab's .trigger.active, direction follows .bk-side-collapsed by pure CSS. */
 .bk-main:not(.bk-side-collapsed) .bk-side-trigger svg {
   transform: rotate(180deg);
 }
@@ -366,11 +369,11 @@ body.blockly-body {
   stroke: var(--accent);
 }
 .bk-main.bk-side-collapsed .bk-side {
-  /* display:none 會令 Blockly.svgResize() 拿不到正確的剩餘闊度 (flex 计算
-     在個元素消失那一刻已經定了), 所以唔成個隱藏 —— 收到 0 闊但 flex box
-     本體保留, resize 照計得啱。收起掣自己浮喺畫布右緣 (見上面 left:-40px),
-     所以唔使留邊條; 內容照舊 display:none。overflow 要 visible, 唔係會剪走
-     伸出去嗰粒掣。 */
+  /* display:none would stop Blockly.svgResize() from getting the correct remaining width (the flex
+     calc is fixed at the moment the element disappears), so do not hide the whole thing — it shrinks to
+     0 width but the flex box itself stays, so resize still measures right. The collapse button floats
+     on the canvas right edge by itself (see left:-40px above), so no border strip needs to stay. The
+     content keeps display:none. overflow must be visible, or the sticking-out button gets clipped. */
   flex: 0 0 0;
   min-width: 0;
   overflow: visible;
@@ -388,8 +391,8 @@ body.blockly-body {
   transition: flex-basis 0.18s ease;
 }
 
-/* 展開嗰陣內容用盡成個面板闊度 —— 收起掣已經改做浮喺條邊度, 唔使再
-   預留 32px gutter 直條 (用家反映「伸出黎係一條浪費空間」)。 */
+/* When expanded the content uses the full panel width — the collapse button now floats on the
+   border, so no 32px gutter strip needs reserving (user feedback: "the sticking-out strip wastes space"). */
 .bk-side-body {
   flex: 1 1 auto;
   display: flex;
@@ -436,8 +439,8 @@ body.blockly-body {
 .run-log-line.err { color: var(--err); }
 
 @media (max-width: 900px) {
-  /* 手機 header: 收窄單行, 掣/輸入框 38px+ 手指撳到 (input 16px 字, 唔係 iOS
-     自動 zoom)。版本 badge 隱藏, WS 狀態縮做點+短字。 */
+  /* Phone header: tightened to one row, buttons/inputs 38px+ so a finger can hit them (input text
+     16px, to avoid iOS auto-zoom). Version badge hidden, WS status shrinks to dot + short text. */
   .bk-header {
     flex-wrap: nowrap;
     padding-top: 6px;
@@ -464,7 +467,7 @@ body.blockly-body {
     text-overflow: ellipsis;
   }
 
-  /* Toolbar: 已喺 base 做橫捲; 手機再收 padding, 隱藏 scrollbar。 */
+  /* Toolbar: sideways scroll is already set in the base. Phone tightens padding and hides the scrollbar. */
   .bk-toolbar {
     padding-top: 6px;
     padding-bottom: 6px;
@@ -486,8 +489,8 @@ body.blockly-body {
     max-width: 40vw;
   }
 
-  /* 主區: 直向, 但唔俾佢成區自己捲 (body 已經鎖 100dvh) —— 畫布 flex 1
-     撐滿剩低空間, 側欄手機版改做「展開時最多 38% 主區高」。 */
+  /* Main area: column layout, but do not let the area itself scroll (body is locked to 100dvh) — the
+     canvas uses flex 1 to fill the rest, and the phone sidebar becomes "at most 38% of main height when expanded". */
   .bk-main {
     flex-direction: column;
     overflow: hidden;
@@ -495,7 +498,7 @@ body.blockly-body {
   }
   .bk-canvas {
     flex: 1 1 auto;
-    min-height: 120px; /* 給 Blockly inject 一個下限, 唔係會 0 高成版空白 */
+    min-height: 120px; /* Give Blockly inject a lower bound, or it collapses to 0 height and a blank page */
   }
   .bk-side {
     flex: 0 0 auto;
@@ -505,15 +508,15 @@ body.blockly-body {
     border-top: 1px solid var(--border);
   }
   .bk-main.bk-side-collapsed .bk-side {
-    /* 直向收起 = 高度 0, 掣浮喺畫布底緣。overflow visible 等粒掣唔好被剪。 */
+    /* Vertical collapse = 0 height, the button floats on the canvas bottom edge. overflow visible keeps the button from being clipped. */
     flex: 0 0 0;
     min-height: 0;
     max-height: 0;
     overflow: visible;
     border-top: none;
   }
-  /* 手機: 展開嗰陣掣喺面板頂邊; 收起嗰陣喺畫布底緣。
-     箭嘴轉 90°: 收起顯示 ^ (撳向上展), 展開顯示 v (撳向下收)。 */
+  /* Phone: expanded puts the button on the panel top edge; collapsed puts it on the canvas bottom edge.
+     The arrow rotates 90°: collapsed shows ^ (press to expand upward), expanded shows v (press to collapse downward). */
   .bk-side-trigger,
   .bk-main.bk-side-collapsed .bk-side-trigger {
     left: 15px;
@@ -522,13 +525,13 @@ body.blockly-body {
   .bk-side-trigger svg { transform: rotate(90deg); }
   .bk-main:not(.bk-side-collapsed) .bk-side-trigger svg { transform: rotate(270deg); }
 
-  /* 側欄 header/log 手機版收返啲 padding, log 字細少少。 */
+  /* Sidebar header/log: phone version trims the padding, log text slightly smaller. */
   .bk-side-header { padding: 8px 10px; }
   .run-log { padding: 8px 10px; font-size: 11px; }
 
-  /* Blockly 自己個 flyout/工具箱手機版會好闊 —— 用 CSS 收窄 category 列。
-     直版手機全闊得 ~360px, 工具箱本身 ~140px 會食咗三分一畫布 (見截圖),
-     限返 118px, label 過長出 …。 */
+  /* Blockly's own flyout/toolbox gets very wide on phone — CSS narrows the category column.
+     The vertical phone layout is ~360px wide, and the ~140px toolbox eats a third of the canvas
+     (see screenshot). Capped at 118px, over-long labels show …. */
   .blocklyToolboxDiv {
     font-size: 12px;
     max-width: 118px;
