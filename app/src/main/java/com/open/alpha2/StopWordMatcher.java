@@ -24,6 +24,8 @@ public final class StopWordMatcher {
     private static final Pattern WORD_OBJ = Pattern.compile("\\{[^{}]*\\}");
     private static final Pattern CONF = Pattern.compile("\"conf\"\\s*:\\s*([-+0-9.eE]+)");
     private static final Pattern WORD = Pattern.compile("\"word\"\\s*:\\s*\"([^\"]*)\"");
+    /** One word of an answer sentence: a run of letter and digit characters. */
+    private static final Pattern WORD_TEXT = Pattern.compile("[\\p{L}\\p{N}]+");
 
     private StopWordMatcher() {}
 
@@ -111,23 +113,53 @@ public final class StopWordMatcher {
     }
 
     /**
-     * true when an answer sentence (text of the tts sentence_start message) holds a
-     * stop phrase, also as a word form ("stops", "stopped", "Stop."). Then the robot
-     * says the word itself, and the microphone hears it (laptop test 2026-10-31: all
-     * false stops in 55 s of Piper speech were words like "the bus stops").
+     * The start index of each stop word in an answer sentence, as a whole word only
+     * (alpha2-brain#52). A one-word phrase matches a text word equal to it, or equal
+     * to it plus "s" ("stops", because the laptop test of 2026-10-31 found that "the
+     * bus stops" sounds like stop). A phrase of more words matches only as whole
+     * adjacent words. "stopped", "stopping", "nonstop" and "stopwatch" do not match.
+     * Returns an empty list for null or empty text. The index is a character offset
+     * in the original sentence.
      */
-    public static boolean textHasStopWord(String sentence, Collection<String> phrases) {
-        if (sentence == null) return false;
-        List<String> said = words(sentence.toLowerCase(Locale.US).replaceAll("[^\\p{L}\\p{N}]+", " "));
+    static List<Integer> stopWordOffsets(String sentence, Collection<String> phrases) {
+        List<Integer> out = new ArrayList<>();
+        if (sentence == null || sentence.isEmpty()) return out;
+        // Whole words of the text, with their start index in the original string.
+        List<String> said = new ArrayList<>();
+        List<Integer> start = new ArrayList<>();
+        Matcher t = WORD_TEXT.matcher(sentence);
+        while (t.find()) {
+            said.add(t.group().toLowerCase(Locale.US));
+            start.add(t.start());
+        }
         for (String p : phrases) {
             List<String> ph = words(p);
             if (ph.isEmpty()) continue;
-            String first = ph.get(0);
-            for (String w : said) {
-                if (w.startsWith(first)) return true;
+            if (ph.size() == 1) {
+                String first = ph.get(0);
+                for (int i = 0; i < said.size(); i++) {
+                    String w = said.get(i);
+                    if (w.equals(first) || w.equals(first + "s")) out.add(start.get(i));
+                }
+            } else {
+                // More words: whole adjacent words only. Same rule as containsPhrase.
+                for (int i = 0; i + ph.size() <= said.size(); i++) {
+                    if (said.subList(i, i + ph.size()).equals(ph)) out.add(start.get(i));
+                }
             }
         }
-        return false;
+        return out;
+    }
+
+    /**
+     * true when an answer sentence (text of the tts sentence_start message) holds a
+     * stop phrase as a whole word ("stop", "stops", "Stop."). Then the robot says the
+     * word itself, and the microphone hears it (laptop test 2026-10-31: all false
+     * stops in 55 s of Piper speech were words like "the bus stops"). alpha2-brain#52:
+     * a word that only starts with "stop" ("stopped") is no match.
+     */
+    public static boolean textHasStopWord(String sentence, Collection<String> phrases) {
+        return !stopWordOffsets(sentence, phrases).isEmpty();
     }
 
     /** The full text of a final result, lower case, or "". */

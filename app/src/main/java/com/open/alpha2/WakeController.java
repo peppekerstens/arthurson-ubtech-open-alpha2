@@ -97,11 +97,8 @@ public final class WakeController {
     /** Stop phrases and [unk] only, for the SPEAKING mode (alpha2-brain#21). */
     private Recognizer stopRecognizer; // worker thread only
     private List<String> stopPhrases = new ArrayList<>();
-    /** true while the current answer sentence holds "stop" (the robot says it). */
-    private volatile boolean sentenceHasStop;
-    /** No stop match before this time: the audio of a sentence with "stop" can still play. */
-    private volatile long selfStopUntil;
-    private static final long SENTENCE_AUDIO_LAG_MS = 1500;
+    /** The guard for the echo of "stop" in the answer (alpha2-brain#52). */
+    private final StopEchoGuard stopEcho = new StopEchoGuard();
     /** The mode of the last frame in the worker: a change resets a recognizer. */
     private Mode fedMode = Mode.OFF;
 
@@ -523,7 +520,7 @@ public final class WakeController {
         Log.i(TAG, "while speaking heard stop conf=" + c + " limit=" + stopConf() + " -> "
                 + (ok ? "stop" : "ignored"));
         if (!ok || mode != Mode.SPEAKING) return;
-        if (sentenceHasStop || System.currentTimeMillis() < selfStopUntil) {
+        if (stopEcho.blocks(System.currentTimeMillis())) {
             Log.i(TAG, "while speaking: stop ignored, the answer itself says stop");
             return;
         }
@@ -710,12 +707,10 @@ public final class WakeController {
     }
 
     private void handleSentence(String text) {
-        boolean has = StopWordMatcher.textHasStopWord(text, stopPhrases);
-        if (sentenceHasStop && !has) {
-            // The audio of the last sentence plays after its message: keep the guard a moment.
-            selfStopUntil = System.currentTimeMillis() + SENTENCE_AUDIO_LAG_MS;
+        List<Integer> at = stopEcho.onSentence(text, stopPhrases, System.currentTimeMillis());
+        if (!at.isEmpty()) {
+            Log.i(TAG, "answer sentence says stop: guard on near char " + at.get(0));
         }
-        sentenceHasStop = has;
     }
 
     private void handleStt(String text) {
@@ -734,8 +729,7 @@ public final class WakeController {
             // alpha2-brain#45: the answer closes the command window. A follow-up turn
             // after a short answer thus runs no command with no wake word.
             commandWindow.onTtsStart(System.currentTimeMillis());
-            sentenceHasStop = false;
-            selfStopUntil = 0;
+            stopEcho.reset();
             mode = Mode.SPEAKING;
             if (halfDuplex()) bridge.wakeUplink(false);
         } else if ("stop".equals(state)) {

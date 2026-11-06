@@ -16,6 +16,7 @@ ChestReplyMatchTest (alpha2-board-sim#12): the chest VERSION reply match.
 VoiceTimingTest (voice turn time log, queue item 6).
 HeadKeyClickTest (head key click codes 0x3c01/0x3d01) and WakeCommandMatchTest (local
 command after the wake word), robot session 2026-11-01.
+StopEchoGuardTest (alpha2-brain#52): the stop echo guard time windows.
 
 用法: python scripts/test-apivalidator.py
 """
@@ -215,6 +216,8 @@ def main() -> int:
          [hw / "HeadKeyClick.java", hwtest / "HeadKeyClickTest.java"]),
         ("com.open.alpha2.WakeCommandMatchTest",
          [src / "WakeCommandMatch.java", testdir / "WakeCommandMatchTest.java"]),
+        ("com.open.alpha2.StopEchoGuardTest",
+         [src / "StopEchoGuard.java", src / "StopWordMatcher.java", testdir / "StopEchoGuardTest.java"]),
         ("com.ubtechinc.alpha.hardware.DirectChestControllerTest",
          [hw / "DirectChestController.java", hw / "DirectSerialPort.java", hw / "DirectSerialConfig.java",
           hw / "RobotWire.java", hw / "SerialFrameCodec.java", hw / "ChestSafety.java",
