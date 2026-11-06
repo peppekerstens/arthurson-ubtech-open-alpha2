@@ -17,15 +17,18 @@ import java.util.Map;
  * {@code scripts/test-chestsafety.py} with {@code javac}/{@code java}
  * (ChestSafety is pure java.*, so no android.jar is needed).
  *
- * <p>Vector source: the shared file
- * {@code $HOME/github/alpha2-python/tests/chest_guard_vectors.json}
+ * <p>Vector source: {@code tests/chest_guard_vectors.json} in this repo,
+ * a copy of alpha2-python {@code tests/chest_guard_vectors.json}
  * (alpha2-python#27), the single source of truth for the chest Sit down
- * guard of alpha2-python, alpha2-bridge and open-alpha2. The first command
- * line argument can override the path.
+ * guard of alpha2-python, alpha2-bridge and open-alpha2. A missing vector
+ * file is a failure, not a skip: a clean checkout must run all cases.
+ * The first command line argument can override the path.
  *
- * <p>The guard has no reason codes in this build, so the test compares
- * {@code expect} only: {@code refuse} means a reason is returned,
- * {@code allow} means null.
+ * <p>The test compares {@code expect} and {@code reason}:
+ * {@code refuse} means a reason is returned, {@code allow} means null.
+ * The returned reason text maps to the vector reason code
+ * ({@code SIT_DOWN_19} to {@code sit_down_19}, {@code SIT_DOWN_40} to
+ * {@code sit_down_40}, the {@code NOT_WHOLE} prefix to {@code not_whole}).
  *
  * <p>Run: {@code python3 scripts/test-chestsafety.py}
  */
@@ -64,9 +67,7 @@ public final class ChestSafetyVectorTest {
 
     private static Path vectorPath(String[] args) {
         if (args.length >= 1) return Path.of(args[0]);
-        String home = System.getenv("HOME");
-        if (home == null || home.isEmpty()) home = System.getProperty("user.home");
-        return Path.of(home, "github", "alpha2-python", "tests", "chest_guard_vectors.json");
+        return Path.of("tests", "chest_guard_vectors.json");
     }
 
     public static void main(String[] args) {
@@ -75,7 +76,8 @@ public final class ChestSafetyVectorTest {
         try {
             text = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
         } catch (Exception e) {
-            System.out.println("SKIP: chest guard vectors not found at " + path);
+            System.out.println("FAIL: chest guard vectors missing at " + path);
+            System.exit(1);
             return;
         }
 

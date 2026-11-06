@@ -10,6 +10,10 @@ Flow: javac compiles ChestSafety + ChestSafetyVectorTest into a temp dir,
 then it runs the main() runner. A non-zero exit means failure.
 
 Usage: python3 scripts/test-chestsafety.py [path to the vector file]
+
+The default vector file is tests/chest_guard_vectors.json in this repo.
+It is a copy of alpha2-python tests/chest_guard_vectors.json, the single
+source of truth. A missing vector file is a failure, not a skip.
 """
 import pathlib
 import shutil
@@ -45,8 +49,11 @@ def main() -> int:
         print(r.stderr)
         raise SystemExit("compile failed")
 
+    argv = sys.argv[1:]
+    if not argv:
+        argv = [str(ROOT / "tests" / "chest_guard_vectors.json")]
     r = subprocess.run(
-        [java, "-cp", str(tmp), "com.ubtechinc.alpha.hardware.ChestSafetyVectorTest"] + sys.argv[1:],
+        [java, "-cp", str(tmp), "com.ubtechinc.alpha.hardware.ChestSafetyVectorTest"] + argv,
         capture_output=True, text=True,
     )
     print(r.stdout, end="")

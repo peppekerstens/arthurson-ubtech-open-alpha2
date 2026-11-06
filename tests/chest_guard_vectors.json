@@ -1,0 +1,335 @@
+{
+ "description": "Shared test vectors for the chest Sit down guard (alpha2-python#27). The guards of alpha2-python (check_chest_frames), alpha2-bridge (src/chest.rs) and open-alpha2 (ChestSafety.java) must give the expected result for each case.",
+ "format": "hex: the raw bytes to the chest, lower case, no spaces. allow_sit_down: the opt-in flag of the call. expect: allow or refuse. reason: sit_down_19, sit_down_40, not_whole, or null for allow. A guard that has no reason codes compares expect only.",
+ "rules": "Refuse cmd 0x19 with a payload other than [01], and cmd 0x40 with a first byte other than 00, in each complete frame at each F8 8F (long form with any SRC and DST, legacy short form, also inside the payload of another frame). Then refuse data that is not zero or more complete frames back to back. 0x00 padding is allowed. Empty data is allowed. allow_sit_down=true allows all bytes.",
+ "cases": [
+  {
+   "name": "long19_00_host",
+   "hex": "f88f080500190026ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_19",
+   "note": "cmd 0x19 [00], SRC/DST 05 00"
+  },
+  {
+   "name": "long19_00_src01_dst05",
+   "hex": "f88f080105190027ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_19",
+   "note": "cmd 0x19 [00], SRC/DST 01 05"
+  },
+  {
+   "name": "long19_00_src00_dst00",
+   "hex": "f88f080000190021ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_19",
+   "note": "cmd 0x19 [00], SRC/DST 00 00"
+  },
+  {
+   "name": "long19_00_src02_dst00",
+   "hex": "f88f080200190023ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_19",
+   "note": "cmd 0x19 [00], SRC/DST 02 00"
+  },
+  {
+   "name": "long19_00_src05_dst01",
+   "hex": "f88f080501190027ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_19",
+   "note": "cmd 0x19 [00], SRC/DST 05 01"
+  },
+  {
+   "name": "long40_01_src03_dst00",
+   "hex": "f88f0903004001014eed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_40",
+   "note": "cmd 0x40 [01 01], SRC/DST 03 00"
+  },
+  {
+   "name": "long40_01_src05_dst09",
+   "hex": "f88f09050940010159ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_40",
+   "note": "cmd 0x40 [01 01], SRC/DST 05 09"
+  },
+  {
+   "name": "short19_00",
+   "hex": "f88f0219001bed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_19",
+   "note": "legacy short form, cmd 0x19 [00]"
+  },
+  {
+   "name": "split_first_half",
+   "hex": "f88f08050019",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "not_whole",
+   "note": "first 6 bytes of a cmd 0x19 [00] frame"
+  },
+  {
+   "name": "split_second_half",
+   "hex": "0026ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "not_whole",
+   "note": "last 3 bytes of a cmd 0x19 [00] frame"
+  },
+  {
+   "name": "junk_then_19_00",
+   "hex": "aabbf88f080500190026ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_19",
+   "note": "junk bytes, then cmd 0x19 [00]"
+  },
+  {
+   "name": "read_angle_bad_checksum",
+   "hex": "f88f08050006011aed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "not_whole",
+   "note": "cmd 6 [01] with checksum 1a, the correct checksum is 14 (cases.txt name: known_valid)"
+  },
+  {
+   "name": "long40_00",
+   "hex": "f88f0905004000004eed",
+   "allow_sit_down": false,
+   "expect": "allow",
+   "reason": null,
+   "note": "cmd 0x40 [00 00], leave power save (owner decision D-2)"
+  },
+  {
+   "name": "nested_19_in_payload",
+   "hex": "f88f10050003f88f080500190026edd8ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_19",
+   "note": "cmd 3 frame with a cmd 0x19 [00] frame in its payload"
+  },
+  {
+   "name": "read_angle_valid",
+   "hex": "f88f080500060114ed",
+   "allow_sit_down": false,
+   "expect": "allow",
+   "reason": null,
+   "note": "cmd 6 [01], correct checksum"
+  },
+  {
+   "name": "empty",
+   "hex": "",
+   "allow_sit_down": false,
+   "expect": "allow",
+   "reason": null,
+   "note": "no bytes"
+  },
+  {
+   "name": "power_on_19_01",
+   "hex": "f88f080500190127ed",
+   "allow_sit_down": false,
+   "expect": "allow",
+   "reason": null,
+   "note": "cmd 0x19 [01]"
+  },
+  {
+   "name": "chest_version_src00_dst00",
+   "hex": "f88f070000333aed",
+   "allow_sit_down": false,
+   "expect": "allow",
+   "reason": null,
+   "note": "cmd 0x33, SRC/DST 00 00"
+  },
+  {
+   "name": "short_read_valid",
+   "hex": "f88f0206030bed",
+   "allow_sit_down": false,
+   "expect": "allow",
+   "reason": null,
+   "note": "legacy short form, cmd 6 [03]"
+  },
+  {
+   "name": "three_reads",
+   "hex": "f88f080500060316edf88f080500060316edf88f080500060316ed",
+   "allow_sit_down": false,
+   "expect": "allow",
+   "reason": null,
+   "note": "3 complete frames back to back"
+  },
+  {
+   "name": "read_then_00",
+   "hex": "f88f080500060316ed00",
+   "allow_sit_down": false,
+   "expect": "allow",
+   "reason": null,
+   "note": "a frame and one 0x00 (set_uuid form)"
+  },
+  {
+   "name": "padding_around_frames",
+   "hex": "0000f88f080500060316ed00f88f080500060316ed",
+   "allow_sit_down": false,
+   "expect": "allow",
+   "reason": null,
+   "note": "0x00 padding before and between frames"
+  },
+  {
+   "name": "move_then_power_on_then_leave",
+   "hex": "f88f0c05000503005a01f468edf88f080500190127edf88f0905004000004eed",
+   "allow_sit_down": false,
+   "expect": "allow",
+   "reason": null,
+   "note": "cmd 5, cmd 0x19 [01], cmd 0x40 [00 00]"
+  },
+  {
+   "name": "19_empty_payload",
+   "hex": "f88f0705001925ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_19",
+   "note": "cmd 0x19 with no payload"
+  },
+  {
+   "name": "19_02",
+   "hex": "f88f080500190228ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_19",
+   "note": "cmd 0x19 [02]"
+  },
+  {
+   "name": "19_01_00",
+   "hex": "f88f09050019010028ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_19",
+   "note": "cmd 0x19 [01 00], payload is not exactly [01]"
+  },
+  {
+   "name": "40_01_one_byte",
+   "hex": "f88f08050040014eed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_40",
+   "note": "cmd 0x40 [01]"
+  },
+  {
+   "name": "40_empty_payload",
+   "hex": "f88f070500404ced",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_40",
+   "note": "cmd 0x40 with no payload"
+  },
+  {
+   "name": "read_then_19_00",
+   "hex": "f88f080500060316edf88f080500190026ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "sit_down_19",
+   "note": "a refused frame as the second frame"
+  },
+  {
+   "name": "19_00_bad_checksum",
+   "hex": "f88f080500190027ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "not_whole",
+   "note": "cmd 0x19 [00] with a bad checksum"
+  },
+  {
+   "name": "19_00_bad_tail",
+   "hex": "f88f08050019002600",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "not_whole",
+   "note": "cmd 0x19 [00] with tail 00"
+  },
+  {
+   "name": "19_00_bad_length",
+   "hex": "f88f090500190026ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "not_whole",
+   "note": "LEN is one more than the data"
+  },
+  {
+   "name": "head_only",
+   "hex": "f88f",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "not_whole",
+   "note": "only the 2 head bytes"
+  },
+  {
+   "name": "one_f8",
+   "hex": "f8",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "not_whole",
+   "note": "one byte F8"
+  },
+  {
+   "name": "read_then_junk",
+   "hex": "f88f080500060316ed01",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "not_whole",
+   "note": "a frame and one junk byte"
+  },
+  {
+   "name": "read_then_split",
+   "hex": "f88f080500060316edf88f08050019",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "not_whole",
+   "note": "a frame and the first half of a frame"
+  },
+  {
+   "name": "padding_then_split",
+   "hex": "00f88f08050019",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "not_whole",
+   "note": "0x00 and the first half of a frame"
+  },
+  {
+   "name": "optin_19_00",
+   "hex": "f88f080500190026ed",
+   "allow_sit_down": true,
+   "expect": "allow",
+   "reason": null,
+   "note": "allow_sit_down=true"
+  },
+  {
+   "name": "optin_40_01",
+   "hex": "f88f09050040010150ed",
+   "allow_sit_down": true,
+   "expect": "allow",
+   "reason": null,
+   "note": "allow_sit_down=true"
+  },
+  {
+   "name": "optin_split_first_half",
+   "hex": "f88f08050019",
+   "allow_sit_down": true,
+   "expect": "allow",
+   "reason": null,
+   "note": "allow_sit_down=true"
+  },
+  {
+   "name": "optin_bad_checksum",
+   "hex": "f88f08050006011aed",
+   "allow_sit_down": true,
+   "expect": "allow",
+   "reason": null,
+   "note": "allow_sit_down=true"
+  }
+ ]
+}
