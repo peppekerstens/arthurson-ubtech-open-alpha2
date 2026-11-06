@@ -1,49 +1,49 @@
 // Open Alpha2 — client logic (app-music.js)
-// 本地音樂 tab: 對接 MainActivity.java 已有的 "audio/local_music/*" 這一套
-// endpoint (本身給小智語音/AI tool call 用, 現在加回一層瀏覽器 UI)。真正播放
-// (STREAM_MUSIC MediaPlayer)、隨機動作全部在 server 端做, 這個檔案
-// 純粹是 UI + 定時 poll 狀態來更新進度條, 沒有任何音訊 byte 經過瀏覽器 (同
-// app-mic.js 那種即時串流完全不同)。
-// 全部函數共用 window/global scope (沒有用 ES module), load 順序見 index.html
-// 的 <script src="..."> 排列 - 要在 app-core.js (api()/t() 這些 helper) 之後。
+// Local Music tab: hooks into the existing "audio/local_music/*" endpoint set in
+// MainActivity.java (built for XiaoZhi voice/AI tool calls; now it gets a browser UI again). The real playback
+// (STREAM_MUSIC MediaPlayer) and the random moves all run server side. This file
+// is purely UI + a periodic status poll that updates the progress bar. No audio bytes ever pass through the browser (completely
+// different from the live streaming in app-mic.js).
+// All functions share the window/global scope (no ES modules). See index.html for the load
+// order - the <script src="..."> arrangement puts this after app-core.js (the api()/t() helpers).
 
 // ---------------- state ----------------
 
-let musicTracks = [];            // 上次 musicRefreshList() 取回來的清單
-let musicCurrentName = null;     // 目前揀選/正在播放那首歌的檔名
+let musicTracks = [];            // the list fetched by the last musicRefreshList()
+let musicCurrentName = null;     // file name of the track currently selected/playing
 let musicStatusPollTimer = null;
-let musicSeekDragging = false;   // 用戶正在拖進度條當時, 不要給 poll 覆蓋個位置
-let musicPlayAllMode = false;    // 「▶ 全部」模式 - 一首播完自動接落一首 (見
-                                 // musicPollStatusLoop() 的 hasTrack=false 分支)
-let musicRandomMode = false;     // 「🔀 隨機」模式 - 一首播完自動再隨機一首，
-                                 // 同「▶ 全部」二選一（撳另一邊即轉 mode）
-let musicModeStopSeq = null;     // 入 mode 嗰陣 server 嘅 stopSeq snapshot（null＝等
-                                 // 下次 poll 領養）；之後 poll 見到唔同即係出面
-                                 // 有人明確撳停（pad 94／stop API／MCP），熄 mode
-                                 // 唔接歌。自然播完唔郁世代號，照接。
-let musicLastPlayedName = null;  // 上次播過的歌名 - stop 當時 musicCurrentName 會
-                                 // 清除, 但之後按「▶」應該重播剛才那首, 不是
-                                 // 沒有反應
-let musicHasLoadedTrack = false; // server 端 currentMusicPlayer 還 正在load東西嗎 -
-                                 // 正在暫停都是 true; 全部停止/播完先變 false。
-                                 // 給 musicTogglePlayPause() 分「resume」還是
-                                 // 「由頭 play」用
-let musicSpectrumTimer = null;   // spectrum 輪詢 timer (setTimeout 鏈)
-let musicSpectrumAnimTimer = null; // 平滑動畫 timer (~33ms 重畫)
-let musicSpectrumTargets = [];   // 最近一次 server 取回來的目標值
-let musicSpectrumSmooth = [];    // 平滑化後用來畫的值
-let sharedActiveSource = null;   // "local" 或 "radio"，記錄最後一次播放來源，用於共用上一首/下一首/隨機分流
+let musicSeekDragging = false;   // true while the user drags the progress bar; do not let the poll overwrite the position
+let musicPlayAllMode = false;    // 「▶ 全部」mode - after one track ends, auto-continue to the next (see
+                                 // the hasTrack=false branch of musicPollStatusLoop())
+let musicRandomMode = false;     // 「🔀 隨機」mode - after one track ends, auto-pick another at random.
+                                 // Mutually exclusive with「▶ 全部」(pressing the other side switches the mode)
+let musicModeStopSeq = null;     // the server stopSeq snapshot when the mode started (null = adopt it on the
+                                 // next poll). Later, if a poll sees a different value, someone outside explicitly
+                                 // pressed stop (pad 94 / stop API / MCP), so turn the mode off and
+                                 // do not queue the next track. A natural finish does not move the generation counter, so the queue keeps going.
+let musicLastPlayedName = null;  // the last played track name - stop clears musicCurrentName,
+                                 // but pressing「▶」afterwards should replay that track, not
+                                 // do nothing
+let musicHasLoadedTrack = false; // does the server-side currentMusicPlayer still hold a loaded track? -
+                                 // true even while paused; only stop-all/track-finished sets it false.
+                                 // musicTogglePlayPause() uses it to pick「resume」vs
+                                 // 「play from the start」
+let musicSpectrumTimer = null;   // spectrum poll timer (setTimeout chain)
+let musicSpectrumAnimTimer = null; // smooth animation timer (~33ms redraw)
+let musicSpectrumTargets = [];   // target values last fetched from the server
+let musicSpectrumSmooth = [];    // smoothed values actually drawn
+let sharedActiveSource = null;   // "local" or "radio" - the last playback source, used to route the shared previous/next/shuffle actions
 
 // ---------------- disco LED ----------------
-// 🪩 節奏燈：播歌嗰陣眼做左右拍子機。後端跑：
-// Visualizer callback 拍點偵測＋DirectLedController 直推燈，唔經 HTTP。
-// 呢個掣淨係較後端開關（同隨機動作一樣後端持久化）；熄掣即熄頭+眼燈。
+// 🪩 Rhythm LED: while music plays, the eyes act as left/right beat machines. Runs on the backend:
+// Visualizer callback beat detection + DirectLedController pushing the LEDs directly, no HTTP.
+// This switch only flips the backend toggle (persisted on the backend, like the random-move switch); turning it off kills head + eye LEDs.
 let musicDiscoEnabled = false;
 
 // ---------------- audio spectrum ----------------
-// server 端 Visualizer FFT -> audio/local_music/spectrum 每條
-// band 一個 0-255 值。輪詢 50ms 更新目標值, 另外有條 ~33ms 的動畫 timer 用
-// 「快上慢落」(attack 即刻, release 指數衰減) 插值, bar 才會順滑不會一跳一跳。
+// Server-side Visualizer FFT -> audio/local_music/spectrum gives each
+// band a 0-255 value. The poll updates target values every 50ms; a separate ~33ms animation timer
+// interpolates "fast up, slow down" (instant attack, exponential release) so the bars move smoothly instead of jumping.
 
 function musicStartSpectrumLoop() {
   if (!musicSpectrumTimer) {
@@ -65,7 +65,7 @@ function musicStopSpectrumLoop() {
   }
   musicSpectrumTargets = [];
   musicSpectrumSmooth = [];
-  musicDrawSpectrum(null); // 收工重畫全平
+  musicDrawSpectrum(null); // finished: redraw flat
 }
 
 function musicSpectrumLoop() {
@@ -74,11 +74,11 @@ function musicSpectrumLoop() {
     musicSpectrumTargets = res.bands || [];
     musicSpectrumTimer = setTimeout(musicSpectrumLoop, 50);
   }).catch(function () {
-    musicSpectrumTimer = setTimeout(musicSpectrumLoop, 300); // 斷線慢啲再試
+    musicSpectrumTimer = setTimeout(musicSpectrumLoop, 300); // offline: retry slower
   });
 }
 
-/** 動畫幀: 每條 band 向目標值「即刻追上、慢慢跌」, 然後畫。 */
+/** Animation frame: each band chases its target "up instantly, down slowly", then draws. */
 function musicRenderSpectrumFrame() {
   const n = musicSpectrumTargets.length || 24;
   if (musicSpectrumSmooth.length !== n) {
@@ -87,31 +87,31 @@ function musicRenderSpectrumFrame() {
   for (let i = 0; i < n; i++) {
     const target = musicSpectrumTargets[i] || 0;
     const prev = musicSpectrumSmooth[i];
-    // attack: 目標高過現值即刻跟上 (不會滯後); release: 每幀衰減 18%,
-    // 跌下來順滑自然, 不會彈吓彈吓。
+    // attack: when the target is above the current value, catch up at once (no lag). release: decay 18% per frame,
+    // so the fall is smooth and natural, not bouncing.
     musicSpectrumSmooth[i] = target >= prev ? target : Math.max(target, prev * 0.82);
   }
   musicDrawSpectrum(musicSpectrumSmooth);
 }
 
-/** 二合一畫幀：頻譜柱做底（log 頻率橫軸，同 curve 共用）＋EQ curve 疊面＋handle。
- *  bands=null 就柱全平（停止狀態），curve 照留（EQ 態唔跟播停走）。
- *  由 33ms 動畫 loop、拖點、preset 切換共用。 */
+/** Combined draw frame: spectrum bars as the base (log-frequency x-axis, shared with the curve) + the EQ curve on top + handles.
+ *  bands=null makes the bars flat (stopped state); the curve stays (the EQ state does not follow play/stop).
+ *  Shared by the 33ms animation loop, point dragging, and preset switching. */
 function musicDrawSpectrum(bands) {
   const canvas = document.getElementById("musicEqSpectrum");
   if (!canvas || !canvas.getContext) return;
-  // EQ 盒未出（唔支援／未載入）就唔畫——舊獨立頻譜 canvas 已退役，呢度係唯一视图。
+  // If the EQ box has not appeared (unsupported/not loaded), do not draw - the old standalone spectrum canvas is retired; this is the only view.
   const box = document.getElementById("musicEqBands");
   if (!box || !box.classList.contains("on")) return;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
-  // backing 跟 CSS 闊（x2 retina 清；hit-test 行 CSS px，兩邊同一個座標系先對得上）。
+  // The backing store follows the CSS width (x2 for crisp retina; hit-testing runs in CSS px, so both sides need the same coordinate system).
   const w = canvas.clientWidth || 300;
   const h = 150;
   if (canvas.width !== w * 2) { canvas.width = w * 2; canvas.height = h * 2; }
   ctx.setTransform(2, 0, 0, 2, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  // 底：24 柱均闊拉滿（bin 序 x，值照後端 bins；色跟 x 位，同 curve 點對齊）。
+  // Base: 24 bars of even width across the full canvas (x follows bin order, values follow the backend bins; color follows the x position, aligned with the curve points).
   const n = 24;
   for (let i = 0; i < n; i++) {
     const x0 = Math.floor(i / n * w), x1 = Math.ceil((i + 1) / n * w);
@@ -122,12 +122,12 @@ function musicDrawSpectrum(bands) {
     const grad = ctx.createLinearGradient(0, y, 0, h - 3);
     grad.addColorStop(0, "hsl(" + hue + ",95%,65%)");
     grad.addColorStop(1, "hsl(" + hue + ",85%,38%)");
-    ctx.globalAlpha = 0.45; // 做底，唔好搶 curve
+    ctx.globalAlpha = 0.45; // base layer: do not outshine the curve
     ctx.fillStyle = v > 0 ? grad : "#e5e7eb";
     ctx.fillRect(x0, y, Math.max(2, x1 - x0 - 1), barH);
     ctx.globalAlpha = 1;
   }
-  // 面：EQ curve（無 EQ 態就淨柱；X 尺由 paint 入面跟 geom 拎，唔經呢度傳）。
+  // Top: EQ curve (bars only when there is no EQ state; the X scale is taken from geom inside the paint call, not passed through here).
   if (musicEqState && musicEqState.bands && musicEqState.bands.length > 0
       && musicEqCurveDb.length === musicEqState.bands.length) {
     musicEqPaintCurve(ctx, w, h);
@@ -154,8 +154,8 @@ function musicInit() {
   musicRefreshDiscoToggle();
   musicRefreshEq();
   refreshSharedVolume();
-  // 頻譜共用：無論本地或電台，同一 canvas 同一輪詢
-  // 若本地有播放即啟動，否則由 radioInit 觸發
+  // Spectrum shared: local or radio, one canvas and one poll for both.
+  // It starts when local playback is running; otherwise radioInit triggers it.
 }
 
 // ---------------- track list ----------------
@@ -166,7 +166,7 @@ function musicRefreshList() {
   container.textContent = t("music_list_loading");
   return Alpha2Api.audioLocalMusicList().then(function (res) {
     if (!res.ok) return;
-    // 清單直接來自 server 端 listLocalMusicFiles() 單一 LOCAL_MUSIC_DIR；這裡多一層去重 (跟檔名) 保險，不應該實際命中。
+    // The list comes straight from the server-side listLocalMusicFiles() over the single LOCAL_MUSIC_DIR. The extra name-based dedup here is only insurance and should never actually hit.
     const seen = new Set();
     musicTracks = (res.files || []).filter(function (f) {
       if (seen.has(f.name)) return false;
@@ -200,7 +200,7 @@ function musicRenderList() {
     sizeSpan.className = "music-track-size";
     sizeSpan.textContent = musicFormatSize(track.sizeBytes || 0);
 
-    // 成行 click 就播 (user-select:none + cursor:pointer 在 style.css 度)。
+    // Clicking anywhere on the row plays it (user-select:none + cursor:pointer live in style.css).
     row.onclick = function () { musicPlay(track.name); };
 
     row.appendChild(nameSpan);
@@ -228,9 +228,9 @@ function musicPlay(name) {
 }
 
 // ---------------- prev / next / random / play-all ----------------
-// 全部 client 端排歌 — server audio/local_music/* 沒有 playlist 概念，僅「播這個檔」。這幾個 function 在 musicTracks 計下一首，再 call musicPlay()。
+// All sequencing is client-side. The server audio/local_music/* endpoints have no playlist concept; they only "play this file". These functions compute the next track inside musicTracks, then call musicPlay().
 
-/** 目前正在播那首在 musicTracks 裡面的 index, 找不到 (清單變了/沒有播) 回 -1。 */
+/** Index of the currently playing track inside musicTracks; returns -1 when not found (list changed / nothing playing). */
 function musicCurrentIndex() {
   if (!musicCurrentName) return -1;
   for (let i = 0; i < musicTracks.length; i++) {
@@ -242,7 +242,7 @@ function musicCurrentIndex() {
 function isRadioActive() {
   if (sharedActiveSource === "radio") return true;
   if (sharedActiveSource === "local") return false;
-  // 未有明確來源時，以當前是否有電台正在播作判斷
+  // With no explicit source yet, decide by whether a radio station is currently playing
   return typeof radioCurrentName !== "undefined" && radioCurrentName && typeof radioStations !== "undefined" && radioStations.length > 0;
 }
 function musicPlayPrev() {
@@ -262,14 +262,14 @@ function musicPlayNext() {
 function musicPlayRandom() {
   if (isRadioActive() && typeof radioPlayRandom === "function") { radioPlayRandom(); return; }
   if (musicTracks.length === 0) return;
-  // 隨機連播 mode：播完自動再隨機（見 poll loop），同「▶ 全部」二選一
+  // Shuffle mode: after a track ends, pick another at random (see the poll loop). Mutually exclusive with「▶ 全部」
   musicRandomMode = true;
   musicPlayAllMode = false;
-  musicModeStopSeq = null; // 入 mode：下次 poll 領養最新世代號做 baseline
+  musicModeStopSeq = null; // entering mode: the next poll adopts the newest generation counter as baseline
   musicAdvanceRandom();
 }
 
-/** 「🔀 隨機」模式底下抽下一首 - 避開而家呢首（得一首歌嗰陣無得避）。 */
+/** Pick the next track under「🔀 隨機」mode - avoid the current one (impossible to avoid when only one track exists). */
 function musicAdvanceRandom() {
   if (!musicRandomMode || musicTracks.length === 0) return;
   let idx = Math.floor(Math.random() * musicTracks.length);
@@ -282,11 +282,11 @@ function musicAdvanceRandom() {
   musicPlay(musicTracks[idx].name);
 }
 function musicPlayAll() {
-  if (isRadioActive()) return; // 電台為直播，無「全部」概念
+  if (isRadioActive()) return; // Radio is live; the "play all" concept does not apply
   if (musicTracks.length === 0) return;
   musicPlayAllMode = true;
   musicRandomMode = false;
-  musicModeStopSeq = null; // 入 mode：下次 poll 領養最新世代號做 baseline
+  musicModeStopSeq = null; // entering mode: the next poll adopts the newest generation counter as baseline
   const idx = musicCurrentIndex();
   if (idx < 0) {
     musicPlay(musicTracks[0].name);
@@ -295,7 +295,7 @@ function musicPlayAll() {
   }
 }
 
-/** 「▶ 全部」模式底下找下一首 - 由現在那首開始向後找, 到了最尾繞回頭。 */
+/** Find the next track under「▶ 全部」mode - start from the current one and go back; wrap to the front at the end. */
 function musicAdvancePlayAll() {
   if (!musicPlayAllMode || musicTracks.length === 0) return;
   const idx = musicCurrentIndex();
@@ -305,7 +305,7 @@ function musicAdvancePlayAll() {
 
 function musicTogglePlayPause() {
   if (isRadioActive()) {
-    // 電台無暫停，▶/⏸ 切換視為 停止/重播當前電台
+    // Radio has no pause: the ▶/⏸ toggle is treated as stop/replay of the current station
     const btn = document.getElementById("musicPlayPauseBtn");
     const isPlaying = btn && btn.textContent.trim() === "⏸";
     if (isPlaying && typeof radioStop === "function") { radioStop(); }
@@ -318,8 +318,8 @@ function musicTogglePlayPause() {
   if (isPlaying) {
     Alpha2Api.audioLocalMusicPause().then(musicRefreshStatus);
   } else if (musicCurrentName || musicLastPlayedName) {
-    // 有 track load 了 (就算停了機都未 release, 例如正在暫停/播完) → resume;
-    // 真正沒有 → fallback 由頭播上次那首。
+    // A track is loaded (even after stopping it is not released, e.g. paused/finished) -> resume;
+    // truly none -> fall back and replay the last track from the start.
     const hasLoadedTrack = musicHasLoadedTrack;
     const name = musicCurrentName || musicLastPlayedName;
     if (hasLoadedTrack) {
@@ -328,7 +328,7 @@ function musicTogglePlayPause() {
           musicRefreshStatus();
           return;
         }
-        musicPlay(name); // resume 失敗 (例如已經被 stop 清除) - 由頭播過
+        musicPlay(name); // resume failed (for example already cleared by stop) - play from the start
       });
     } else {
       musicPlay(name);
@@ -339,11 +339,11 @@ function musicTogglePlayPause() {
 }
 
 /**
- * 音樂 tab「⏹ 全部停止」— 同語音 tab 總停鍵
- * (xiaozhiStopAll(), 見 app-xiaozhi.js) 看齊: action/stop + speech/stop +
- * audio/local_music/stop + audio/radio/stop 四樣一齊停, 另加上自己個
- * 「▶ 全部」自動接歌模式。直接重用 xiaozhiStopAll() 不另寫一套, 保證兩邊
- * 行為永遠一致; 它裡面 Promise.all 已經包了單一 endpoint 失敗不影響其餘。
+ * Music tab「⏹ 全部停止」- matches the Speech tab stop-all key
+ * (xiaozhiStopAll(), see app-xiaozhi.js): action/stop + speech/stop +
+ * audio/local_music/stop + audio/radio/stop, all four at once, plus this tab's own
+ *「▶ 全部」auto-continue mode. Reuse xiaozhiStopAll() directly instead of writing a second copy, so both
+ * sides always behave the same; its Promise.all already keeps one failed endpoint from affecting the rest.
  */
 function musicStopAll() {
   musicPlayAllMode = false;
@@ -356,8 +356,8 @@ function musicStopAll() {
     Alpha2Api.speechStop(),
     Alpha2Api.audioLocalMusicStop(),
     Alpha2Api.audioRadioStop(),
-    Alpha2Api.ledHeadSet({ preset: "stop" }), // 總停埋頭燈（嘴燈跟 TTS 停）。
-    Alpha2Api.ledEyeSet({ preset: "stop" }), // 眼燈同上。
+    Alpha2Api.ledHeadSet({ preset: "stop" }), // stop-all also stops the head LED (the mouth LED follows the TTS stop).
+    Alpha2Api.ledEyeSet({ preset: "stop" }), // Eye LED: same as above.
   ]).then(function () {
     musicStopStatusPolling();
     musicCurrentName = null;
@@ -385,15 +385,15 @@ function musicSeekTo(value) {
   });
 }
 
-// 共用音量（系統 STREAM_MUSIC，同時影響本地與電台）— 前端共用滑桿。
-// 拖曳嗰陣即刻推（150ms 節流，唔洗等放手）；放手嗰下 onchange 再送一次準數。
+// Shared volume (system STREAM_MUSIC, affects local playback and radio alike) - one shared front-end slider.
+// Push instantly while dragging (throttled at 150ms, no need to wait for release); the release-time onchange sends the final exact value.
 let musicVolLastPushAt = 0;
 function onSharedVolumeInput(value) {
   const valEl = document.getElementById("sharedVolumeVal");
   if (valEl) valEl.textContent = value;
-  // 反向同步 guard（見 app-servo.js onVolumeChangedEvent）：本地拖緊 400ms
-  // 內唔好畀 WS echo 郁返轉頭。markVolLocalInput 住在 app-servo.js，typeof
-  // guard 防 load 序問題。
+  // Reverse-sync guard (see onVolumeChangedEvent in app-servo.js): during a local drag, do not let the WS echo push the slider back within 400ms.
+  // markVolLocalInput lives in app-servo.js; the typeof
+  // guard protects against load-order problems.
   if (typeof markVolLocalInput === "function") markVolLocalInput();
   const now = Date.now();
   if (now - musicVolLastPushAt < 150) return;
@@ -410,7 +410,7 @@ function onSharedVolumeInput(value) {
   });
 }
 function setSharedVolume(value) {
-  if (typeof markVolLocalInput === "function") markVolLocalInput(); // 反向同步 guard
+  if (typeof markVolLocalInput === "function") markVolLocalInput(); // reverse-sync guard
   const v = Math.max(0, Math.min(15, parseInt(value, 10) || 0));
   Alpha2Api.audioVolumeSet( { level: String(v) }).then(function (res) {
     if (res.ok) {
@@ -418,16 +418,16 @@ function setSharedVolume(value) {
       if (valEl) valEl.textContent = String(res.volume != null ? res.volume : v);
       const slider = document.getElementById("sharedVolumeSlider");
       if (slider) slider.value = String(res.volume != null ? res.volume : v);
-      // 同步狀態頁的 slider
+      // Sync the slider on the status page
       const statusSlider = document.getElementById("volumeSlider");
       const statusVal = document.getElementById("volumeVal");
       if (statusSlider) statusSlider.value = String(res.volume != null ? res.volume : v);
       if (statusVal) statusVal.textContent = String(res.volume != null ? res.volume : v);
     }
   });
-  // 同時將本地 per-track 音量設為 100%，避免兩級音量疊加導致偏細聲；
-  // 得個真係有歌 load 緊先打——無歌嗰陣打會食 "no track loaded" 兼彈 error，
-  // 而新起嘅 player 預設本來就係 100%，唔打唔會有分別。
+  // Also set the local per-track volume to 100%, so the two volume stages do not stack and make output quiet.
+  // Only call this when a track is really loaded - calling it with no track eats a "no track loaded" error,
+  // and a fresh player already defaults to 100%, so skipping it changes nothing.
   if (typeof musicHasLoadedTrack !== "undefined" && musicHasLoadedTrack) {
     Alpha2Api.audioLocalMusicVolume( { percent: "100" });
   }
@@ -444,9 +444,9 @@ function refreshSharedVolume() {
 
 // ---------------- status polling ----------------
 //
-// 用 setTimeout 鏈 (同 xiaozhiPollActivationStatus() 一致), 保證上一次
-// request 拿到結果先至排下一次, 網絡慢當時不會越疊越多。僅在實際有東西
-// 正在播 (hasTrack=true) 先繼續 poll。
+// Uses a setTimeout chain (same as xiaozhiPollActivationStatus()), so the next request is only scheduled
+// after the previous one returns; a slow network cannot pile up requests. Keep polling only while something
+// is actually playing (hasTrack=true).
 function musicStartStatusPolling() {
   musicStopStatusPolling();
   musicPollStatusLoop();
@@ -464,13 +464,13 @@ function musicPollStatusLoop() {
   Alpha2Api.audioLocalMusicStatus().then(function (res) {
     if (!res.ok) return;
     if (res.stopSeq != null && musicModeStopSeq == null) {
-      musicModeStopSeq = res.stopSeq; // 初次見：領養做 baseline（唔比對）
+      musicModeStopSeq = res.stopSeq; // first sighting: adopt as baseline (no comparison)
     }
     if (!res.hasTrack && (musicPlayAllMode || musicRandomMode)) {
-      // 出面有人明確撳停（pad 94 總停鍵／stop API／MCP stop／panel 總停）：
-      // 世代號郁咗——熄 mode，唔接歌，跌落去 shared tail 收尾（停 spectrum、
-      // 唔再 poll）。自然播完世代號唔郁，先至 advance。
-      // （入 mode 到第一次 poll 之間撞正撳停會漏一次，窗口得幾百 ms，接受。）
+      // Someone outside explicitly pressed stop (pad 94 stop-all key / stop API / MCP stop / panel stop-all):
+      // the generation counter moved - turn the mode off, do not queue the next track, and fall through to the
+      // shared tail cleanup (stop spectrum, stop polling). A natural finish does not move the counter, and only then advance.
+      // (If a stop lands between entering the mode and the first poll, we miss it once; the window is a few hundred ms, accepted.)
       if (res.stopSeq != null && musicModeStopSeq != null && res.stopSeq !== musicModeStopSeq) {
         musicPlayAllMode = false;
         musicRandomMode = false;
@@ -491,7 +491,7 @@ function musicPollStatusLoop() {
     } else {
       musicPlayAllMode = false;
       musicRandomMode = false;
-      // 共用頻譜：本地停了但電台還正在播，保留頻譜
+      // Shared spectrum: local stopped but radio still playing - keep the spectrum
       if (!radioCurrentName) {
         musicStopSpectrumLoop();
       }
@@ -515,7 +515,7 @@ function updateSharedNowPlaying(text, isRadio) {
     shared.classList.toggle("radio-playing", !!isRadio);
   }
   if (progressRow) {
-    // 電台為直播無進度，隱藏進度條；本地有進度則顯示
+    // Radio is live and has no progress, so hide the progress bar; show it when local playback has progress
     progressRow.style.display = isRadio ? "none" : "flex";
   }
 }
@@ -584,7 +584,7 @@ function musicApplyFillerToggleUi(enabled) {
 }
 
 // ---------------- disco LED toggle ----------------
-// 同隨機動作一樣：後端 prefs 持久化，唔開瀏覽器都記得；推燈本身後端跑。
+// Like the random-move switch: persisted in backend prefs, remembered even without the browser; the LED pushing itself runs on the backend.
 
 function musicRefreshDiscoToggle() {
   Alpha2Api.audioLocalMusicDiscoGet().then(function (res) {
@@ -610,9 +610,9 @@ function musicApplyDiscoToggleUi(enabled) {
 }
 
 // ---------------- equalizer ----------------
-// 後端 prefs 持久化（唔開瀏覽器都記得）；推桿行 dB（後端 mB÷100），
-// preset 表喺後端 MusicEq，band 數／頻率／範圍全部跟 eq/get 動態起。
-let musicEqState = null; // 最後一次 eq/get|cfg 回包
+// Persisted in backend prefs (remembered without the browser); sliders work in dB (backend mB÷100).
+// The preset table lives in the backend MusicEq; band count/frequency/range are all built dynamically from eq/get.
+let musicEqState = null; // the last eq/get|cfg response
 let musicEqPushTimer = null;
 
 const MUSIC_EQ_PRESETS = ["normal", "classical", "dance", "rock", "jazz", "pop", "bass", "treble", "custom"];
@@ -625,8 +625,8 @@ function musicEqPresetLabel(name) {
 function musicRefreshEq() {
   Alpha2Api.audioLocalMusicEqGet().then(function (res) {
     if (!res || !res.ok) return;
-    // 無開關掣：預設開。後端舊 pref 仲係關（或第一版預設關留低）即推返開，
-    // 之後播歌自動係標準 preset flat（除非用戶之前揀過其他 preset，有就跟）。
+    // No on/off switch: on by default. If an old backend pref is still off (or the first-version default off remained), push it back on.
+    // After that, playback automatically uses the standard flat preset (unless the user picked another preset before; if so, follow it).
     if (!res.enabled) {
       Alpha2Api.audioLocalMusicEqSet({ enabled: "true" }).then(function (res2) {
         if (!res2 || !res2.ok) return;
@@ -654,7 +654,7 @@ function musicRenderEq() {
   const unsupported = document.getElementById("musicEqUnsupported");
   if (!row || !musicEqState) return;
   if (!musicEqState.supported) {
-    // 後端 latch 證實過真係無 EQ：成列收起，唔阻位。
+    // The backend latch confirmed there is really no EQ: collapse the whole row so it does not block space.
     row.style.display = "none";
     if (bandsBox) bandsBox.classList.remove("on");
     return;
@@ -666,7 +666,7 @@ function musicRenderEq() {
     MUSIC_EQ_PRESETS.forEach(function (p) {
       const btn = document.createElement("button");
       btn.type = "button";
-      // 同電台快搜同一隻方鍵（secondary），選中加藍。
+      // Same square button as the radio quick-search (secondary); selected adds blue.
       btn.className = "secondary eq-preset-sq" + (p === musicEqState.preset ? " selected" : "");
       btn.dataset.preset = p;
       btn.textContent = musicEqPresetLabel(p);
@@ -675,7 +675,7 @@ function musicRenderEq() {
     });
   }
   if (unsupported) unsupported.style.display = musicEqState.bandsKnown ? "none" : "";
-  // Curve 直拖：band 數未知唔起，preset 掣照用得。推桿列已拆（定案：淨 curve）。
+  // Curve direct drag: disabled when the band count is unknown; the preset buttons still work. The slider column was removed (final decision: curve only).
   if (!bandsBox) return;
   bandsBox.classList.remove("on");
   const bands = musicEqState.bands || [];
@@ -696,24 +696,25 @@ function musicRenderEq() {
   musicEqDrawCurve();
 }
 
-// Curve 直拖即時態（唔經後端，拖嗰下就變；送後端行 debounce／放手即送）。
+// Curve direct-drag live state (not via the backend; it changes with each drag; sends to the backend go through a debounce / send on release).
 let musicEqCurveDb = [];
 let musicEqCurveMinDb = -15;
 let musicEqCurveMaxDb = 15;
 let musicEqDragBand = -1;
 
-// 二合一 x 軸：後端 bin 序（0-24），唔係真 log 頻率。
-// 點解：後端 24 bins 係 (b/24)^2 疏密分佈，真 log 位擺會低頻縮成碎條、高頻一嚿嚿
-// （實測 7 條塞 8% 闊，睇唔到）。全幅統一用 bin 序：柱均闊，curve 點企返自己
-// 頻率對應嘅 bin 位——同 x 位永遠對齊，唔會再錯位。
-// 頻率→bin 位（同後端 buildMusicSpectrumBinMap 同一條式：
-// 真 log 均分 40Hz-16kHz，b = 24*log(f/40)/log(400)，夾實 0-24）。
+// Combined x axis: backend bin order (0-24), not true log frequency.
+// Why: the backend's 24 bins follow a (b/24)^2 sparse distribution. Placing them at true log positions crushes the
+// lows into slivers and clumps the highs (measured: 7 bars packed into 8% of the width, invisible). Use bin order across
+// the whole width: bars get even width, and each curve point sits at the bin position matching its own
+// frequency - x positions always align, never drift again.
+// Frequency -> bin position (same rule as the backend buildMusicSpectrumBinMap:
+// true log even split 40Hz-16kHz, b = 24*log(f/40)/log(400), clamped to 0-24).
 function musicFreqBin(fHz) {
   const fr = Math.log(Math.max(40.0001, Math.min(15999.999, fHz)) / 40) / Math.log(400);
   return Math.max(0, Math.min(24, 24 * fr));
 }
 
-// 色跟 x 位（bin 序）：同 x 同色，柱同點永遠對得上。
+// Color follows the x position (bin order): same x, same color, so bars and points always line up.
 function musicFreqHue(fHz) {
   return Math.round(120 * (1 - musicFreqBin(fHz) / 24));
 }
@@ -724,11 +725,11 @@ function musicEqBandHex(bi, n) {
   return "hsl(" + musicFreqHue(f) + ",90%,40%)";
 }
 
-// Curve 座標（draw＋hit test 共用，唔好各自計兩套）。
+// Curve coordinates (shared by draw + hit test; do not compute two separate sets).
 function musicEqCurveGeom(w, h) {
   const lo = musicEqCurveMinDb, hi = musicEqCurveMaxDb;
   return {
-    // curve x 同柱共用 bin 序（唔係 log 頻率）：X(f)＝個頻率對應邊個 bin 位。
+    // The curve x shares the bin order with the bars (not log frequency): X(f) = which bin position that frequency maps to.
     X: function (f) { return musicFreqBin(f) / 24 * w; },
     Y: function (db) { return h - 4 - (db - lo) / (hi - lo) * (h - 8); }
   };
@@ -780,7 +781,7 @@ function musicEqHookCurvePointer() {
     if (musicEqDragBand < 0) return;
     musicEqDragBand = -1;
     cv.style.cursor = "grab";
-    // 放手即送（唔等多 400ms；debounce 有剩一齊清，唔好送兩次）。
+    // Send on release (do not wait another 400ms; flush any remaining debounce too, so nothing is sent twice).
     if (musicEqPushTimer) { clearTimeout(musicEqPushTimer); musicEqPushTimer = null; }
     musicEqPushLevels();
   }
@@ -794,7 +795,7 @@ function musicEqDragTo(p) {
   if (i < 0 || i >= bands.length || i >= musicEqCurveDb.length) return;
   if (!(p.h > 8)) return;
   const lo = musicEqCurveMinDb, hi = musicEqCurveMaxDb;
-  let db = lo + (p.h - 4 - p.y) / (p.h - 8) * (hi - lo); // Y 反函數
+  let db = lo + (p.h - 4 - p.y) / (p.h - 8) * (hi - lo); // inverse of Y
   db = Math.max(lo, Math.min(hi, Math.round(db)));
   if (db === musicEqCurveDb[i]) return;
   musicEqCurveDb[i] = db;
@@ -809,7 +810,7 @@ function musicEqSchedulePush() {
 
 let musicEqResizeHooked = false;
 
-// 頻響 curve 重畫＝成幅二合一重畫（柱用現 smooth 值，無就全平；curve 用即時拖值）。
+// Redrawing the frequency-response curve = redraw the whole combined view (bars use the current smooth values, or flat when none; the curve uses the live drag values).
 function musicEqDrawCurve() {
   try {
     const n = musicSpectrumSmooth.length || 0;
@@ -817,7 +818,7 @@ function musicEqDrawCurve() {
   } catch (e) {}
 }
 
-/** 二合一上面嗰層：grid＋curve＋fill＋handle（由 musicDrawSpectrum 調用）。 */
+/** The top layer of the combined view: grid + curve + fill + handles (called by musicDrawSpectrum). */
 function musicEqPaintCurve(ctx, w, h) {
   try {
     const bands = (musicEqState && musicEqState.bands) || [];
@@ -827,7 +828,7 @@ function musicEqPaintCurve(ctx, w, h) {
     function Y(db) {
       return h - 4 - (db - minDb) / (maxDb - minDb) * (h - 8);
     }
-    // 底 grid：0dB 實線＋band 位虛線。
+    // Base grid: solid 0dB line + dashed band-position lines.
     let accent = "#2563eb";
     try {
       const a = getComputedStyle(document.documentElement).getPropertyValue("--accent");
@@ -845,7 +846,7 @@ function musicEqPaintCurve(ctx, w, h) {
       ctx.beginPath(); ctx.moveTo(fx, 0); ctx.lineTo(fx, h); ctx.stroke();
     }
     ctx.setLineDash([]);
-    // 控制點：band（bin 序 x 即時 dB）＋兩邊拉平到軸邊。
+    // Control points: each band (live dB at its bin-order x) + the two ends flattened out to the canvas edges.
     const n = bands.length;
     const px = [], py = [];
     const db0 = musicEqCurveDb[0], dbN = musicEqCurveDb[n - 1];
@@ -855,7 +856,7 @@ function musicEqPaintCurve(ctx, w, h) {
       px.push(X(f)); py.push(musicEqCurveDb[i]);
     }
     px.push(w); py.push(dbN);
-    // Catmull-Rom（index 參數，log-x 已經喺 X 入面）。
+    // Catmull-Rom (index parameter; log-x is already inside X).
     ctx.beginPath();
     const SEG = 64;
     for (let k = 0; k <= SEG; k++) {
@@ -871,7 +872,7 @@ function musicEqPaintCurve(ctx, w, h) {
     ctx.strokeStyle = accent;
     ctx.lineWidth = 2;
     ctx.stroke();
-    // 0dB 以下淡填（有色先係 EQ 郁過嘅位）。
+    // Light fill below 0dB (color appears only where the EQ moved).
     ctx.lineTo(w, Y(0)); ctx.lineTo(0, Y(0)); ctx.closePath();
     let fill = accent;
     try {
@@ -883,7 +884,7 @@ function musicEqPaintCurve(ctx, w, h) {
     } catch (e) {}
     ctx.fillStyle = fill;
     ctx.fill();
-    // 5 粒 handle：band 色波＋dB 數（直拖用，hit 半徑 26px 見 hook）。
+    // 5 handles: band-colored dot + dB number (for direct dragging; the 26px hit radius is in the hook).
     try {
       ctx.font = "11px sans-serif";
       ctx.textAlign = "center";
@@ -919,7 +920,7 @@ function musicEqPushLevels() {
   Alpha2Api.audioLocalMusicEqSet({ levels: mbs.join(",") }).then(function (res) {
     if (!res || !res.ok) return;
     musicEqState = res;
-    // 推緊桿唔 rebuild（會打斷拖曳），淨同步 preset 藍掣（已轉 custom）。
+    // Do not rebuild while a slider is being dragged (it would interrupt the drag); only sync the preset blue buttons (already switched to custom).
     musicEqMarkPresetSelected(res.preset);
   });
 }
@@ -934,9 +935,9 @@ function musicEqMarkPresetSelected(preset) {
   }
 }
 
-// 中英切換：動態起嘅 preset 藍掣逐粒重標（唔 rebuild，推桿位唔郁）；
-// 順手將搬咗去「播放中」嗰行嘅隨機動作／節奏燈狀態字（開／On）一齊轉
-// （呢兩個之前淨係撳嗰陣先 t()，切語言會留舊字）。
+// zh/en switch: relabel each dynamically built preset blue button one by one (no rebuild; slider positions stay).
+// Also convert the random-move / rhythm-LED state words (開/On) that moved into the「播放中」row
+// (before, those two only called t() at press time, so a language switch left stale words).
 function musicEqApplyUiLanguage() {
   try {
     const presetBox = document.getElementById("musicEqPreset");
@@ -982,13 +983,13 @@ function musicOnDrop(evt) {
 
 function musicOnFileInputChange(files) {
   if (files && files.length > 0) musicUploadFiles(files);
-  // 清除 input 個 value, 等用戶下次選回同一個檔名都會再 fire change 事件
+  // Clear the input value, so picking the same file name again next time still fires the change event
   document.getElementById("musicFileInput").value = "";
 }
 
-/** 逐個上載 (不平行) - 每次上載都是一整條 HTTP POST body (整個檔案的內容),
- *  平行推多個大檔上載對這部機 (RK3288, ARMv7, 1.1.7.3.20) 的記憶體/網絡都
- *  無謂這麼大壓力, 逐個來簡單又夠用。*/
+/** Upload one by one (not in parallel) - every upload is a full HTTP POST body (the whole file content).
+ *  Pushing several large uploads in parallel puts needless memory/network pressure on this device
+ *  (RK3288, ARMv7, 1.1.7.3.20). One by one is simple and enough. */
 function musicUploadFiles(fileList) {
   const files = Array.prototype.slice.call(fileList);
   const statusEl = document.getElementById("musicUploadStatus");
@@ -1006,8 +1007,8 @@ function musicUploadFiles(fileList) {
       statusEl.textContent = t("music_upload_uploading") + " (" + index + "/" + files.length + ") " + file.name;
     }
     clearError();
-    // 面板 token：啟用中 /upload/music 要驗（Bearer header 主，見 PanelAuth；同 api() 系列一樣
-    // 由 localStorage 拿，panelAuthHeaders 全局，見 app-core.js）。
+    // Panel token: /upload/music needs verification while auth is on (Bearer header is primary, see PanelAuth; like the api() family it
+    // reads from localStorage; panelAuthHeaders is global, see app-core.js).
     const hdrs = (typeof panelAuthHeaders === "function") ? panelAuthHeaders() : {};
     fetch("/upload/music?" + new URLSearchParams({ name: file.name }).toString(), {
       method: "POST",
