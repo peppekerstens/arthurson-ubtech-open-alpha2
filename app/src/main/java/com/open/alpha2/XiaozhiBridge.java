@@ -78,6 +78,12 @@ public final class XiaozhiBridge {
         this.ledCenter = ledCenter;
         this.hostState = hostState;
         this.sonarCenter = sonarCenter;
+        pttTurnRunner.setFailureListener(new PttTurnRunner.FailureListener() {
+            @Override
+            public void onActionFailure(String name, Throwable error) {
+                Log.w(TAG, "PTT: turn action failed (" + name + ")", error);
+            }
+        });
         // 小智設定層 (含 TTS 引擎讀取+舊值遷移) 在這裡建構。
         this.xiaozhiConfig = new XiaozhiConfig(context);
         // device id 讀 prefs。
@@ -617,7 +623,14 @@ public final class XiaozhiBridge {
 
                 @Override
                 public void onSendTurn() {
-                    endPushToTalkTurn();
+                    // Off the main thread: the send ends in a socket write
+                    // (sendListenStop), and the main looper must not do I/O.
+                    pttTurnRunner.submit("send-turn", new Runnable() {
+                        @Override
+                        public void run() {
+                            endPushToTalkTurn();
+                        }
+                    });
                 }
 
                 @Override
@@ -650,6 +663,10 @@ public final class XiaozhiBridge {
             }
         }
     };
+    // The turn send runs off the main thread: it ends in a socket write
+    // (sendListenStop), and the main looper must not do I/O (review
+    // round 1, F1: NetworkOnMainThreadException on SDK 22).
+    private final PttTurnRunner pttTurnRunner = new PttTurnRunner();
 
     /** 胸口 mute 鍵 (-111) 硬件入口本體。
      *  Push-to-talk 設定開：press 開始短／長按判別，release 完成它。
@@ -854,7 +871,8 @@ public final class XiaozhiBridge {
 
     /** Closes the open push-to-talk turn on release or the 60 s cap
      *  (alpha2-brain#16): listen stop, microphone closed, playback kept, the
-     *  reply timeout armed. */
+     *  reply timeout armed. Runs on the ptt turn worker thread: the socket
+     *  write must not run on the main looper. */
     private void endPushToTalkTurn() {
         mainHandler.removeCallbacks(pttTurnTimeoutRunnable);
         stopXiaozhiCaptureOnly();
