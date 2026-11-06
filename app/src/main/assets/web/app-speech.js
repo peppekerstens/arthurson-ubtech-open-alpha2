@@ -1,27 +1,27 @@
 // Open Alpha2 — client logic (app-speech.js)
-// 內容: TTS/ASR/自我打斷/service_config preset/語音三路輸入測試。
-// 全部檔案共用 window/global scope (沒有用 ES module), 載入順序由 index.html 的
-// <script src="..."> 順序決定 - 詳見 index.html 頭那段 comment。
+// Content: TTS/ASR/self-interrupt/service_config presets/three-way voice input test.
+// All files share the window/global scope (no ES modules). Load order follows the
+// <script src="..."> order in index.html - see the comment block at the top of index.html.
 
-// ---------------- Speech / TTS (Android 內置 only) ----------------
+// ---------------- Speech / TTS (built-in Android only) ----------------
 //
-// 語音 tab 只剩下 Android 系統 TTS。currentTtsEngine 恆等於 "android", setTtsEngine()
-// 只做 Android 引擎/語言列載入 (開啟頁面初始化用, 保留個名不改, 免得 app-log.js
-// 個 init call 要一齊改名)。
+// The voice tab keeps only the Android system TTS. currentTtsEngine is always "android", and setTtsEngine()
+// only loads the Android engine/language list (for page-open init. The name stays, so app-log.js
+// does not need its init call renamed as well).
 let currentTtsEngine = "android";
 
-// ---------------- Speech / 對話界面 (全抄小智 tab 做法) ----------------
+// ---------------- Speech / chat UI (copies the "小智" tab approach exactly) ----------------
 //
-// 對照 app-xiaozhi.js 的 xiaozhiAppendChatLine()/xiaozhiSendText() —
-// 這裡僅「顯示層」, 將現有的 asr_result (辨識結果) 同 speakTts() (TTS 講的東西) 兩條
-// 資料流分別渲染做 user/assistant 對話氣泡, 不改任何底層 API。CSS class 直接沿用
-// style.css 已有的 xiaozhi-msg / xiaozhi-msg-user / xiaozhi-msg-assistant /
-// xiaozhi-msg-system (見 xiaozhiAppendChatLine 個 comment), 兩個 tab 樣式完全一致。
+// Compare xiaozhiAppendChatLine()/xiaozhiSendText() in app-xiaozhi.js -
+// this is only the display layer. It renders the two data flows, asr_result (recognised text) and
+// speakTts() (what TTS says), as user/assistant chat bubbles separately, and changes no underlying API. The CSS classes reuse
+// the existing style.css xiaozhi-msg / xiaozhi-msg-user / xiaozhi-msg-assistant /
+// xiaozhi-msg-system (see the xiaozhiAppendChatLine comment), so both tabs look identical.
 //
-// appendSpeechChatLine() 同 xiaozhiAppendChatLine() 幾乎一模一樣 (時間戳、
-// MAX_LOG_LINES 上限、scrollTop 自動捲到底), 沒有抽做共用 function 的原因: 兩個
-// tab 各自獨立操作自己那個 chat log DOM 元素 (speechChatLog vs xiaozhiChatLog),
-// 抽出來反而要多傳一個 elementId 參數, 增加的間接層對可讀性沒有什麼好處。
+// appendSpeechChatLine() is nearly identical to xiaozhiAppendChatLine() (timestamps,
+// MAX_LOG_LINES cap, scrollTop auto-scroll to bottom). Reason for no shared function: the two
+// tabs each drive their own chat-log DOM element (speechChatLog vs xiaozhiChatLog),
+// so a shared function would need an extra elementId parameter, and the extra indirection buys no readability.
 function appendSpeechChatLine(roleClass, text) {
   const log = document.getElementById("speechChatLog");
   if (!log) return;
@@ -46,17 +46,17 @@ function clearSpeechChatLog() {
   if (log) log.innerHTML = "";
 }
 
-/** 文字輸入框「送出」— 打字入的文字當做已經辨識完的結果, 直接送去問法配對引擎
- *  (中英文各 1000 條, SemanticMatcherZh/SemanticMatcherEn, 按輸入有沒有漢字自動
- *  判斷用邊份), 命中就即時做 TTS + (可能有的) 動作 - 不用真正動把口, 都可以測到
- *  「聽到 -> 說話/做動作」整個 pipeline。
+/** "Send" in the text box - treat the typed text as already recognised and feed it straight to the question matcher
+ *  (1000 entries each for Chinese/English, SemanticMatcherZh/SemanticMatcherEn, chosen by whether the input
+ *  has Han characters). A hit runs TTS + (possibly) an action at once - no real speech needed to test the
+ *  whole "heard -> speak/act" pipeline.
  *
- *  這條路徑不經任何機身 AIDL 辨識, 純粹本地文字配對,
- *  所以不會觸發 asr_result WebSocket event - user 氣泡要在這裡發送那刻自己樂觀
- *  顯示 (同 speakTts() 顯示 assistant 氣泡那種做法一致, 不算「送出即顯示 + server
- *  echo 又顯示多一次」, 因為這條路徑根本沒有 server echo 會回來)。assistant 氣泡
- *  (配對到的回覆句) 就用 response 的 answer 顯示, 配埋 type/operation 一齊, 等你
- *  看到配對了邊條問法、有沒有觸發動作。找不到就顯示一句 system 提示, 不扮有回應。 */
+ *  This path runs no on-device AIDL recognition, only local text matching,
+ *  so it never fires the asr_result WebSocket event. Show the user bubble optimistically here at send time
+ *  (the same way speakTts() shows assistant bubbles. This is not "show on send + server echo shows it again",
+ *  because this path has no server echo coming back). Show the assistant bubble
+ *  (the matched reply) from response.answer, together with type/operation, so you can see
+ *  which question matched and whether an action fired. On a miss show one system note instead of faking a reply. */
 function sendSpeechChatText() {
   const input = document.getElementById("speechChatTextInput");
   const text = input ? (input.value || "").trim() : "";
@@ -87,24 +87,24 @@ function sendSpeechChatText() {
 }
 
 function setTtsEngine(engine) {
-  // 恆行 Android：參數照收，傳其他值都當 android；直接載入引擎/語言清單。
+  // Always Android: parameters are still accepted, any value counts as android; load the engine/language list directly.
   currentTtsEngine = "android";
   loadAndroidTtsEngines();
   loadAndroidTtsLanguages();
   loadTtsFollowVosk();
 }
 
-/** 選 Android TTS 引擎 (speech/tts engine=android 分支實際說話用那個系統
- *  TTS) - 由 speech/set_tts_engine 切換, 這個 switch
- *  本身是 async (後端拆舊起新一個 TextToSpeech instance), 所以完成之後短暫
- *  delay 先重新讀回 speech/cur_tts_engine 確認, 對照後端 MainActivity 個
- *  initAndroidTts() javadoc 講的「不即刻 ready」。切換了引擎, 舊引擎個語言
- *  清單已經不合用, 要重新載入。 */
+/** Pick the Android TTS engine (the system TTS that the speech/tts engine=android branch actually speaks with)
+ *  - switched by speech/set_tts_engine. That switch
+ *  is async itself (the backend tears down the old and builds a new TextToSpeech instance), so after it finishes, wait a short
+ *  delay, then re-read speech/cur_tts_engine to confirm, matching the "not ready immediately" note in the backend's MainActivity
+ *  initAndroidTts() javadoc. After an engine switch, the old engine's language
+ *  list no longer applies and must be reloaded. */
 function setAndroidTtsEngine() {
   const select = document.getElementById("ttsAndroidEngineSelect");
   const enginePkg = select ? select.value : "";
   if (!enginePkg) return;
-  // 轉引擎：舊語言未必適用，前後端一齊重置 (後端 pref 都清)。聲綁死引擎＋語言，一齊清＋收起聲行。
+  // Engine switch: the old language may not apply, so reset front and back end together (the backend pref clears too). A voice is bound to engine + language, so clear it and collapse the voice row.
   currentAndroidTtsLang = "";
   currentAndroidTtsVoice = "";
   hideAndroidTtsVoiceRow();
@@ -118,8 +118,8 @@ function setAndroidTtsEngine() {
   });
 }
 
-/** 載入機身裝了的全部 Android TTS 引擎, 填入 <select>, 再讀回現在實際正在選
- *  哪個, 選回它做已選項。 */
+/** Load every Android TTS engine installed on the device, fill the <select>, then read back which one is actually
+ *  selected now and mark it as the selected option. */
 function loadAndroidTtsEngines() {
   Alpha2Api.speechTtsEngines().then(function (res) {
     const select = document.getElementById("ttsAndroidEngineSelect");
@@ -143,27 +143,27 @@ function loadCurAndroidTtsEngine() {
   });
 }
 
-// 現在正在選的 Android TTS 語言 BCP-47 tag - 空字串代表沿用 engine 現在已經
-// 生效那個語言, 不強行切換 (見後端 speech/tts 個 android 分支 comment)。
-// speakTts() 會附帶這個值；對話管線 (後端 speakAndroidTts) 讀同一個後端 pref，
-// 所以這裡一選，對話 TTS 即時跟 (見 setAndroidTtsLang)。
+// The BCP-47 tag of the Android TTS language now selected - an empty string means keep the language the engine
+// already uses, with no forced switch (see the backend speech/tts android branch comment).
+// speakTts() carries this value; the conversation pipeline (backend speakAndroidTts) reads the same backend pref,
+// so picking here makes conversation TTS follow at once (see setAndroidTtsLang).
 let currentAndroidTtsLang = "";
-// 現在正在選的具體聲音 (Voice.getName()，空=該語言預設聲)。綁死引擎＋語言，
-// 轉引擎／轉語言當時一齊清（後端 pref 亦清，見 setAndroidTtsEngine／
-// setAndroidTtsLang）。speakTts() 會附帶；對話管線自動跟後端 pref。
+// The specific voice now selected (Voice.getName(), empty = that language's default voice). It is bound to engine + language,
+// so an engine or language switch clears it at once (the backend pref clears too, see setAndroidTtsEngine/
+// setAndroidTtsLang). speakTts() carries it; the conversation pipeline follows the backend pref automatically.
 let currentAndroidTtsVoice = "";
 
-/** 載入現在正在選那個 Android TTS 引擎識的全部語言 (server 端經
- *  TextToSpeech.getVoices() 拿, 見 MainActivity#listAndroidTtsLanguages()
- *  javadoc), displayName 已經是 server 選好 ui_lang 那種語言的顯示名, 前端
- *  不用自己維護 tag->name 對照表。 */
+/** Load every language the currently selected Android TTS engine knows (server side via
+ *  TextToSpeech.getVoices(), see the MainActivity#listAndroidTtsLanguages()
+ *  javadoc). displayName is already the display name in the ui_lang the server picked, so the front end
+ *  needs no tag->name table of its own. */
 function loadAndroidTtsLanguages() {
   Alpha2Api.speechTtsLanguages( { ui_lang: uiLang }).then(function (res) {
     const select = document.getElementById("ttsAndroidLangSelect");
     if (!select || !res || !res.ok || !res.languages) return;
     select.innerHTML = "";
-    // 「沿用引擎目前語言」這個選項排第一, value 留空 - 對應後端 lang 參數
-    // 留空/null 那個分支 (不強行 setLanguage())。
+    // The "keep the engine's current language" option sits first with an empty value - it maps to the backend branch where the lang
+    // parameter is empty/null (no forced setLanguage()).
     const keepOpt = document.createElement("option");
     keepOpt.value = "";
     keepOpt.textContent = t("tts_android_lang_keep_option");
@@ -175,13 +175,13 @@ function loadAndroidTtsLanguages() {
       select.appendChild(opt);
     });
     select.value = currentAndroidTtsLang;
-    // 後端 pref 可能有上次記下的選擇 (重啟後前端 var 會丟失)，同步。
+    // The backend pref may still hold the last choice (front-end vars are lost after a restart), so sync it.
     Alpha2Api.speechCurTtsLang().then(function (cur) {
       if (cur && cur.ok && cur.lang !== undefined && cur.lang !== currentAndroidTtsLang) {
         currentAndroidTtsLang = cur.lang || "";
         select.value = currentAndroidTtsLang;
       }
-      // 語言 sync 完先載入聲音（聲單掛在具體語言下面）。
+      // Load voices only after the language sync finishes (the voice list hangs off a concrete language).
       loadAndroidTtsVoices();
     });
   });
@@ -190,15 +190,15 @@ function loadAndroidTtsLanguages() {
 function setAndroidTtsLang() {
   const select = document.getElementById("ttsAndroidLangSelect");
   currentAndroidTtsLang = select ? select.value : "";
-  // 轉語言＝舊聲作廢（不同語言不同聲），前後端一齊清，聲行重載。
+  // A language switch voids the old voice (each language has its own voices): clear front and back end, then reload the voice row.
   currentAndroidTtsVoice = "";
-  // 同步寫回後端 pref —— 對話管線 TTS 即時跟這個選擇 (見 MainActivity.speakAndroidTts)。
+  // Write the choice back to the backend pref at once - the conversation pipeline TTS follows it immediately (see MainActivity.speakAndroidTts).
   Alpha2Api.speechSetTtsLang( { lang: currentAndroidTtsLang }).then(function () {
     loadAndroidTtsVoices();
   });
 }
 
-/** 聲行收起＋清空（未選具體語言／轉引擎當時用）。 */
+/** Collapse and clear the voice row (used when no concrete language is selected or right after an engine switch). */
 function hideAndroidTtsVoiceRow() {
   const row = document.getElementById("ttsAndroidVoiceRow");
   if (row) row.style.display = "none";
@@ -206,13 +206,13 @@ function hideAndroidTtsVoiceRow() {
   if (select) select.innerHTML = "";
 }
 
-/** 載入正在選那隻語言的全部聲音，填入下拉。未選具體語言（沿用引擎目前語言）
- *  就成行收起——不知什麼語言就不知有什麼聲好選。名跟 uiLang 加本地／網絡後綴。 */
+/** Load every voice of the language now selected and fill the dropdown. When no concrete language is picked (the engine keeps its
+ *  current language), collapse the whole row - unknown language means no meaningful voice list. Names follow uiLang with a local/network suffix. */
 function loadAndroidTtsVoices() {
   const row = document.getElementById("ttsAndroidVoiceRow");
   const select = document.getElementById("ttsAndroidVoiceSelect");
   if (!row || !select) return;
-  // 自動跟隨開：聲音行收起，唔載入（免同 ttsFollowSyncRows 鬥顯示）。
+  // Auto-follow on: the voice row stays collapsed and is not loaded (so it never fights ttsFollowSyncRows over display).
   if (currentTtsFollowVosk) {
     row.style.display = "none";
     return;
@@ -228,8 +228,8 @@ function loadAndroidTtsVoices() {
   loading.textContent = t("tts_android_voice_loading");
   select.appendChild(loading);
   Alpha2Api.speechTtsVoices( { lang: currentAndroidTtsLang }).then(function (res) {
-    // 舊 WebView 無 Node.isConnected，re-get 確認個 select 還在這裡先填
-    //（轉頁／重建當時回來太遲就不要動）。
+    // Old WebViews lack Node.isConnected, so re-get and confirm the select is still here before filling it
+    // (if the return is late during a page switch/rebuild, leave it alone).
     const live = document.getElementById("ttsAndroidVoiceSelect");
     if (!live || live !== select) return;
     select.innerHTML = "";
@@ -238,9 +238,9 @@ function loadAndroidTtsVoices() {
     keepOpt.textContent = t("tts_android_voice_keep_option");
     select.appendChild(keepOpt);
     if (res && res.ok && res.voices) {
-      // 同 Google TTS 系統設定一樣：「語音 I、II、III…」順序編號，只列同一個
-      // locale 的機內聲（網絡聲要上網，Google 那版都不列；尾缀 "-language"
-      // 那顆是偽預設聲，Google 那版都無，不計）。不夠料先跌回同 language。
+      // Same as the Google TTS system settings: number the voices "Voice I, II, III..." in order and list only on-device
+      // voices of one locale (network voices need internet, and Google's list omits them; the entry with the "-language"
+      // suffix is a fake default voice, which Google's list also lacks, so skip it). Fall back to the same language only when nothing matches.
       const list = googleStyleVoices(res.voices, currentAndroidTtsLang);
       list.forEach(function (v, idx) {
         const opt = document.createElement("option");
@@ -251,7 +251,7 @@ function loadAndroidTtsVoices() {
       });
     }
     select.value = currentAndroidTtsVoice;
-    // 後端 pref 可能有上次記下的選擇 (轉語言會清，同步先準)。
+    // The backend pref may still hold the last choice (a language switch clears it, so sync first for accuracy).
     Alpha2Api.speechCurTtsVoice().then(function (cur) {
       const live = document.getElementById("ttsAndroidVoiceSelect");
       if (!live || live !== select) return;
@@ -263,9 +263,9 @@ function loadAndroidTtsVoices() {
   });
 }
 
-/** Google TTS 系統設定同款過濾＋排序：同 locale 的機內聲（network＝false），
- *  剔除尾缀 "-language" 偽預設聲，照後端給的名順序出（ jar→yuc→…，同 Google
- *  那版 I、II、III… 對得上）。同 locale 一粒都無，先跌回同 language 的機內聲。 */
+/** The same filter + sort as the Google TTS system settings: on-device voices of the same locale (network=false),
+ *  dropping the fake default voice with the "-language" suffix, in the backend's name order (jar→yuc→..., matching Google's
+ *  I, II, III... numbering). When the locale has none, fall back to on-device voices of the same language. */
 function googleStyleVoices(voices, langTag) {
   const norm = function (x) { return String(x || "").toLowerCase(); };
   const isRealLocal = function (v) {
@@ -280,13 +280,13 @@ function googleStyleVoices(voices, langTag) {
   return (voices || []).filter(function (v) { return isRealLocal(v) && sameLang(v); });
 }
 
-/** 1→I，2→II，3→III…（Google 那版用羅馬數字編聲音）。 */
+/** 1→I, 2→II, 3→III... (Google's list numbers voices with Roman numerals). */
 function toRoman(n) {
   n = parseInt(n, 10);
   if (!(n > 0)) return String(n);
   const table = [[10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]];
   let out = "";
-  // Google 那版一隻語言不會超過十把聲，X 夠用；超了就 X-translate 這麼疊上去。
+  // Google's list never exceeds about ten voices per language, so X suffices; beyond that, keep stacking X-translate.
   while (n > 0) {
     for (let i = 0; i < table.length; i++) {
       while (n >= table[i][0]) {
@@ -301,21 +301,21 @@ function toRoman(n) {
 function setAndroidTtsVoice() {
   const select = document.getElementById("ttsAndroidVoiceSelect");
   currentAndroidTtsVoice = select ? select.value : "";
-  // 同步寫回後端 pref —— 對話管線 TTS 即時跟這把聲 (見 TtsCenter.speakAndroidTts)。
+  // Write the voice back to the backend pref at once - the conversation pipeline TTS follows this voice immediately (see TtsCenter.speakAndroidTts).
   Alpha2Api.speechSetTtsVoice( { voice: currentAndroidTtsVoice });
 }
 
-// ---------------- TTS 手動掣（手動／自動選擇） ----------------
+// ---------------- TTS manual button (manual/auto choice) ----------------
 //
-// 掣喺引擎／語言／聲音三行上面：開＝手動選擇（三行出現，現況不變，預設）；
-// 關＝自動跟當前 Vosk 模型走（後端喺引擎現有聲裡面揀最啱嗰個，
-// 見 TtsCenter.resolveFollowLocale；三行直情收起）。
-// 後端 pref 存嘅係 enabled（自動跟隨；持久化，預設 false 即掣開＝手動），
-// 前端掣係反相：checked＝手動。
+// The button sits above the engine/language/voice rows: on = manual choice (three rows visible, current state unchanged, default);
+// off = auto-follow the current Vosk model (the backend picks the best match among the engine's existing voices,
+// see TtsCenter.resolveFollowLocale; the three rows collapse completely).
+// The backend pref stores enabled (auto-follow; persisted, default false = button on = manual),
+// so the front-end button is inverted: checked = manual.
 let currentTtsFollowVosk = false;
-// 上次見到嘅 vosk model（ttsFollowVoskOnModelChange 比對用，變先問後端，唔洗版）。
+// Last seen vosk model (compared by ttsFollowVoskOnModelChange; ask the backend only on change, so nothing flickers).
 let ttsFollowLastVoskModel = null;
-// 最近一次跟隨現狀（語言切換當時重畫狀態行用，唔使再問後端）。
+// Latest follow state (used to redraw the status row on a language switch without re-asking the backend).
 let ttsFollowLastStatus = null;
 
 function loadTtsFollowVosk() {
@@ -323,7 +323,7 @@ function loadTtsFollowVosk() {
   return Alpha2Api.speechCurTtsFollowVosk().then(function (res) {
     if (!res || !res.ok) return res;
     currentTtsFollowVosk = !!res.enabled;
-    // 掣反相：checked＝手動（enabled＝自動跟隨）。
+    // Button inverted: checked = manual (enabled = auto-follow).
     const toggle = document.getElementById("ttsFollowVoskToggle");
     if (toggle) toggle.checked = !currentTtsFollowVosk;
     ttsFollowRenderStatus(res);
@@ -333,7 +333,7 @@ function loadTtsFollowVosk() {
 
 function setTtsFollowVosk() {
   const toggle = document.getElementById("ttsFollowVoskToggle");
-  // 掣反相：checked＝手動，後端 enabled＝自動跟隨。
+  // Button inverted: checked = manual, backend enabled = auto-follow.
   const manual = !!(toggle && toggle.checked);
   return Alpha2Api.speechSetTtsFollowVosk({ enabled: !manual }).then(function (res) {
     return loadTtsFollowVosk();
@@ -344,7 +344,7 @@ function ttsFollowRenderStatus(res) {
   if (!res) return;
   ttsFollowLastStatus = res;
   const on = !!res.enabled;
-  // 自動跟隨開：引擎／語言／聲音三行直情收起（唔係淨鎖住）；轉返手動先出現。
+  // Auto-follow on: collapse the engine/language/voice rows entirely (not merely locked); they reappear when you switch back to manual.
   ttsFollowSyncRows(on);
   const out = document.getElementById("ttsFollowVoskStatus");
   if (out) {
@@ -358,14 +358,14 @@ function ttsFollowRenderStatus(res) {
   }
 }
 
-// 全局語言切換（setUiLanguage）當時重畫跟隨狀態行，唔使再問後端。
+// Redraw the follow-state row on a global language switch (setUiLanguage) without re-asking the backend.
 function ttsFollowApplyUiLanguage() {
   if (ttsFollowLastStatus) ttsFollowRenderStatus(ttsFollowLastStatus);
 }
 
-// Vosk 模型轉咗先 refresh（app-vosk.js voskRenderStatus 經呢度入；
-// 未開跟隨就淨係記低，唔問後端）。開機自動載入／下載自動載入一樣經
-// vosk_state event 入嚟，唔會漏。
+// Refresh only after a Vosk model change (app-vosk.js voskRenderStatus enters here;
+// when follow is off, just record it and skip the backend ask). Boot-time auto-load and post-download auto-load arrive
+// through the vosk_state event too, so nothing is missed.
 function ttsFollowVoskOnModelChange(model) {
   const m = model || null;
   if (m === ttsFollowLastVoskModel) return;
@@ -374,7 +374,7 @@ function ttsFollowVoskOnModelChange(model) {
   loadTtsFollowVosk();
 }
 
-// 舊機（API 19，無 Vosk）跟隨無意義，成行收起。voskCard 隱藏即代表無 Vosk。
+// On old devices (API 19, no Vosk) following is meaningless, so collapse the row. A hidden voskCard means no Vosk.
 function ttsFollowVoskSyncVisibility() {
   const card = document.getElementById("voskCard");
   const row = document.getElementById("ttsFollowVoskRow");
@@ -382,8 +382,8 @@ function ttsFollowVoskSyncVisibility() {
   row.style.display = (card && card.style.display === "none") ? "none" : "";
 }
 
-// 自動／手動切換三行顯示：自動就引擎／語言／聲音成行收起；手動就引擎＋語言
-// 出現，聲音行跟返本來邏輯（有具體語言先顯示，見 loadAndroidTtsVoices）。
+// The auto/manual switch drives row visibility: auto collapses engine/language/voice entirely; manual shows engine + language,
+// and the voice row keeps its own logic (visible only with a concrete language, see loadAndroidTtsVoices).
 function ttsFollowSyncRows(on) {
   const engineRow = document.getElementById("ttsAndroidEngineRow");
   const langRow = document.getElementById("ttsAndroidLangRow");
@@ -401,27 +401,27 @@ function ttsFollowSyncRows(on) {
 
 function speakTts() {
   const text = document.getElementById("ttsText").value.trim();
-  if (!text) { showError("語音", t("speech_test_enter_text_alert")); return; }
-  // 恆行 Android TTS。手動先帶 lang/voice；自動跟隨開就唔帶（後端跟當前 Vosk 解）。
+  if (!text) { showError(uiLang === "en" ? "Voice" : "語音", t("speech_test_enter_text_alert")); return; }
+  // Always Android TTS. Manual mode carries lang/voice; auto-follow mode sends neither (the backend resolves it from the current Vosk model).
   const params = { text: text, engine: "android" };
   if (!currentTtsFollowVosk) {
-    // 空字串=沿用引擎目前語言 (見後端 speech/tts 個 android 分支 comment)。
+    // Empty string = keep the engine's current language (see the backend speech/tts android branch comment).
     if (currentAndroidTtsLang) {
       params.lang = currentAndroidTtsLang;
     }
-    // 有選具體聲先帶 (空=該語言預設聲；後端找不到會跌回 lang 路)。
+    // Carry the voice only when one is picked (empty = the language's default voice; if the backend cannot find it, it falls back to the lang path).
     if (currentAndroidTtsVoice) {
       params.voice = currentAndroidTtsVoice;
     }
   }
-  // 對話界面: 機械人「說話」即刻顯示做 assistant 氣泡 — 這裡同小智不同的是
-  // TTS request 本身沒有對應的非同步 event 會將講了的文字送回來 (不似 asr_result
-  // 那樣), 所以直接在這裡用發送那刻的文字 append, 不用等 server 回應。
+  // Chat UI: when the robot "speaks", append an assistant bubble at once - the difference from "小智" is that
+  // the TTS request itself has no async event that sends the spoken text back (unlike asr_result),
+  // so append the text from the moment of sending directly, with no wait for a server response.
   appendSpeechChatLine("xiaozhi-msg-assistant", text);
-  // 播新東西之前先停下舊那句, 不是就兩句 TTS 可能撞在一起播 (講到一半那句還未
-  // 完, 個新 request 已經開始講, 聽起來會疊聲/含糊)。stopTts() 失敗都照樣繼續
-  // 播放新的 (例如號碼一次沒有東西正正在播, stop 本身可能會 error/no-op, 不應該
-  // 因為這樣就不給用家繼續說話)。
+  // Stop the old sentence before playing a new one, otherwise two TTS runs can collide (the half-spoken one has not
+  // finished while the new request starts, and the audio sounds doubled/muddy). If stopTts() fails, still continue
+  // with the new playback (for example when nothing is playing, stop itself may error/no-op, and that
+  // must not block the user from speaking).
   return stopTts().catch(function () {}).then(function () {
     return Alpha2Api.speechTts( params);
   });
