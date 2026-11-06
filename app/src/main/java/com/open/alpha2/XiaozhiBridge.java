@@ -856,6 +856,30 @@ public final class XiaozhiBridge {
                 abortPushToTalkTurn(openedPlayback);
                 return;
             }
+            // The user may have released while the open was in flight (the
+            // window from the first state check to the capture start,
+            // review round 1, F4): the machine left RECORDING. Close what
+            // the open just opened.
+            if (pushToTalk.state() != PushToTalkStateMachine.State.RECORDING) {
+                xiaozhiAudioController.stopCapture();
+                if (vosk != null) {
+                    try {
+                        vosk.setPaused(false);
+                    } catch (Throwable ignore) {
+                    }
+                }
+                xiaozhiAudioController.stopPlayback();
+                robot.speech_SetMIC(false);
+                Log.i(TAG, "PTT: the turn was closed while the capture started");
+                return;
+            }
+            // The robot may be speaking while the open was in flight (the
+            // press came during a reply, review round 1, F4): no echo to
+            // the server. The uplink gate reopens it when the TTS stops
+            // and the user is still holding.
+            if (hostState.isRobotTtsSpeaking()) {
+                xiaozhiAudioController.setUplink(false);
+            }
             xiaozhiMicHeld = true;
             startXiaozhiMicHoldEnforcer();
             EventBus.get().publish(XIAOZHI_MIC_STATE_EVENT, "{\"held\":true}");
@@ -913,9 +937,15 @@ public final class XiaozhiBridge {
         if (!xiaozhiAudioController.isCapturing()) return; // no active microphone
         if ("start".equals(stateValue)) {
             xiaozhiAudioController.setUplink(false);
-        } else if ("stop".equals(stateValue) && !pttTurnActive) {
-            // A push-to-talk turn stays closed until the next long press.
-            xiaozhiAudioController.setUplink(true);
+        } else if ("stop".equals(stateValue)) {
+            // A push-to-talk turn stays closed until the next long press,
+            // unless the user is still holding the key (review round 1,
+            // F4): the robot just went quiet, so the user's speech may
+            // flow now.
+            if (pushToTalk.state() == PushToTalkStateMachine.State.RECORDING
+                    || !pttTurnActive) {
+                xiaozhiAudioController.setUplink(true);
+            }
         }
     }
 
