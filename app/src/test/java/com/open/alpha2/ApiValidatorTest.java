@@ -299,9 +299,18 @@ public final class ApiValidatorTest {
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestServoPower(q("on", "0")); } }, "sit.servoPower.off.refused");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestServoPower(q("on", "0", "allow_sit_down", "false")); } }, "sit.servoPower.off.false");
         eq(false, ApiValidator.requireChestServoPower(q("on", "0", "allow_sit_down", "true")), "sit.servoPower.off.allowed");
-        eq(false, ApiValidator.requireChestServoPower(q("on", "0", "allow_sit_down", "1")), "sit.servoPower.off.allowed1");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestServoPower(q("on", "0", "allow_sit_down", "1")); } }, "sit.servoPower.off.flagOne");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestServoPower(q("on", "2")); } }, "sit.servoPower.range");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestServoPower(q("on", "0", "allow_sit_down", "yes")); } }, "sit.servoPower.badFlag");
+        // allow_sit_down is strict: the openapi spec declares type boolean
+        // (openapi/open-alpha2-openapi.yml), so only "true" and "false" are accepted.
+        eq(true, ApiValidator.optionalAllowSitDown(q("allow_sit_down", "true")), "sit.flag.true");
+        eq(false, ApiValidator.optionalAllowSitDown(q("allow_sit_down", "false")), "sit.flag.false");
+        eq(false, ApiValidator.optionalAllowSitDown(q()), "sit.flag.missing");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalAllowSitDown(q("allow_sit_down", "1")); } }, "sit.flag.one");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalAllowSitDown(q("allow_sit_down", "0")); } }, "sit.flag.zero");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalAllowSitDown(q("allow_sit_down", "TRUE")); } }, "sit.flag.upper");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalAllowSitDown(q("allow_sit_down", "")); } }, "sit.flag.empty");
         eq(false, ApiValidator.requireChestPowerSaveEnter(q("enter", "0")), "sit.powerSave.leave");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestPowerSaveEnter(q("enter", "1")); } }, "sit.powerSave.enter.refused");
         eq(true, ApiValidator.requireChestPowerSaveEnter(q("enter", "1", "allow_sit_down", "true")), "sit.powerSave.enter.allowed");

@@ -389,9 +389,16 @@ public final class ApiValidator {
     // cmd 0x19 [00] is NOT a servo power off: it starts the stock "Sit down" move.
     // cmd 0x40 [01 ..] (power save, enter) can do the same. Both need allow_sit_down=true.
 
-    /** allow_sit_down (default false): the explicit opt-in for the chest "Sit down" move. */
+    /** allow_sit_down (default false): the explicit opt-in for the chest "Sit down" move.
+     *  The openapi spec declares it as type boolean, so only the exact strings
+     *  "true" and "false" are accepted. Any other value gives a 400. */
     public static boolean optionalAllowSitDown(Map<String, String> q) {
-        return optionalBoolean(q, "allow_sit_down", false);
+        String v = q.get("allow_sit_down");
+        if (v == null) return false;
+        v = v.trim();
+        if ("true".equals(v)) return true;
+        if ("false".equals(v)) return false;
+        throw new IllegalArgumentException("parameter 'allow_sit_down' must be true or false, got: " + v);
     }
 
     /** direct/chest/servo_power: on (0/1). on=0 without allow_sit_down=true gives a 400. */
