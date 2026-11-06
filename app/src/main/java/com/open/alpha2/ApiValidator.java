@@ -415,11 +415,14 @@ public final class ApiValidator {
         return enter;
     }
 
-    /** debug/serial/send: on port=chest, refuse frames with cmd 0x19 [00] or cmd 0x40 [01 ..]
-     *  unless allow_sit_down=true. The head port is not checked (head cmd 0x19 is another job). */
+    /** debug/serial/send: check allow_sit_down first, for every port: a bad value gives a
+     *  400 even on port=head (alpha2-brain#60 N-1). Only then, on port=chest, refuse frames
+     *  with cmd 0x19 [00] or cmd 0x40 [01 ..] unless allow_sit_down=true. Head frames are
+     *  not checked (head cmd 0x19 is another command). */
     public static void checkSerialSendSitDown(Map<String, String> q, String port, byte[] data) {
+        boolean allowSitDown = optionalAllowSitDown(q);
         if (!"chest".equals(port)) return;
-        String why = ChestSafety.checkChestFrames(data, optionalAllowSitDown(q));
+        String why = ChestSafety.checkChestFrames(data, allowSitDown);
         if (why != null) throw new IllegalArgumentException(why);
     }
 
