@@ -1574,6 +1574,13 @@ public final class XiaozhiBridge {
                     gateUplinkOnTts(stateValue);
                     WakeController.onXiaozhiTts(stateValue);
                     if ("start".equals(stateValue)) {
+                        // Push-to-talk (review round 1, F2): the reply has
+                        // begun. The 60 s reply timeout is the cap for a
+                        // reply that never starts. Cancel it: a reply that
+                        // plays longer than 60 s must not fire it
+                        // mid-playback, close the turn, and open a plain
+                        // microphone after a push-to-talk turn.
+                        mainHandler.removeCallbacks(pttReplyTimeoutRunnable);
                         LedCenter.startMouthLedForTts();
                         // random 動作要同 tts 一齊發生，不是說完再做：在 "start"
                         // (開講那刻) 即觸發，等動作同說話同步。實際邏輯在
