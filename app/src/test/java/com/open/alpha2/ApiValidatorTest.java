@@ -344,6 +344,13 @@ public final class ApiValidatorTest {
         ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "chest", f19off);
         ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "chest", f40enter);
         ApiValidator.checkSerialSendSitDown(q(), "head", f19off); // head cmd 0x19 is another command
+        // alpha2-brain#60 N-1: a bad allow_sit_down gives a 400 on every port, head included.
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "1"), "head", f19off); } }, "sit.raw.head.badFlagOne");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "yes"), "head", f19off); } }, "sit.raw.head.badFlagYes");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q("allow_sit_down", ""), "head", f19off); } }, "sit.raw.head.badFlagEmpty");
+        // a valid flag on port=head still does not check the frames
+        ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "false"), "head", f19off);
+        ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "head", f19off);
         eq(okBefore, failed, "sit.raw.allowed");
         // alpha2-brain#25: whole frames only. Nobody checked that the chest firmware drops a
         // frame with a bad checksum, so the guard refuses it.
