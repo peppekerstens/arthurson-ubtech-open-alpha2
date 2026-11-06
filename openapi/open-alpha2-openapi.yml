@@ -3669,7 +3669,7 @@ paths:
         schema:
           type: string
           example: f88f08000091019aed
-        description: 完整 wire frame hex. On port=chest, frames with cmd 0x19 [00] or cmd 0x40 [01 ..] start the "Sit down" move (alpha2-brain#24) and need allow_sit_down=true, else 400. On port=chest the hex must also be whole frames only (correct length, checksum and tail, no extra bytes), else 400 (alpha2-brain#25). A frame split over two calls is refused.
+        description: '完整 wire frame hex. On port=chest, frames with cmd 0x19 [00] or cmd 0x40 [01 ..] start the "Sit down" move (alpha2-brain#24) and need allow_sit_down=true, else 400. On port=chest the hex must also be whole frames only (correct length, checksum and tail, no extra bytes), else 400 (alpha2-brain#25). A frame split over two calls is refused. With allow_sit_down=true, the app skips both refusals on port=chest: the sit-down refusal and the whole-frame refusal, so a split frame then goes through.'
       - $ref: '#/components/parameters/AllowSitDown'
       - $ref: '#/components/parameters/PanelToken'
       responses:
