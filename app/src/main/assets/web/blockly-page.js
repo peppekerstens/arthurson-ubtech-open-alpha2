@@ -1,7 +1,7 @@
-// Open Alpha2 — Blockly 頁面初始化。
-// 提供同 index.html (app-core.js) 完全一致的 api()/連 WebSocket 邏輯 (獨立一份, 等這版
-// 頁面可以自己開一個分頁使用, 不一定要靠 index.html 那邊已經正在執行), 再初始化 Blockly
-// workspace、綁定工具列按鈕、接駁 blockly-run.js 的事件系統。
+// Open Alpha2 — Blockly page initialization.
+// Provides an api()/WebSocket flow exactly like index.html (app-core.js), as
+// an independent copy (so this page can open in its own tab without index.html
+// running), then inits the Blockly workspace, binds the toolbar, wires the blockly-run.js events.
 
 const API = '/api/';
 
@@ -20,10 +20,10 @@ function clearError() {
 window.addEventListener('error', function (e) { showError('JavaScript error', e.error || e.message); });
 window.addEventListener('unhandledrejection', function (e) { showError('Unhandled promise rejection', e.reason); });
 
-// 面板 token（見 PanelAuth.java＋app-core.js）：啟用後整個面板上鎖（/api＋upload＋stream＋ws
-// 都要驗）。key 同 index.html 共用（localStorage "panel_token"，同一個 browser＋同一個
-// 面板地址跨 tab 共用），在實驗 tab 解鎖一次，這頁即用到。
-// /api 行 Authorization: Bearer header（不入 URL）；<img>／WebSocket 先用 ?panel_token= fallback。
+// Panel token (see PanelAuth.java + app-core.js): when set, the whole panel locks.
+// /api uses the Authorization: Bearer header, never the URL; <img> and WebSocket
+// use a ?panel_token= query fallback. The key shares index.html's localStorage
+// "panel_token" (one browser + one panel origin), so one unlock covers both.
 function panelTokenGet() {
   try { return localStorage.getItem('panel_token') || ''; } catch (e) { return ''; }
 }
@@ -52,7 +52,7 @@ function withPanelToken(params) {
   return out;
 }
 
-// 統一的 api() helper — 同 app-core.js 個版本行為一致 (Bearer header＋query string, 回傳 parsed JSON)。
+// Shared api() helper — same behaviour as the app-core.js version (Bearer header + query string, parsed JSON).
 window.api = function (path, params) {
   clearError();
   const qs = apiQuery(params);
@@ -71,11 +71,11 @@ window.api = function (path, params) {
   });
 };
 
-// 命名空間 helper — 對應 MainActivity 三個獨立路由, 同 app-core.js /
-// app-xiaozhi.js 那套一樣形狀。api-client.js (Alpha2Api.*) 會自動選中的
-// 一個: sysApi() -> /api/system/*, directApi() -> /api/direct/*,
-// xiaozhiApi() -> /api/xiaozhi/*。hwApi 是 api() 的 alias (給 api-client.js
-// 的 legacy hw() 用, 同 index.html 一致)。
+// Namespace helpers — match the three separate MainActivity route groups,
+// with the same shape as app-core.js / app-xiaozhi.js. api-client.js
+// (Alpha2Api.*) picks one automatically: sysApi() -> /api/system/*,
+// directApi() -> /api/direct/*, xiaozhiApi() -> /api/xiaozhi/*. hwApi is an
+// alias of api() for the legacy hw() in api-client.js, same as index.html.
 function namespacedApi(prefix, label) {
   return function (path, params) {
     clearError();
@@ -100,10 +100,10 @@ window.directApi = namespacedApi('direct/', 'direct/');
 window.xiaozhiApi = namespacedApi('xiaozhi/', 'xiaozhi/');
 window.hwApi = window.api;
 
-// ---------------- WebSocket：接駁事件驅動 blocks ----------------
+// ---------------- WebSocket: wiring for event-driven blocks ----------------
 let ws = null;
 let wsReconnectTimer = null;
-let wsBootId = null; // server bootId（舊頁自動 reload 用，見 app-log.js）。
+let wsBootId = null; // server bootId (auto-reload of a stale page, see app-log.js).
 
 function setWsStatus(connected) {
   document.getElementById('wsStatusDot').className = 'run-status-dot ' + (connected ? 'running' : 'idle');
@@ -112,7 +112,7 @@ function setWsStatus(connected) {
 
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  // 面板 token：WebSocket 設不到 header，鎖機時用 ?panel_token= query fallback（見 PanelAuth）。
+  // Panel token: WebSocket cannot set headers, so a locked panel uses the ?panel_token= query fallback (see PanelAuth).
   let wsUrl = proto + '//' + location.host + '/ws';
   try {
     const pt = panelTokenGet();
@@ -127,8 +127,8 @@ function connectWs() {
   }
   ws.onopen = function () { setWsStatus(true); };
   ws.onclose = function () { setWsStatus(false); scheduleReconnect(); };
-  // 2026-09-09：error 即 close，行統一 onclose→重連（之前僅 set 燈，
-  // error 後無 close 事件就永不重連；同 app-log.js 看齊）。
+  // 2026-09-09: an error now closes the socket, so one onclose path handles
+  // reconnect. Before, an error without a close event never reconnected (as in app-log.js).
   ws.onerror = function () { setWsStatus(false); try { ws.close(); } catch (e) {} };
   ws.onmessage = function (evt) {
     let parsed;
@@ -137,7 +137,7 @@ function connectWs() {
     } catch (e) {
       return;
     }
-    // 同主面板一樣：app 重裝/重啟 bootId 轉咗，呢頁 JS 舊咗即 reload（見 app-log.js）。
+    // As on the main panel: if bootId changed, this stale page reloads (see app-log.js).
     if (parsed && parsed.type === "connected" && parsed.bootId) {
       if (wsBootId && wsBootId !== parsed.bootId) {
         location.reload();
@@ -156,13 +156,13 @@ function scheduleReconnect() {
   wsReconnectTimer = setTimeout(connectWs, 2000);
 }
 
-// ---------------- Blockly workspace 初始化 ----------------
+// ---------------- Blockly workspace initialization ----------------
 let workspace = null;
 
-// 在頁面頂部 header 顯示實際正在載入的 Blockly 版本 —— 直接讀 Blockly.VERSION
-// (Blockly library 內建常數, 在 blockly_compressed.js 裡面已經寫死), 不是手動
-// 打一個數字落 HTML, 這樣升級/替換 blockly_compressed.js 之後個顯示會自動跟
-// 返實際檔案版本, 不會疏漏漏更新。
+// Show the Blockly version actually loaded, in the page header. Read it
+// straight from Blockly.VERSION (a constant baked into blockly_compressed.js)
+// instead of typing a number into the HTML, so an upgrade or replacement of
+// that file updates the display automatically and can never go stale.
 function showBlocklyVersionBadge() {
   const badge = document.getElementById('blocklyVersionBadge');
   if (!badge) return;
@@ -172,58 +172,58 @@ function showBlocklyVersionBadge() {
 
 function initWorkspace() {
   showBlocklyVersionBadge();
-  // 手機畫布剩低闊度得 ~240px, 中文積木本身闊 (~300-400px, 見截圖
-  // 「播放本地音樂」被右緣切走), startScale 0.9 會一入嚟就出界要左右捽。
-  // 手機版用 0.6 起跳, 積木成個放得入畫布; desktop 維持 0.9。
+  // On a phone the canvas keeps only ~240px of width, while Chinese blocks
+  // are ~300-400px wide (see the screenshot where "Play local music" is cut
+  // off), so phones start at 0.6 to fit whole blocks; desktop keeps 0.9.
   const isMobileStart = (typeof window !== 'undefined' && window.matchMedia &&
     window.matchMedia('(max-width: 900px)').matches);
   workspace = Blockly.inject('blocklyDiv', {
     toolbox: window.ALPHA_TOOLBOX,
-    // 這個 Blockly 版本的預設 pathToMedia 是 "https://static.blockly.com/media/"
-    // (外部 CDN) —— 在這個 app 的 WebView 環境裡面拿不到。改用本機 media/
-    // 資料夾 (已經 copy 了 Blockly 官方 npm package 的 media 檔案下來), 全部
-    // offline 可用。(2026-09: zoom sprite 按鈕同垃圾桶 sprite 已經唔用 ——
-    // zoom 關了 controls 用自畫組, 垃圾桶換了 vector art, media/ 純粹留做後備。)
+    // This Blockly version's default pathToMedia is
+    // "https://static.blockly.com/media/" (an external CDN), unreachable in this
+    // app's WebView. It now uses the local media/ folder (the official npm
+    // package's media files were copied in), so everything works offline.
+    // (2026-09: sprite buttons are gone — self-drawn zoom, vector trash, media/ is a backup.)
     media: 'media/',
     grid: { spacing: 24, length: 2, colour: '#c3cad6', snap: true },
-    // 2026-09: zoom.controls 關掉 —— 內建三粒 sprite 按鈕 (zoom-in/out/reset)
-    // 同 Code Lab 風格唔夾, 改用 blockly-run.js ZoomFabControls 自畫垂直組
-    // (歸中/放大/縮細, 同 edit 橫排同一個深色圓系列)。wheel 縮放保留。
+    // 2026-09: zoom.controls is off — the three built-in sprite buttons
+    // (zoom in/out/reset) do not match the Code Lab look, so blockly-run.js
+    // ZoomFabControls draws a vertical group (same style as the edit row). Wheel zoom stays.
     zoom: { controls: false, wheel: true, startScale: (isMobileStart ? 0.6 : 0.9), maxScale: 3, minScale: 0.3, scaleSpeed: 1.1 },
     trashcan: true,
     move: { scrollbars: true, drag: true, wheel: false },
     theme: buildAlphaTheme(),
     sounds: false,
   });
-  window.__alphaBlocklyWorkspace = workspace; // 給 blockly-i18n.js 切語言當時取回來用
-  // AlphaBlockly.init() 裡面現在一併起返「復原/剪貼按鈕列」「縮放按鈕列」這兩組
-  // Blockly IPositionable component (詳見 blockly-run.js
-  // 的 EditFabControls/ZoomFabControls 大段註解) ——
-  // 它們同垃圾桶用回完全同一套 Blockly 官方定位管線, 一定要在 workspace
-  // inject 了之後先可以起。(側欄收起掣是 HTML #bkSideTrigger, 唔經這裡。)
+  window.__alphaBlocklyWorkspace = workspace; // re-fetched by blockly-i18n.js on a language switch
+  // AlphaBlockly.init() now also starts the two button rows (undo/cut and zoom),
+  // which are Blockly IPositionable components (see the
+  // EditFabControls/ZoomFabControls notes in blockly-run.js). They reuse the
+  // exact official positioning pipeline of the trash can, so they can start
+  // only after workspace injection (the side trigger is HTML #bkSideTrigger).
   window.AlphaBlockly.init(workspace);
 
-  // 視窗 resize 時重新計算 Blockly 畫布大小。
+  // Recompute the Blockly canvas size when the window resizes.
   window.addEventListener('resize', resizeBlockly);
   resizeBlockly();
 
-  // 抄自 Code Lab (見對話紀錄的截圖): 側欄 (執行紀錄面板) 收起/展開狀態,
-  // 記在 localStorage, 等用家下次重新開啟這個分頁都記得住上次選的收/開。用
-  // setSidePanelCollapsedInitial() 不是 toggleSidePanel(), 因為這個是
-  // 「頁面剛剛 load 就要已經是這樣」, 不應該播 0.18s 的收起動畫。
+  // Copied from Code Lab (see the chat screenshot): the side panel (run log)
+  // collapse state is stored in localStorage, so the next time this tab opens
+  // it keeps the last choice. Use setSidePanelCollapsedInitial(), not
+  // toggleSidePanel(): the page must load already collapsed, with no 0.18s animation.
   //
-  // 2026-09: desktop 同手機都係「第一次入預設收起側欄」—— 畫布用哂成個
-  // 螢幕闊度, 用家要 log 先撳返開 (狀態會記住)。
+  // 2026-09: desktop and phone both start with the side panel collapsed, so
+  // the canvas has the full width. The user opens the log on demand (the state is kept).
   try {
     const savedCollapsed = localStorage.getItem('blocklySideCollapsed');
     if (savedCollapsed === '1' || savedCollapsed == null) {
       window.AlphaBlockly.setSidePanelCollapsedInitial(true);
       resizeBlockly();
     }
-  } catch (e) { /* localStorage 在部分 WebView 環境可能不可用, 沒有記錄就預設展開, 不緊要 */ }
+  } catch (e) { /* localStorage may be unavailable in some WebViews; default to open when there is no record, which is fine */ }
 
-  // 手機旋轉/地址列收展會觸發 resize; 另外 layout 第一幀可能未 settle,
-  // 延遲多 call 一次 svgResize 保證 Blockly 攞到正確畫布尺寸。
+  // Phone rotation and the address bar show/hide fire resize; the first layout
+  // frame may not have settled, so a delayed second svgResize guarantees the size.
   window.addEventListener('orientationchange', function () {
     setTimeout(resizeBlockly, 200);
     setTimeout(resizeBlockly, 500);
@@ -231,11 +231,11 @@ function initWorkspace() {
   setTimeout(resizeBlockly, 300);
 }
 
-// 視窗 resize / 側欄收/展開之後都要重新計算 Blockly 畫布大小 —— Blockly.svgResize()
-// 一 call, 內部會自動一併 ComponentManager 那批 POSITIONABLE component
-// (垃圾桶/我們自己的 EditFabControls/ZoomFabControls) 一齊重新
-// 定位, 不用各自另外再動它們。拆做獨立 function 等 window resize listener 同
-// AlphaBlockly.toggleSidePanel() 可以共用。
+// Recompute the Blockly canvas size after a window resize or a side-panel
+// collapse/expand. One Blockly.svgResize() call also re-positions the
+// ComponentManager POSITIONABLE components (the trash can, our own
+// EditFabControls/ZoomFabControls), so nothing else needs touching. It is a
+// separate function for the resize listener and toggleSidePanel() to share.
 function resizeBlockly() {
   if (workspace) Blockly.svgResize(workspace);
 }
@@ -248,8 +248,8 @@ function toggleSidePanel() {
 window.toggleSidePanel = toggleSidePanel;
 
 function buildAlphaTheme() {
-  // 用回 style.css 個淡藍/白色系 (--bg #f5f7fa / --accent #3b7dff),
-  // 等整個頁面 (工具列/積木畫布) 看來是同一個產品,不是外掛一份第三方風格。
+  // Reuse the light blue/white palette from style.css (--bg #f5f7fa /
+  // --accent #3b7dff) so the whole page looks like one product, not a bolted-on third-party style.
   try {
     return Blockly.Theme.defineTheme('alphaTheme', {
       base: Blockly.Themes.Classic,
@@ -273,7 +273,7 @@ function buildAlphaTheme() {
   }
 }
 
-// ---------------- 工具列按鈕 wiring ----------------
+// ---------------- toolbar button wiring ----------------
 function doSaveNamed() {
   const input = document.getElementById('saveNameInput');
   const name = input.value.trim();
@@ -307,18 +307,18 @@ function onClearWorkspace() {
   }
 }
 
-// ---------------- 啟動 ----------------
+// ---------------- startup ----------------
 document.addEventListener('DOMContentLoaded', function () {
   initWorkspace();
   connectWs();
-  // 2026-09: 開頁自動抓動作清單 (actioninfo.txt) + 本地音樂清單, fire-and-
-  // forget 唔阻 workspace; 失敗會有 error banner + dropdown fallback, 同之前
-  // 手撳掣一樣。頂欄嗰兩粒手動掣已移除 (見 blockly.html)。
+  // 2026-09: the page auto-fetches the action list (actioninfo.txt) and the
+  // local music list, fire-and-forget (never blocks the workspace). On failure
+  // an error banner + dropdown fallback appear (the old manual buttons are gone, see blockly.html).
   try {
     if (window.AlphaBlockly) {
       window.AlphaBlockly.refreshActionDropdown();
       window.AlphaBlockly.refreshMusicDropdown();
     }
-  } catch (e) { /* showError / fallback 會處理, 不緊要 */ }
+  } catch (e) { /* showError / the fallback handles it, no problem */ }
 });
 

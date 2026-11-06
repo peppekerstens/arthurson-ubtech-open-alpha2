@@ -1,15 +1,15 @@
-// Open Alpha2 — Toolbox 定義 (Blockly JSON 格式)。
-// 分了 12 個分類：控制流程放最頂 (最常用), 之後跟 API 分組, 最後是 Blockly 標準
-// 邏輯/迴圈/數學/文字/變數/自訂函式。
+// Open Alpha2 — Toolbox definition (Blockly JSON format).
+// It has 12 categories: control flow first (most used), then the API groups,
+// and last the Blockly standards: logic/loops/math/text/variables/functions.
 //
-// 包做 function (而不是一次性 object literal) 是給語言切換用: 分類名/範例裡面
-// 的文字都經 t() 正在讀 window.ALPHA_BLOCK_I18N, 但 t() 的結果在這個檔案 load
-// 那一刻就已經計死了 (JS 沒有 lazy evaluation) —— 如果僅 assign 一次做靜態
-// object, 之後切語言就算 updateToolbox() 都是取回那份舊語言的快照。改用
-// window.buildAlphaToolbox() 令 blockly-i18n.js 可以在切換語言當時重新 call
-// 一次, 拿到用回新語言的版本。window.ALPHA_TOOLBOX 保留做「最近一次 build
-// 出來的版本」, 等 initWorkspace() (blockly-page.js) 首次注入 workspace 當時
-// 不用改呼叫方式。
+// Wrapping this in a function (not a one-shot object literal) is for the
+// language switch: category names and example texts read
+// window.ALPHA_BLOCK_I18N through t(), and t() fixes its result the moment
+// this file loads (JS has no lazy evaluation). Assigning a static object once
+// would leave even updateToolbox() with an old-language snapshot after a
+// switch. window.buildAlphaToolbox() lets blockly-i18n.js re-call it during a
+// switch to get the new language. window.ALPHA_TOOLBOX keeps "the last built
+// version" so initWorkspace() (blockly-page.js) can read it on first injection.
 window.buildAlphaToolbox = function () {
   return {
   kind: 'categoryToolbox',
@@ -45,11 +45,11 @@ window.buildAlphaToolbox = function () {
       ]
     },
     {
-      // 2026-08 更新: 動作 block 由一粒 alpha_action_play_builtin (帶 CATEGORY
-      // dropdown) 拆了做獨立 block (基本/跳舞/故事/瑜伽/其他), 遵循電話/通知
-      // 鈴聲個模式 (見 blockly-blocks.js makeActionCategoryBlock())。分類本身
-      // 依然一隻色 (colour: '20', 同 clr.action 一致), 一按就見完所有動作
-      // block, 不用逐層展開。
+      // 2026-08 update: the one alpha_action_play_builtin block (with a
+      // CATEGORY dropdown) was split into separate blocks (basic/dance/story/yoga/others),
+      // following the phone/notification ringtone pattern (see
+      // makeActionCategoryBlock() in blockly-blocks.js). The category keeps one
+      // colour (colour: '20', same as clr.action), so one click shows every action block.
       kind: 'category', name: t('toolbox_cat_action'), colour: '20',
       contents: [
         { kind: 'block', type: 'alpha_action_play_basic' },
@@ -68,29 +68,29 @@ window.buildAlphaToolbox = function () {
       kind: 'category', name: t('toolbox_cat_speech'), colour: '160',
       contents: [
         { kind: 'block', type: 'alpha_speech_tts', inputs: { TEXT: { shadow: { type: 'text', fields: { TEXT: t('toolbox_tts_default_shadow') } } } } },
-        // 2026-09: 三合一停止 (TTS/鈴聲/音樂 3選1) 取代舊三粒分開 stop block
+        // 2026-09: one three-in-one stop (TTS/ringtone/music) replaces the three old stop blocks.
         // (blockly-blocks.js alpha_media_stop)。alpha_speech_stop /
-        // alpha_music_stop 定義同 case 仍保留畀舊 .xml。
+        // The alpha_music_stop definition and case are kept for old .xml files.
         { kind: 'block', type: 'alpha_media_stop' },
         { kind: 'block', type: 'alpha_speech_set_mic' },
         { kind: 'sep' },
         { kind: 'block', type: 'alpha_speech_ringtone_phone', inputs: { DURATION: { shadow: { type: 'math_number', fields: { NUM: 10 } } } } },
         { kind: 'block', type: 'alpha_speech_ringtone_notification', inputs: { DURATION: { shadow: { type: 'math_number', fields: { NUM: 5 } } } } },
         { kind: 'sep' },
-        // 2026-09 新增: 本地音樂 (同 Music 分頁同一套 /api/audio/local_music/*)。
-        // 曲目 dropdown 是 live list, 開頁自動抓 (見 blockly-page.js +
-        // blockly-run.js refreshMusicDropdown)。play block 兩個獨立開關:
-        // 隨歌伴舞 FILLER (filler_action 隨機動作) + 節奏燈 DISCO (disco)。
-        // 停止經三合一 alpha_media_stop (TYPE=music); 暫停/繼續 block 已移除。
+        // Added 2026-09: local music (same /api/audio/local_music/* set as Music tab).
+        // The track dropdown is a live list, fetched on page open (see
+        // refreshMusicDropdown in blockly-page.js + blockly-run.js). Two switches:
+        // dance-along FILLER (filler_action random actions) + rhythm light DISCO.
+        // Stop goes through alpha_media_stop (TYPE=music). Pause/resume were removed.
         { kind: 'block', type: 'alpha_music_play' },
       ]
     },
     {
-      // 2026-08 更新: 伺服 block 由一粒 alpha_servo_one (帶 GROUP dropdown) 拆了
-      // 做 5 粒獨立 block (頭/右手/左手/右腳/左腳), 遵循電話/通知鈴聲、動作分類
-      // 個模式 (見 blockly-blocks.js makeServoGroupBlock())。分類本身依然一隻色
-      // (colour: '230', 同 clr.servo 一致), 一按就見完所有伺服 block, 不用逐層
-      // 展開。
+      // 2026-08 update: the one alpha_servo_one block (with a GROUP dropdown) was
+      // split into 5 blocks (head/right arm/left arm/right leg/left leg), following
+      // the phone/notification ringtone and action-category pattern (see
+      // makeServoGroupBlock() in blockly-blocks.js). The category keeps one colour
+      // (colour: '230', same as clr.servo), so one click shows every servo block.
       kind: 'category', name: t('toolbox_cat_servo'), colour: '230',
       contents: [
         { kind: 'block', type: 'alpha_servo_one_head' },
@@ -113,10 +113,10 @@ window.buildAlphaToolbox = function () {
         { kind: 'block', type: 'alpha_led_mouth' },
       ]
     },
-    // 2026-08 更新: 「相機 / 音效」同「裝置資訊」這兩個分類已經整個移除, block
-    // 定義同 interpreter case 都一齊刪了, 不再保留 (見 blockly-blocks.js /
-    // blockly-run.js)。感應器 (sonar/accel) 開關同事件維持在上面「🔔 事件」
-    // 分類。
+    // 2026-08 update: the camera/sound and device-info categories were removed
+    // entirely, and their block definitions and interpreter cases too (see
+    // blockly-blocks.js / blockly-run.js). The sonar/accel sensor switches and
+    // their events stay in the "🔔 Events" category above.
     {
       kind: 'category', name: t('toolbox_cat_logic'), colour: '%{BKY_LOGIC_HUE}',
       contents: [
@@ -161,37 +161,37 @@ window.buildAlphaToolbox = function () {
       kind: 'category', name: t('toolbox_cat_procedures'), colour: '%{BKY_PROCEDURES_HUE}', custom: 'PROCEDURE'
     },
     {
-      // 2026-08 新增:「範例」分類, 放已經組合好的 block 組合, 用家由 toolbox
-      // 拖出來就已經是一串裝好完的 next-chain (不用自己逐顆拼), 可以即刻試跑或者
-      // 當起點再修改。用 toolbox JSON 的巢狀寫法: 第一粒 block 底下用
-      // "next": { "block": {...} } 一路掛下去, 對應 Blockly 內部 next-connection
-      // statement chain, 這個是 toolbox 官方支援的寫法, 不用自己額外寫 XML。
+      // Added 2026-08: the "Examples" category holds pre-assembled block chains,
+      // so a drag from the toolbox gives a finished next-chain — run it at once
+      // or edit it as a starting point. The toolbox JSON nests blocks: under the
+      // first block, "next": { "block": {...} } chains down, matching Blockly's
+      // internal next-connection statement chain (officially supported, no extra XML).
       //
-      // 2026-08 更新: 原本這裡有 5 個手寫的簡短示範, 現在改做用家提供的 2 個
-      // 實機測試過的完整程式 (alpha2-program-2026-08-04-04-02-26.xml /
-      // alpha2-program-2026-08-04-05-43-58.xml, 經 workspace 匯出), 轉做
-      // toolbox JSON 格式後直接放這裡。轉換時 <value><shadow>...</shadow></value>
-      // 對應做 inputs.{NAME}.shadow, <next><block>...</block></next> 對應
-      // 巢狀 next.block, 僅去了 XML 專屬的 id/x/y 定位屬性 (toolbox flyout
-      // 不需要這些, 拖出來到 workspace 會由 Blockly 自己重新分配)。
+      // 2026-08 update: this held 5 hand-written short demos before. They were
+      // replaced by 2 full user-supplied programs tested on real hardware
+      // (alpha2-program-2026-08-04-04-02-26.xml / alpha2-program-2026-08-04-05-43-58.xml,
+      // exported from a workspace), converted to toolbox JSON and stored here
+      // directly: <value><shadow>...</shadow></value> maps to inputs.{NAME}.shadow,
+      // <next><block>...</block></next> maps to a nested next.block, and the
+      // XML-only id/x/y position attributes were dropped (the flyout reassigns them on drag-out).
       //
-      // 注意: fields.SUBCATEGORY 這個值 ('表情 / 互動類' 等) 一定要維持中文,
-      // 因為它是 blockly-actions-data.js 真實子分類清單的其中一個 key (跟機身
-      // 韌體實測分類名, 不是這頁自己的顯示文字), 不跟 uiLang 轉——換了英文個
-      // dropdown 就找不到這個分類。fields.TITLE (鈴聲名, 例如 'World'/'Antares'/
-      // 'On The Hunt') 同理: 對應 blockly-ringtone-data.js 的實際鈴聲標題, 是
-      // 資料值不是顯示文字, 一樣要保持原文。
+      // Note: every fields.SUBCATEGORY value must stay Chinese (for example the
+      // expression/interaction one). It is a key of the real subcategory lists in
+      // blockly-actions-data.js (matching the firmware names measured on the
+      // unit), not display text here, so do not switch it with uiLang — the
+      // dropdown would lose that category. The same holds for fields.TITLE
+      // ('World'/'Antares'/'On The Hunt'): real ringtone titles, data values, keep verbatim.
       kind: 'category', name: t('toolbox_cat_examples'), colour: '15',
       contents: (function () {
-        // 例子 1 的 TTS engine：2026-09 一律 android——機身已無 alpha2services，
-        // nuance／iflytek 經 speech_startTTS 恒回 NOT_INIT 全程靜音，舊那套
-        // 「中文用 iflytek、英文用 nuance」AIDL 語言配對已死。VOICE 只對
-        // iflytek 有義，android 無視，例子留空。
+        // Example 1 TTS engine: 2026-09 onward always android — the unit no longer
+        // has alpha2services, and nuance/iflytek through speech_startTTS always
+        // returns NOT_INIT (total silence), so the old pairing "iflytek for
+        // Chinese, nuance for English" is dead. android ignores VOICE (leave it empty).
         const ttsEngine = 'android';
         return [
-        // 例子 1: 來電效果 —— 電話鈴聲 → 打招呼 → 播動作 (不等) → 再說話 →
-        // 等 7 秒 → 手動停止鈴聲。示範: 鈴聲 + 語音 + 動作如何夾在一起玩,
-        // 「等待完成」選 false 令個動作同後面的語音幾乎同一時間發生。
+        // Example 1: incoming-call effect — phone ringtone → greeting → play an
+        // action (no wait) → speak → wait 7 seconds → stop the ringtone by hand.
+        // It shows how sound, speech and action mix (wait_done=false overlaps them).
         {
           kind: 'block', type: 'alpha_speech_ringtone_phone',
           fields: { TITLE: 'World' },
@@ -218,10 +218,10 @@ window.buildAlphaToolbox = function () {
             } }
           } }
         },
-        // 例子 2: 通知鈴聲 + 伺服擺位串連 —— 頭部轉動 → 通知鈴聲 → 右手三段
-        // 擺位 → 通知鈴聲 → 左手三段擺位 → 通知鈴聲 → 播放收尾動作。示範:
-        // 多個伺服 block 同鈴聲 block 如何組合做一個帶節奏感的擺動組合,
-        // 每個動作之間用「等待」+ 鈴聲做節拍提示。
+        // Example 2: notification sound + servo pose chain — head turns →
+        // notification sound → 3 right-arm poses → sound → 3 left-arm poses →
+        // sound → closing action. It shows how servo blocks and ringtone blocks
+        // combine into one rhythmic swaying set, with "wait" + a sound as the beat.
         {
           kind: 'block', type: 'alpha_speech_ringtone_notification',
           fields: { TITLE: 'Antares' },
@@ -305,9 +305,9 @@ window.buildAlphaToolbox = function () {
   };
 };
 
-// 首次 load 這一刻先 build 一次, 給 blockly-page.js 的 initWorkspace() 可以
-// 照舊直接讀 window.ALPHA_TOOLBOX 用 (不用改那邊的呼叫方式)。之後語言切換
-// 由 blockly-i18n.js 負責重新 call window.buildAlphaToolbox() 再更新這個
+// Build once at first load so initWorkspace() in blockly-page.js can keep
+// reading window.ALPHA_TOOLBOX directly (no change to that call). A language
+// switch makes blockly-i18n.js re-call window.buildAlphaToolbox() and refresh this.
 // reference。
 window.ALPHA_TOOLBOX = window.buildAlphaToolbox();
 
