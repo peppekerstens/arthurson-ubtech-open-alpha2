@@ -31,6 +31,11 @@ import java.util.Map;
  * ({@code SIT_DOWN_19} to {@code sit_down_19}, {@code SIT_DOWN_40} to
  * {@code sit_down_40}, the {@code NOT_WHOLE} prefix to {@code not_whole}).
  *
+ * <p>The test reads {@code allow_sit_down} strictly: a value that is not a
+ * JSON boolean (a string, {@code null}, or a missing key) prints one clean
+ * FAIL line and exits 1, so a bad flag never becomes false silently
+ * (alpha2-brain#61).
+ *
  * <p>Run: {@code python3 scripts/test-chestsafety.py}. This test runs only
  * on the host JDK through that script, never on the Android 5.1 device.
  */
@@ -132,7 +137,24 @@ public final class ChestSafetyVectorTest {
                 caseObj = (Map<String, Object>) cases.get(i);
                 name = (String) caseObj.getOrDefault("name", "<no name>");
                 hexStr = (String) caseObj.getOrDefault("hex", "");
-                allowSitDown = Boolean.TRUE.equals(caseObj.get("allow_sit_down"));
+                Object flag = caseObj.get("allow_sit_down");
+                if (!(flag instanceof Boolean)) {
+                    // alpha2-brain#61: a non-boolean flag is a bad case, not a false.
+                    // Print one clean line and exit 1, like the "has a bad shape" exit.
+                    String shown;
+                    if (!caseObj.containsKey("allow_sit_down")) {
+                        shown = "missing";
+                    } else if (flag instanceof String) {
+                        shown = "\"" + flag + "\"";
+                    } else {
+                        shown = String.valueOf(flag);
+                    }
+                    System.out.println("FAIL: case " + i + " has a bad allow_sit_down value: "
+                            + shown + " (want true or false)");
+                    System.exit(1);
+                    return;
+                }
+                allowSitDown = (Boolean) flag;
                 expect = (String) caseObj.get("expect");
                 expectReason = (String) caseObj.get("reason");
             } catch (Exception e) {
