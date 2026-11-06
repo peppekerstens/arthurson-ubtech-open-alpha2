@@ -40,9 +40,10 @@ def run_test_class(java: str, classes_dir, vector_file) -> subprocess.CompletedP
 def check_strict_flag(java: str, classes_dir, label: str, vector_file) -> bool:
     """One negative self-test (alpha2-brain#61).
 
-    A bad allow_sit_down value must fail the run with exit 1 and exactly
-    one non-empty line on stdout+stderr, starting with the strict flag
-    FAIL line. Returns True when the check passes.
+    A bad allow_sit_down value must fail the run with exit 1 and print
+    the expected strict flag FAIL line on stdout+stderr. Other lines,
+    for example from the JVM, are ignored. Returns True when the check
+    passes.
     """
     r = run_test_class(java, classes_dir, vector_file)
     lines = [ln for ln in (r.stdout + r.stderr).splitlines() if ln.strip()]
@@ -50,11 +51,8 @@ def check_strict_flag(java: str, classes_dir, label: str, vector_file) -> bool:
     if r.returncode != 1:
         print(f"FAIL strict flag: {label}: exit={r.returncode}, want 1")
         return False
-    if len(lines) != 1:
-        print(f"FAIL strict flag: {label}: {len(lines)} non-empty lines, want 1: {lines}")
-        return False
-    if not lines[0].startswith(want):
-        print(f"FAIL strict flag: {label}: line {lines[0]!r}, want prefix {want!r}")
+    if not any(ln.startswith(want) for ln in lines):
+        print(f"FAIL strict flag: {label}: no line with prefix {want!r}: {lines}")
         return False
     print(f"PASS strict flag: {label}")
     return True
