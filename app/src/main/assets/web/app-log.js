@@ -1,15 +1,16 @@
 // Open Alpha2 — client logic (app-log.js)
-// 內容: WebSocket event log、頁面初始化 (DOMContentLoaded)。這個檔案要最後 load, 因為 init() 要用完其他所有 app-*.js 定義的 build*()/refresh*() function。
-// 全部檔案共用 window/global scope (沒有用 ES module), 載入順序由 index.html 的
-// <script src="..."> 順序決定 - 詳見 index.html 頭那段 comment。
+// Content: WebSocket event log, page init (DOMContentLoaded). Load this file last:
+// init() uses the build*()/refresh*() functions defined by all other app-*.js files.
+// All files share the window/global scope (no ES modules). The load order follows
+// the <script src="..."> order in index.html. See the comment block at its head.
 
 // ---------------- WebSocket event log ----------------
 
 let ws;
-let wsBootId = null; // server 每次起身派新 bootId（見 WebSocketServer.BOOT_ID）——
-function connectWs() { // 舊 tab（裝機嗰陣開住）斷線重連見到唔同即 reload 攞新 JS。
+let wsBootId = null; // the server issues a new bootId on every start (see WebSocketServer.BOOT_ID).
+function connectWs() { // An old tab (open during install) reloads for new JS when a reconnect shows a different bootId.
   const proto = location.protocol === "https:" ? "wss://" : "ws://";
-  // 面板 token：WebSocket 設不到 header，鎖機時用 ?panel_token= query fallback（見 PanelAuth）。
+  // Panel token: a WebSocket cannot set headers. When the unit is locked, use the ?panel_token= query fallback (see PanelAuth).
   let wsUrl = proto + location.host + "/ws";
   try {
     const pt = (typeof panelTokenGet === "function") ? panelTokenGet() : "";
@@ -18,10 +19,10 @@ function connectWs() { // 舊 tab（裝機嗰陣開住）斷線重連見到唔�
   ws = new WebSocket(wsUrl);
 
   ws.onopen = function () {
-    appendLog({ type: "connection", time: nowTimeStr(), data: "已連接 (WebSocket live)" });
+    appendLog({ type: "connection", time: nowTimeStr(), data: "Connected (WebSocket live)" });
   };
   ws.onclose = function () {
-    appendLog({ type: "connection", time: nowTimeStr(), data: "已斷線，3秒後重連…" });
+    appendLog({ type: "connection", time: nowTimeStr(), data: "Disconnected, reconnecting in 3s…" });
     setTimeout(connectWs, 3000);
   };
   ws.onerror = function () { ws.close(); };
@@ -30,7 +31,7 @@ function connectWs() { // 舊 tab（裝機嗰陣開住）斷線重連見到唔�
       const msg = JSON.parse(evt.data);
       if (msg && msg.type === "connected" && msg.bootId) {
         if (wsBootId && wsBootId !== msg.bootId) {
-          location.reload(); // app 重裝/重啟，呢頁 JS 舊咗——即刻攞新版。
+          location.reload(); // the app was reinstalled / restarted, this page JS is stale - get the new version now.
           return;
         }
         wsBootId = msg.bootId;
@@ -46,8 +47,8 @@ function nowTimeStr() {
   return new Date().toLocaleTimeString("zh-HK", { hour12: false });
 }
 
-/** 統一的語意配對＋TTS＋動作觸發函數 — 各種輸入方法（文字輸入等）都用這個
- *  方法處理，同 sendSpeechChatText() 後半段邏輯一致。 */
+/** Unified semantic match + TTS + action trigger function. Every input path (text entry
+ *  included) uses it, matching the second half of sendSpeechChatText(). */
 function triggerSemanticSimulate(text, fromVoice) {
   if (!text) return;
   Alpha2Api.speechSemanticSimulate( { text: text }).then(function (res) {
@@ -56,16 +57,17 @@ function triggerSemanticSimulate(text, fromVoice) {
       appendSpeechChatLine("xiaozhi-msg-system", t("speech_chat_simulate_no_match"));
       return;
     }
-    // 對話界面僅顯示中英文對白 — [TYPE operation] 動作ID detail 行不在對話流顯示 (Event Log 有同樣資訊)。
+    // The chat UI shows only spoken lines. [TYPE operation] action-ID detail lines stay
+    // out of the chat flow (the Event Log carries the same information).
     if (res.answer) {
       appendSpeechChatLine("xiaozhi-msg-assistant", res.answer);
     }
   });
 }
 
-/** 對話界面文字過濾：如果辨識結果還是 JSON 字串
- * （例如 {"text":"你好","rc":4}），抽出個 text 出來；抽不到就回空字串，
- *  user 氣泡不會出現大括號／引號等「代碼」。 */
+/** Chat text filter: when the recognition result is still a JSON string
+ *  (for example {"text":"你好","rc":4}), extract the text field. Return an empty string
+ *  when it is missing, so braces / quotes never show in a user bubble. */
 function cleanChatText(s) {
   if (!s) return "";
   const t = String(s).trim();
@@ -78,20 +80,20 @@ function cleanChatText(s) {
 
 const MAX_LOG_LINES = 200;
 
-// chest_broadcast_debug / mic_broadcast_debug 這兩個 event type 純粹是
-// RobotEventReceiver.java 度收集「未知 payload」用的診斷 event (見
-// RobotEventReceiver 個 CHEST_ACTION 同那 8 個 mic-related case 的 comment) -
-// 沒有對應的 UI tile/chart, 印落 Event Log 僅洗版, 沒有實質資訊價值 (真正想看
-// payload 要靠 logcat 的 Log.i, 不是靠這個 WebSocket event)。同 accel 一樣,
-// 跳過 log DOM, 但不阻擋這個 event 本身經 EventBus 繼續 publish - 這裡僅
-// 前端不顯示, RobotEventReceiver.java 那邊的收集機制完全沒有改。
+// The chest_broadcast_debug / mic_broadcast_debug event types only serve
+// RobotEventReceiver.java diagnostics for "unknown payload" collection (see the
+// CHEST_ACTION case and the 8 mic-related case comments). They have no UI
+// tile/chart, and printing them just floods the Event Log with no real value (to
+// inspect a payload, use Log.i in logcat, not this WebSocket event). Like accel,
+// skip the log DOM, but do not stop the event from publishing through the
+// EventBus. The front-end hides it only. Nothing in RobotEventReceiver.java changed.
 const SILENCED_LOG_TYPES = ["accel", "chest_broadcast_debug", "mic_broadcast_debug"];
 
 function appendLog(msg) {
   if (SILENCED_LOG_TYPES.indexOf(msg.type) === -1) {
     const log = document.getElementById("eventLog");
     const line = document.createElement("div");
-    // type 白名單入 className（server 控字串）；time/data 照 escapeHtml。
+    // Whitelist the type before it enters the className (a server-controlled string). escapeHtml time/data as before.
     const safeType = /^[A-Za-z0-9_-]+$/.test(msg.type || "") ? msg.type : "raw";
     line.className = "log-line log-type-" + safeType;
     const dataStr = typeof msg.data === "object" ? JSON.stringify(msg.data) : msg.data;
@@ -112,19 +114,19 @@ function appendLog(msg) {
   // doesn't carry the actual result back in its own response.
   if (msg.type === "robot_uuid" && msg.data) {
     const el = document.getElementById("uuidOut");
-    // 後端讀不到 (timeout/空) 會 publish {"uuid":null}；uuid:null 顯示讀取失敗，有 uuid 先走清洗+顯示流程。
+    // When the backend read fails (timeout / empty), it publishes {"uuid":null}. For uuid:null show the read failure. Only a present uuid enters the clean + display flow.
     if (!msg.data.uuid) {
-      if (el) el.textContent = "❌ 讀取失敗 (chest cmd55 無回覆, 見 logcat)";
+      if (el) el.textContent = uiLang === "en" ? "❌ Read failed (no reply from chest cmd55, check logcat)" : "❌ 讀取失敗 (chest cmd55 無回覆, 見 logcat)";
       return;
     }
-    // SN 欄位可能帶 \0 padding — 去除控制字元先顯示。
-    // EEPROM 尾段殘留可能是非零垃圾 byte，顯示會出方塊/亂碼 (Java 端 RobotEventReceiver 已有白名單過濾，這裡第二重保障)。SN 合法字元集只有英數/-/_。
+    // The SN field may carry \0 padding - strip control characters before display.
+    // Trash bytes left at the EEPROM tail can show as boxes / mojibake. The Java side (RobotEventReceiver) already whitelists. This is the second guard. Valid SN characters are only letters, digits, - and _.
     const clean = String(msg.data.uuid).replace(/[^A-Za-z0-9\-_]/g, "").trim();
     if (el) el.textContent = clean;
     uuidUpdateCard(clean);
   }
-  // 配對碼經 EventBus publish "xiaozhi_activation" type，除了印上面通用 #eventLog，亦觸發 xiaozhiShowActivationCode()
-  // (用 typeof 檢查，因 app-log.js 可能在 app-xiaozhi.js 之前執行，或 build 無小智功能)。xiaozhiShowActivationCode() 已有防重複顯示，這裡不再擋。
+  // The activation code publishes "xiaozhi_activation" through the EventBus. Besides printing into the general #eventLog, it also triggers xiaozhiShowActivationCode().
+  // The typeof check guards the case where app-log.js runs before app-xiaozhi.js, or a build has no 小智 feature. xiaozhiShowActivationCode() already prevents duplicate display, so do not block here.
   if (msg.type === "xiaozhi_activation" && msg.data && msg.data.code) {
     if (typeof xiaozhiShowActivationCode === "function") {
       xiaozhiShowActivationCode(msg.data.code);
@@ -132,24 +134,24 @@ function appendLog(msg) {
   }
   if (msg.type === "battery" && msg.data) {
     const el = document.getElementById("batteryOut");
-    if (el) el.textContent = msg.data.level + "/" + msg.data.scale + " " + (msg.data.charging ? "⚡充電中" : "") + " (" + msg.data.status + ")";
+    if (el) el.textContent = msg.data.level + "/" + msg.data.scale + " " + (msg.data.charging ? (uiLang === "en" ? "⚡Charging" : "⚡充電中") : "") + " (" + msg.data.status + ")";
   }
   if (msg.type === "asr_result" && msg.data) {
-    // 對話界面：辨識結果顯示做 user 氣泡 (經 cleanChatText 過濾，JSON 碎片不出現在對話流)。
+    // Chat UI: show the recognition result as a user bubble (filtered through cleanChatText, so JSON fragments never enter the chat flow).
     const cleanAsr = cleanChatText(msg.data.text);
     if (cleanAsr && typeof appendSpeechChatLine === "function") {
-      // 單字 final（啊/嗯/哦之類底噪）連氣泡都不出——真人單字指令（嗨）
-      // 一樣不出氣泡，可用「你好」代替；打字照出不影響。
-      // 想看 Vosk 實際聽到什麼，語音頁即時 partial 行＋logcat "final:" 照有。
+      // A single-character final (noise like 啊/嗯/哦) shows no bubble. A real single-word
+      // command (嗨) shows no bubble too. Use 你好 instead. Typing is unaffected.
+      // To see what Vosk actually heard: the live partial line on the voice page and "final:" in logcat still show it.
       if (cleanAsr.length < 2) {
-        // 不出氣泡，不配對，直接處理下一個 event。
+        // No bubble, no matching. Move to the next event directly.
       } else {
         appendSpeechChatLine("xiaozhi-msg-user", cleanAsr);
         triggerSemanticSimulate(cleanAsr, true);
       }
     }
   }
-  // Vosk 即時 partial — 僅顯示在語音頁 Vosk 卡狀態行，不入對話流 (成句先經 asr_result 入氣泡＋管線)。
+  // Vosk live partial: shows only in the Vosk card status line on the voice page, not in the chat flow (a full sentence enters the bubble + pipeline through asr_result).
   if (msg.type === "asr_partial" && msg.data && msg.data.text) {
     const partial = document.getElementById("voskPartialOut");
     if (partial) partial.textContent = msg.data.text;
@@ -157,18 +159,18 @@ function appendLog(msg) {
   if (msg.type === "vosk_state" && msg.data) {
     if (typeof voskRenderStatus === "function") voskRenderStatus(msg.data);
   }
-  // Vosk 模型下載進度（後端 VoskController.publishDl 主動推，downloading/unzipping 每 ~0.5s 一個，done/error/cancelled 收尾一個）。
+  // Vosk model download progress (the backend VoskController.publishDl pushes it actively: one event every ~0.5 s while downloading/unzipping, one final event for done/error/cancelled).
   if (msg.type === "vosk_download" && msg.data) {
     if (typeof voskRenderDownload === "function") voskRenderDownload(msg.data);
-    // event 推 done 都要執行 poll 收尾那截（停 timer＋refresh＋自動 load 狀態），
-    // 不是僅渲染 % 會停在 100% 不懂跳去 ready。
+    // A pushed done must also run the poll wrap-up (stop timer + refresh + auto-load
+    // the state). Rendering the percent alone would sit at 100% and never move to ready.
     if (msg.data.state === "done" || msg.data.state === "error" || msg.data.state === "cancelled") {
       if (typeof voskPollDownloadOnce === "function") voskPollDownloadOnce();
     } else if (typeof voskPollDownload === "function") {
       voskPollDownload();
     }
   }
-  // 動作包下載進度（後端 ActionsPackController.publishPack 主動推，同 vosk_download 一致）。
+  // Actions pack download progress (the backend ActionsPackController.publishPack pushes it, same pattern as vosk_download).
   if (msg.type === "actions_pack" && msg.data) {
     if (typeof actionsPackRenderStatus === "function") actionsPackRenderStatus(msg.data);
     if (msg.data.state === "done" || msg.data.state === "error" || msg.data.state === "cancelled") {
@@ -177,7 +179,7 @@ function appendLog(msg) {
       actionsPackPollDownload();
     }
   }
-  // APK 下載進度（後端 ApkDownloadController.publishApk 主動推，同上）。
+  // APK download progress (the backend ApkDownloadController.publishApk pushes it, same pattern).
   if (msg.type === "apk" && msg.data) {
     if (typeof apkRenderStatus === "function") apkRenderStatus(msg.data);
     if (msg.data.state === "done" || msg.data.state === "error" || msg.data.state === "cancelled") {
@@ -197,38 +199,40 @@ function appendLog(msg) {
   if (msg.type === "alpha2_pir_state" && msg.data) {
     onAlpha2PirState(msg.data);
   }
-  // 音量反向同步：機械人嗰邊改音量（頭頂 +/- 鍵／語音大細聲／第二個分頁條
-  // slider）→ LedCenter volume receiver 播 volume_changed → 兩邊 slider
-  // 即時跟（見 app-servo.js onVolumeChangedEvent；正向 HTML→機械人經 API
-  // 回包同步，唔經呢度）。
+  // Reverse volume sync: when the robot side changes the volume (the head +/- keys /
+  // voice volume commands / the slider on the second tab), the LedCenter volume
+  // receiver publishes volume_changed, and both sliders follow at once (see
+  // onVolumeChangedEvent in app-servo.js. The forward HTML -> robot path syncs through
+  // the API response, not here).
   if (msg.type === "volume_changed" && msg.data) {
     if (typeof onVolumeChangedEvent === "function") onVolumeChangedEvent(msg.data);
   }
   if (msg.type === "accel" && msg.data) {
     onAccelSample(msg.data);
   }
-  // 小智 (XiaoZhi) AI 對話 - 全部 xiaozhi_* event type 交給 app-xiaozhi.js 的
-  // xiaozhiHandleEvent() 統一處理 (state/stt/llm/tts/mcp/system/alert), 這裡僅
-  // 做 dispatch, 不在這個檔案重複寫渲染邏輯。app-xiaozhi.js 雖然在 index.html
-  // 排在這個檔案之前 load, 但 appendLog() 本身要等 WebSocket message 才會 call
-  // 到, 所以 xiaozhiHandleEvent 這個時候實質上一定已經定義了。
+  // 小智 (XiaoZhi) AI chat - hand every xiaozhi_* event type to
+  // xiaozhiHandleEvent() in app-xiaozhi.js (state/stt/llm/tts/mcp/system/alert).
+  // Only dispatch here. Do not repeat render logic. app-xiaozhi.js loads before this
+  // file in index.html, but appendLog() runs only when a WebSocket message arrives,
+  // so xiaozhiHandleEvent() is always defined at that point.
   if (msg.type.indexOf("xiaozhi_") === 0 && msg.data) {
     xiaozhiHandleEvent(msg.type, msg.data);
   }
-  // 手柄事件直達手柄頁「最後按鍵」等即時位 (gamepad_key/bt/axis)，唔經 Log 先顯示。
-  // app-gamepad.js 雖然排在這個檔案之前 load，但呢度係 WS message 到先 call，
-  // 實質一定已定義；加 typeof 守衛防舊緩存頁。
+  // Gamepad events go straight to the live fields on the gamepad page, such as the
+  // "last key" (gamepad_key/bt/axis), before any Log display. app-gamepad.js loads
+  // before this file, and this runs only on a WS message, so it is defined. The typeof
+  // guard covers an old cached page.
   if ((msg.type === "gamepad_key" || msg.type === "gamepad_bt" || msg.type === "gamepad_axis"
       || msg.type === "gamepad_state")
       && msg.data && typeof onGamepadKeyEvent === "function") {
     try { onGamepadKeyEvent(msg.type, msg.data); } catch (e) { /* ignore */ }
   }
-  // tts_end 不帶 "xiaozhi_" 前綴 (機身/Android 本地 TTS 讀完一句的全域訊號,
-  // 不止小智專用, 見 MainActivity 個 onServerPlayEnd/
-  // UtteranceProgressListener.onDone() 兩處 comment), 所以行不到上面那條
-  // catch-all - 這裡獨立轉一句去 xiaozhiHandleEvent(), 等小智 tab 的本地
-  // TTS 隊列 (xiaozhiTtsQueue) 知道可以讀下一句 (見 xiaozhiHandleEvent() 個
-  // "tts_end" case)。
+  // tts_end carries no "xiaozhi_" prefix (a global signal that the body / Android local
+  // TTS finished one line, not only for 小智. See the two comments in MainActivity
+  // onServerPlayEnd / UtteranceProgressListener.onDone()), so the catch-all above does
+  // not match it. Route it here into xiaozhiHandleEvent() separately, so the local TTS
+  // queue on the 小智 tab (xiaozhiTtsQueue) knows it can read the next line (see the
+  // "tts_end" case in xiaozhiHandleEvent()).
   if (msg.type === "tts_end") {
     xiaozhiHandleEvent(msg.type, msg.data);
   }
@@ -247,28 +251,28 @@ function escapeHtml(s) {
 // ---------------- init ----------------
 
 window.addEventListener("DOMContentLoaded", function () {
-  // 鎖屏檢查行先：啟用＋未解鎖即開浮層蓋住面版＋壓住後面 init 的 401 誤報（見 app-core.js）。
+  // Run the panel-lock check first: when enabled and not unlocked, open the overlay to cover the panel and suppress the later 401 false alarms from init (see app-core.js).
   if (typeof panelLockCheck === "function") panelLockCheck();
   buildServoGrid();
   buildHeadColorPicker();
   buildEyeColorPicker();
   if (typeof perledBuild === "function") perledBuild();
   if (typeof perledPollLoop === "function") perledPollLoop();
-  setTtsEngine("android"); // Android 內置 TTS，載入引擎/語言清單
-  // Vosk 卡初始化 (model 掃描＋狀態同步，有卡先做)。
+  setTtsEngine("android"); // Android built-in TTS, load the engine / language lists
+  // Vosk card init (scan models + sync state, only when the card exists).
   if (document.getElementById("voskModelBtns") && typeof voskRefreshModels === "function") {
     voskRefreshModels();
   }
-  // 裝置資訊 UUID＋胸板固件改入頁自動直顯 (不用再按鈕)。
+  // Device info: show the UUID + chest firmware automatically on page entry (no button press needed).
   refreshDeviceInfo();
   requestUuid();
   refreshChestFw();
-  // 實驗 tab 面板 token 狀態行（有卡先做；auth/status 永遠開放，不用驚 401）。
+  // Experimental tab panel token status line (only when the card exists. auth/status stays open, so no 401 concern).
   if (typeof panelAuthRefreshStatus === "function") panelAuthRefreshStatus();
   applyUiLanguage();
   refreshVolume();
   if (typeof gamepadInitPage === "function") gamepadInitPage();
-  // 掣淨識推唔識讀嗰幾組：入頁問返機身真態擺返個掣（mapping toggle 改過都會對返）。
+  // For the switch groups that only push, with no read path: ask the unit for the real state on page entry and set the switches (changes from the mapping toggle are picked up).
   if (typeof syncSonarUi === "function") syncSonarUi();
   if (typeof syncPirUi === "function") syncPirUi();
   if (typeof syncAccelToggle === "function") syncAccelToggle();

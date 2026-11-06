@@ -1,25 +1,25 @@
 // Open Alpha2 — client logic (app-radio.js)
-// 網絡電台 tab: 對接 MainActivity.java 已有的 "audio/radio/*" 這一套 endpoint
-// (本身經 Radio Browser API radio-browser.info 動態搜全世界公開電台, 見
-// MainActivity.java searchRadioStations()/resolveRadioStation() javadoc)。
-// 真正串流 (MediaPlayer setDataSource url_resolved, STREAM_MUSIC) 在 server 端做,
-// 這個檔案純粹是 UI — 搜尋、列表、播放/停止、狀態顯示。
-// 全部函數共用 window/global scope (沒有用 ES module), load 順序見 index.html.
+// Internet radio tab: connects to the existing "audio/radio/*" endpoints in
+// MainActivity.java (they search public stations worldwide through the Radio Browser
+// API radio-browser.info. See the searchRadioStations()/resolveRadioStation() javadoc).
+// The real streaming (MediaPlayer setDataSource url_resolved, STREAM_MUSIC) happens on
+// the server side. This file is pure UI - search, list, play/stop, status display.
+// All functions share the window/global scope (no ES modules). See index.html for load order.
 
-let radioStations = [];          // 上次 radioSearch() 取回來的清單 {name, country, stationuuid, url, url_resolved}
-let radioCurrentName = null;     // 目前正在播放的電台名 (由 status 或 play 回來)
+let radioStations = [];          // list from the last radioSearch() {name, country, stationuuid, url, url_resolved}
+let radioCurrentName = null;     // name of the station now playing (from status or play)
 let radioCurrentId = null;
-let radioFavorites = [];         // 收藏清單（機身持久化，經 audio/radio/favorites/*），項形狀同 radioStations
+let radioFavorites = [];         // favorites list (persisted on the unit, through audio/radio/favorites/*). Item shape matches radioStations.
 
 function radioInit() {
   radioRefreshStatus();
   radioLoadFavorites();
-  // 共用頻譜/音量/EQ/隨機動作已在 shared 卡，無需額外初始化；狀態由 radioRefreshStatus 同步至 sharedNowPlaying
+  // The shared spectrum / volume / EQ / random controls already live in the shared card, so no extra init is needed. radioRefreshStatus syncs the status into sharedNowPlaying.
 }
 
-// ── 收藏 ─────────────────────────────────────────────
-// 後端為準（多瀏覽器共用同一份機身收藏）；本機不另做 localStorage 鏡像
-// （連到機械人＝連到後端，離線根本開唔到面板）。
+// ── Favorites ─────────────────────────────────────────────
+// The backend is the source of truth (all browsers share one on-unit list). Do not
+// mirror it to localStorage (reaching the robot means reaching the backend). Offline, the panel cannot open at all.
 function radioLoadFavorites() {
   if (!Alpha2Api.audioRadioFavoritesList) return;
   Alpha2Api.audioRadioFavoritesList().then(function (res) {
@@ -69,12 +69,12 @@ function radioAddFavorite(st) {
 
 function radioRemoveFavorite(st) {
   const params = {};
-  // uuid 夠穩就帶埋（frontend- 臨時 uuid 後端會退回 name 比對，帶咗無妨）。
+  // Pass the uuid when it is stable enough. For a frontend- temp uuid the backend falls back to name matching, so passing it is harmless.
   if (st.stationuuid) params.stationuuid = st.stationuuid;
   if (st.name) params.name = st.name;
   Alpha2Api.audioRadioFavoritesRemove(params).then(function (res) {
     if (!res || !res.ok) {
-      // 後端話搵唔到（例如大小寫／臨時 uuid 唔啱）：照 reload 一次對齊。
+      // The backend reports not found (case / temp uuid mismatch): reload once to realign.
       radioLoadFavorites();
       return;
     }
@@ -84,8 +84,9 @@ function radioRemoveFavorite(st) {
   }).catch(function () {});
 }
 
-// 收藏直播：有 url_resolved 即經 play_url 免搜尋（機械人無外網搜唔到都播到 http 台）；
-// 無位址先退回按名搜播。
+// Favorite playback: with url_resolved, skip the search and use play_url (an http
+// station still plays even when the robot has no internet to search). Without an
+// address, fall back to search-by-name.
 function radioPlayFavorite(fav) {
   if (!fav) return;
   const url = fav.url_resolved || fav.url;
@@ -179,19 +180,20 @@ function radioSearch() {
       radioRenderList();
       return;
     }
-    // 後端搜尋失敗（多數是機械人無外網/DNS 解析不到 de1.api.radio-browser.info，見 MainActivity.java:4385 註解）
-    // → 前端直接 fetch radio-browser.info 試試（用瀏覽器本身的網絡，不經機械人）
+    // Backend search failed (usually the robot has no internet / DNS cannot resolve
+    // de1.api.radio-browser.info, see the note at MainActivity.java:4385). Let the
+    // front-end fetch radio-browser.info directly through the browser network, not the robot.
     radioSearchFrontendFallback(q);
   }).catch(function () {
     radioSearchFrontendFallback(q);
   });
 }
 
-// 前端直連 fallback — 用瀏覽器網絡直接問 radio-browser.info，繞過機械人 DNS/無外網問題
+// Direct front-end fallback - ask radio-browser.info through the browser network, bypassing the robot DNS / no-internet problem
 function radioSearchFrontendFallback(q) {
   const container = document.getElementById("radioListContainer");
   const statusEl = document.getElementById("radioSearchStatus");
-  // 依次嘗試幾個 mirror，de1 → all → de2
+  // Try the mirrors in order: de1 -> all -> de2
   const mirrors = [
     "https://de1.api.radio-browser.info",
     "https://all.api.radio-browser.info",
@@ -201,19 +203,19 @@ function radioSearchFrontendFallback(q) {
 
   function tryNextMirror() {
     if (mirrorIdx >= mirrors.length) {
-      if (statusEl) statusEl.textContent = t("radio_search_no_result") + "（機械人無外網，前端亦無法連接 radio-browser.info）";
+      if (statusEl) statusEl.textContent = t("radio_search_no_result") + (uiLang === "en" ? " (The robot has no internet. The browser also cannot connect to radio-browser.info.)" : "（機械人無外網，前端亦無法連接 radio-browser.info）");
       if (container) {
         container.innerHTML = "";
         const p = document.createElement("p");
         p.className = "hint";
-        p.textContent = "⚠️ 機械人目前無法上網（DNS 失敗），請檢查 WiFi 是否有互聯網。已嘗試瀏覽器直連亦失敗。";
+        p.textContent = uiLang === "en" ? "⚠️ The robot has no internet now (DNS failed). Check that the WiFi has internet. A direct browser connection also failed." : "⚠️ 機械人目前無法上網（DNS 失敗），請檢查 WiFi 是否有互聯網。已嘗試瀏覽器直連亦失敗。";
         container.appendChild(p);
       }
       return;
     }
     const base = mirrors[mirrorIdx++];
     const url = base + "/json/stations/search?name=" + encodeURIComponent(q) + "&order=random&reverse=true&hidebroken=true&limit=50";
-    // 對外留痕（同後端 NetLog 同形）：瀏覽器直連哪個 mirror，event log 看到。
+    // Outbound trail (same shape as the backend NetLog): the event log shows which mirror the browser called directly.
     if (typeof appendLog === "function" && typeof nowTimeStr === "function") {
       appendLog({ type: "net_connect", time: nowTimeStr(), data: { purpose: "radio-search", url: base } });
     }
@@ -221,7 +223,7 @@ function radioSearchFrontendFallback(q) {
       if (!res.ok) throw new Error("HTTP " + res.status);
       return res.json();
     }).then(function (arr) {
-      // 過濾 hls，優先非 https（跟後端一致）
+      // Filter out hls, prefer non-https (same rule as the backend)
       const filtered = (arr || []).filter(function (s) { return s.hls !== 1; });
       const list = filtered.length > 0 ? filtered : (arr || []);
       radioStations = list.map(function (s) {
@@ -237,11 +239,11 @@ function radioSearchFrontendFallback(q) {
       if (statusEl) {
         statusEl.textContent = radioStations.length === 0
           ? t("radio_search_no_result")
-          : t("radio_search_found_prefix") + radioStations.length + t("radio_search_found_suffix") + "（經瀏覽器直連）";
+          : t("radio_search_found_prefix") + radioStations.length + t("radio_search_found_suffix") + (uiLang === "en" ? " (direct browser connection)" : "（經瀏覽器直連）");
       }
       radioRenderList();
     }).catch(function (err) {
-      // 試試一個 mirror
+      // Try the next mirror
       tryNextMirror();
     });
   }
@@ -356,7 +358,7 @@ function radioStop() {
     if (typeof updateSharedNowPlaying === "function" && !musicCurrentName) {
       updateSharedNowPlaying(t("music_now_playing_none"), false);
     }
-    // 若本地也沒在播，停頻譜
+    // When local music is not playing either, stop the spectrum
     Alpha2Api.audioLocalMusicStatus().then(function (r) {
       if (!r.ok || !r.hasTrack) {
         if (typeof musicStopSpectrumLoop === "function") musicStopSpectrumLoop();

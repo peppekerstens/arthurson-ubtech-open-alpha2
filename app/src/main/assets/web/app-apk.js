@@ -1,23 +1,23 @@
 // Open Alpha2 — client logic (app-apk.js)
-// 實驗 tab 資源下載卡入面嘅 Google TTS 區：固定 APK，後端直落去 sdcard 即完。
-// 安裝唔經面板（每部機人手 adb install 一次）。
-// 後端見 ApkDownloadController＋apk/download|status|cancel；
-// 同 Vosk／動作包共用單一下載通道（見 DownloadGate），每次只准一邊下載緊。
-// 全部檔案共用 window/global scope（沒有用 ES module），載入順序由 index.html 的
-// <script src="..."> 順序決定。
+// Google TTS area in the resource download card (experimental tab): a fixed APK.
+// The backend downloads it straight to the sdcard. Installation skips the panel
+// (run adb install once per unit by hand). Backend: ApkDownloadController +
+// apk/download|status|cancel. One shared download channel with Vosk / actions
+// pack (see DownloadGate): only one side downloads at a time. All files share the
+// window/global scope (no ES modules). The load order follows the <script src="..."> order in index.html.
 
-// 下載輪詢句柄。
+// Download polling handle.
 var apkDlTimer = null;
-// 最近一次 status（語言切換當時重畫狀態行用，不用再問後端）。
+// Last status. Used to redraw the status line on a language switch, with no new backend request.
 var apkLastStatus = null;
 
-// APK 下載緊：Vosk／動作包嗰邊撳鍵要一齊鎖（後端閘先係真擋）。
+// APK downloading: lock the Vosk / actions pack buttons too. The backend gate is the real guard.
 function apkActive() {
   const st = apkLastStatus && apkLastStatus.state;
   return st === "downloading";
 }
 
-// 全局語言切換（setUiLanguage）當時重畫狀態行，不用再問後端。
+// Redraw the status line on a global language switch (setUiLanguage). No new backend request.
 function apkApplyUiLanguage() {
   if (apkLastStatus) apkRenderStatus(apkLastStatus);
 }
@@ -26,7 +26,7 @@ function apkRefreshStatus() {
   return Alpha2Api.apkStatus().then(function (res) {
     if (!res || !res.ok) return res;
     apkRenderStatus(res);
-    // 轉頁 reload 當時下載緊：悄悄跟進。
+    // A page reload during a download: follow it quietly.
     if (res.state === "downloading") {
       apkPollDownload();
     }
@@ -34,7 +34,7 @@ function apkRefreshStatus() {
   });
 }
 
-// 開始下載。
+// Start the download.
 function apkDownload() {
   const out = document.getElementById("apkStatusOut");
   return Alpha2Api.apkDownload().then(function (res) {
@@ -54,7 +54,7 @@ function apkCancel() {
   });
 }
 
-// 1 秒 poll 一次 status，直到 done/error/cancelled。
+// Poll status every 1 second until done / error / cancelled.
 function apkPollDownload() {
   if (apkDlTimer) return;
   apkDlTimer = setInterval(apkPollDownloadOnce, 1000);
@@ -72,8 +72,8 @@ function apkPollDownloadOnce() {
   });
 }
 
-// apk event（後端 ApkDownloadController 主動推）＋上面 poll 共用渲染：
-// 進度出在實驗 tab 資源下載卡。done/error/cancelled 交 poll 收尾（停 timer）。
+// apk event (pushed by the backend ApkDownloadController) shares this render
+// path with the poll above. Progress shows in the experimental tab download card. done / error / cancelled end in the poll (timer stop).
 function apkRenderStatus(res) {
   if (!res) return;
   apkLastStatus = res;
@@ -95,7 +95,7 @@ function apkRenderStatus(res) {
   }
   const cancelBtn = document.getElementById("apkCancelBtn");
   if (cancelBtn) cancelBtn.style.display = active ? "" : "none";
-  // 跨鎖 Vosk／動作包撳鍵（單通道，見 syncResourceDownloadButtons＋DownloadGate）。
+  // Cross-lock the Vosk / actions pack buttons (single channel, see syncResourceDownloadButtons + DownloadGate).
   try {
     if (typeof syncResourceDownloadButtons === "function") syncResourceDownloadButtons();
   } catch (e) {}

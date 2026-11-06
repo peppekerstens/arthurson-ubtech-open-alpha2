@@ -1,6 +1,7 @@
 // Open Alpha2 — client logic (app-chest.js)
-// 這個檔案負責胸板固件升級 (Chest 17/18) 的前端邏輯，對應 index.html 裡面的「胸板固件升級」card。
-// 全部檔案共用 window/global scope (沒有使用 ES module)，載入順序由 index.html 的 <script src> 順序決定。
+// This file holds the front-end logic for the chest board firmware upgrade (Chest 17/18).
+// It matches the chest board firmware upgrade card in index.html.
+// All files share the window/global scope (no ES modules). The load order follows the <script src> order in index.html.
 
 function chestToggle() {
   const enabled = document.getElementById("chestCardEnabled");
@@ -9,39 +10,42 @@ function chestToggle() {
   const on = !!(enabled && enabled.checked);
   if (body) body.style.display = on ? "block" : "none";
   if (hint) hint.style.display = on ? "none" : "block";
-  // 開啟卡片即顯示版本與設備固件文件狀態，一眼即可確認是否可以升級。
+  // Opening the card shows the version and the device firmware file state, so you can confirm an upgrade is possible at a glance.
   if (on) { chestCheck(); chestFileInfo(); }
 }
 
-// 今次頁面 session 上載過嘅固件（{name, size}；Reload 即清零）。
-// 「開始升級」閘：無呢個即使用家撳升級都唔畀過——機上舊檔唔會自動沿用
-// （之前個 bug：舊檔留喺機上，唔揀 file 都升到，燒錯舊鏡像）。
+// Firmware uploaded during this page session. Shape: {name, size}. A reload clears it.
+// "Start upgrade" gate: without it, a user click on upgrade is blocked. The old file
+// on the unit is never reused (old bug: a stale file on the unit upgraded without a
+// file pick, burning the wrong image).
 var chestFreshUpload = null;
-// 最近一次 chestUpgradeStatus 回包（chestFileInfo 存低，升級前對 size 用）。
+// Last chestUpgradeStatus response (chestFileInfo saves it to compare the size before an upgrade).
 var chestLastStatus = null;
 
 function chestUpload() {
   const input = document.getElementById("chestBinFile");
   const status = document.getElementById("chestUploadStatus");
-  // 揀咗新檔即舊憑證作廢，等呢次上載成功先再簽發。
+  // Picking a new file voids the old proof. It is re-issued only after this upload succeeds.
   chestFreshUpload = null;
   if (!input || !input.files || input.files.length === 0) {
-    if (status) status.textContent = "請先選擇一個 .bin 文件";
+    if (status) status.textContent = uiLang === "en" ? "Select a .bin file first" : "請先選擇一個 .bin 文件";
     return;
   }
   const file = input.files[0];
-  // 上傳前先檢查：僅接受 1..114688 且 4 字節對齊的 app 小鏡像（與 ChestUpgrade.isAcceptedFirmwareSize 一致；
-  // 後端與升級啟動時會再次驗證，避免浪費時間上傳後才收到 400 錯誤）。
+  // Pre-upload check: accept only app small images of 1..114688 bytes, 4-byte aligned
+  // (same rule as ChestUpgrade.isAcceptedFirmwareSize). The backend re-checks at upgrade
+  // start, so a bad file fails without a wasted upload.
   if (!chestSizeOk(file.size, null)) {
     if (status) status.textContent = t("chest_upload_bad_size", { n: file.size });
     return;
   }
-  if (status) status.textContent = "上傳中 " + file.name + " (" + file.size + " 字節)…";
+  if (status) status.textContent = uiLang === "en" ? "Uploading " + file.name + " (" + file.size + " bytes)…" : "上傳中 " + file.name + " (" + file.size + " 字節)…";
   const reader = new FileReader();
   reader.onload = function(e) {
     const bytes = e.target.result;
-    // 實驗 tab 面板 token：啟用中 /upload/chest 要驗（Bearer header 主，見 PanelAuth），
-    // 同 api() 系列一樣由 localStorage 拿，不用經 Alpha2Api（upload 行 raw fetch）。
+    // Experimental tab panel token: /upload/chest checks it when enabled (Bearer header
+    // first, see PanelAuth). Read it from localStorage like the api() helpers, not
+    // through Alpha2Api (the upload uses raw fetch).
     let url = "/upload/chest?name=" + encodeURIComponent(file.name);
     let upHeaders = {};
     try {
@@ -53,41 +57,44 @@ function chestUpload() {
       headers: Object.assign({ "Content-Type": "application/octet-stream" }, upHeaders)
     }).then(function(res) { return res.json(); }).then(function(json) {
       if (json.ok) {
-        // 上載成功先簽發今次 session 憑證（記低名＋size，升級前會同機上檔對數），
-        // 再檢查設備上的文件；結果直接寫入狀態行。
+        // After a successful upload, issue the session proof (name + size, compared with
+        // the unit file before an upgrade), then check the device file. The result goes
+        // into the status line.
         chestFreshUpload = { name: file.name, size: file.size };
         chestFileInfo();
       } else {
-        if (status) status.textContent = "❌ 上傳失敗：" + (json.error || JSON.stringify(json));
+        if (status) status.textContent = (uiLang === "en" ? "❌ Upload failed: " : "❌ 上傳失敗：") + (json.error || JSON.stringify(json));
       }
     }).catch(function(err) {
-      if (status) status.textContent = "❌ 上傳錯誤：" + err.message;
+      if (status) status.textContent = (uiLang === "en" ? "❌ Upload error: " : "❌ 上傳錯誤：") + err.message;
     });
   };
-  reader.onerror = function() { if (status) status.textContent = "讀取文件失敗"; };
+  reader.onerror = function() { if (status) status.textContent = uiLang === "en" ? "Failed to read the file" : "讀取文件失敗"; };
   reader.readAsArrayBuffer(file);
 }
 
 function chestCheck() {
   const ver = document.getElementById("chestVersionText");
-  if (ver) ver.textContent = "查詢中…";
+  if (ver) ver.textContent = uiLang === "en" ? "Querying…" : "查詢中…";
   Alpha2Api.chestVersion().then(function(json) {
     if (ver) ver.textContent = json.version || (json.ok ? "" : "not found");
   }).catch(function(err) {
-    if (ver) ver.textContent = "錯誤: " + err.message;
+    if (ver) ver.textContent = (uiLang === "en" ? "Error: " : "錯誤: ") + err.message;
   });
 }
 
-// 固件大小閘（同 ChestUpgrade.isAcceptedFirmwareSize 一致）：只收 app 小鏡像
-// 1..小鏡像上限且 4 byte 對齊；256KB 全鏡像含 bootloader，app 更新食唔到，唔收。
-// 限值跟 status 行嚟（舊後端無 smallMaxBytes 就跌回 114688）。
+// Firmware size gate (same rule as ChestUpgrade.isAcceptedFirmwareSize): accept only
+// app small images, 1..small-image max, 4-byte aligned. A 256KB full image contains the
+// bootloader, which an app update cannot use, so reject it. Limits come from the status
+// line (an old backend without smallMaxBytes falls back to 114688).
 function chestSizeOk(n, s) {
   const smallMax = (s && Number(s.smallMaxBytes)) || 114688;
   return n > 0 && n <= smallMax && n % 4 === 0;
 }
 
-// 查詢設備上的固件文件（是否存在＋大小是否合法），結果寫入狀態行；返回 true 表示可以升級。
-// 機上檔就算合法，無今次 session 上載憑證都當舊檔處理（顯示 stale 唔畀過）。
+// Query the firmware file on the device (exists + size valid). The result goes into the
+// status line. true means an upgrade may start. Even a valid file on the unit counts as
+// stale without this session upload proof (show stale, block).
 function chestFileInfo() {
   const status = document.getElementById("chestUploadStatus");
   return Alpha2Api.chestUpgradeStatus().then(function(s) {
@@ -115,13 +122,14 @@ function chestUpgrade() {
   const wrap = document.getElementById("chestProgressWrap");
   const bar = document.getElementById("chestProgressBar");
   const txt = document.getElementById("chestProgressText");
-  // 第一閘：今次 session 未上載過即停（唔會自動沿用機上舊檔）；原因寫狀態行。
+  // Gate 1: stop when this session has not uploaded. Never reuse an old unit file. The reason goes into the status line.
   if (!chestFreshUpload) {
     if (status) status.textContent = t("chest_need_fresh_upload");
     return;
   }
-  // 第二閘：檢查設備上的文件，不符合要求（原因已顯示於狀態行）則停止；
-  // 另對 size（另一 tab 覆蓋過機上檔即對唔上）；通過後再二次確認（變磚警告）才開始燒錄。
+  // Gate 2: check the device file. Stop when it fails (the reason already shows in the
+  // status line). Also compare the size (another tab may have overwritten the unit
+  // file). After both pass, ask for confirmation (brick warning), then start the burn.
   chestFileInfo().then(function(ok) {
     if (!ok) return;
     if (chestLastStatus && Number(chestLastStatus.fileSizeBytes) !== Number(chestFreshUpload.size)) {
@@ -129,7 +137,7 @@ function chestUpgrade() {
       return;
     }
     if (!confirm(t("chest_upgrade_confirm"))) return;
-    if (status) status.textContent = "開始升級…";
+    if (status) status.textContent = uiLang === "en" ? "Starting upgrade…" : "開始升級…";
     if (wrap) wrap.style.display = "block";
     if (bar) bar.style.width = "0%";
     if (txt) txt.textContent = "0%";
@@ -142,8 +150,8 @@ function startChestUpgradePoll() {
   const bar = document.getElementById("chestProgressBar");
   const txt = document.getElementById("chestProgressText");
   Alpha2Api.chestUpgrade().then(function(json) {
-    if (!json.ok) { if (status) status.textContent = "❌ " + (json.error || "啟動失敗"); return; }
-    if (status) status.textContent = "升級中…請勿斷電（約需 1–2 分鐘）";
+    if (!json.ok) { if (status) status.textContent = "❌ " + (json.error || (uiLang === "en" ? "Start failed" : "啟動失敗")); return; }
+    if (status) status.textContent = uiLang === "en" ? "Upgrading… Do not power off (takes 1-2 minutes)" : "升級中…請勿斷電（約需 1–2 分鐘）";
     const timer = setInterval(function() {
       Alpha2Api.chestUpgradeStatus().then(function(s) {
         const p = s.progress || 0;
@@ -154,9 +162,9 @@ function startChestUpgradePoll() {
           if (s.status && s.status.indexOf("success") !== -1) {
             if (status) status.textContent = t("chest_upgrade_done_power");
           } else if (p === 100) {
-            if (status) status.textContent = "✅ 完成";
+            if (status) status.textContent = uiLang === "en" ? "✅ Done" : "✅ 完成";
           } else {
-            if (status) status.textContent = "❌ " + (s.status || "失敗");
+            if (status) status.textContent = "❌ " + (s.status || (uiLang === "en" ? "Failed" : "失敗"));
           }
           chestCheck();
         }
@@ -165,9 +173,9 @@ function startChestUpgradePoll() {
   }).catch(function(err){ if (status) status.textContent = "❌ " + err.message; });
 }
 
-// 自動刷新進度（若升級在後台進行，事件推送）
+// Auto-refresh the progress (event push when the upgrade runs in the background)
 if (typeof EventBus !== "undefined" && EventBus.subscribe) {
-  // 兼容舊版 EventBus：若支援則訂閱，否則靠輪詢
+  // Old EventBus support: subscribe when available, otherwise fall back to polling
   try {
     EventBus.subscribe(function(evt){
       if (evt && evt.type === "chest_upgrade_progress") {

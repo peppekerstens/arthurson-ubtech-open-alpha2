@@ -1,7 +1,7 @@
 // Open Alpha2 — client logic (app-accel.js)
-// 內容: 加速度計/聲納圖表、頭部降噪、UUID 查詢。
-// 全部檔案共用 window/global scope (沒有用 ES module), 載入順序由 index.html 的
-// <script src="..."> 順序決定 - 詳見 index.html 頭那段 comment。
+// Content: accelerometer / sonar charts, head noise reduction, UUID query.
+// All files share the window/global scope (no ES modules). The load order follows
+// the <script src="..."> order in index.html. See the comment block at its head.
 
 // ---------------- Accelerometer: toggle + live X/Y/Z chart ----------------
 //
@@ -25,11 +25,11 @@ let sonarHistory = []; // [{triggered: bool}, ...], oldest first
 let sonarThresholdCm = 30; // mirrors the slider; kept as its own var since configureSonar()
                             // updates it eagerly on release, ahead of any server round-trip
 
-// Alpha2 PIR 感應器指示燈, 由 "alpha2_pir_state" WebSocket event 驅動 (見
-// RobotEventReceiver.java 的 CHEST_ACTION case)。僅反映最新一個 broadcast 的
-// 狀態 (紅/綠燈), 不理獨立的「警示反應」(LED+鈴聲) 開關現在開不開 (見
-// MainActivity#alpha2SetPirAlertEnabled()), 等你就算警示反應關了都看得到
-// broadcast 有沒有到。
+// Alpha2 PIR sensor indicator, driven by the "alpha2_pir_state" WebSocket event
+// (see the CHEST_ACTION case in RobotEventReceiver.java). It shows only the state
+// (red / green LED) of the latest broadcast. It ignores the separate "alert reaction"
+// (LED + bell) switch (see MainActivity#alpha2SetPirAlertEnabled()). So you still
+// see whether a broadcast arrives, even when the alert reaction is off.
 function onAlpha2PirState(data) {
   const triggered = !!data.triggered;
   const indicator = document.getElementById("alpha2PirIndicator");
@@ -50,7 +50,7 @@ function toggleAccelerometer() {
       hint.textContent = json.error || t("accel_turn_on_failed_hint");
       return json;
     }
-    // 成功即跟後端 echo 對一次（同 mapping toggle／別頁改過都唔會唔啱）。
+    // On success, sync with the backend echo. Changes from the mapping toggle or another page stay correct.
     try {
       const el = document.getElementById("accelToggle");
       if (el && el.checked !== !!json.enabled) el.checked = !!json.enabled;
@@ -69,7 +69,7 @@ function toggleAccelerometer() {
   });
 }
 
-// 入頁同步：讀返加速度計實際開關（mapping toggle 改過都會對返）。
+// Sync on page entry: read the real accelerometer state. Changes from the mapping toggle are picked up.
 function syncAccelToggle() {
   return Alpha2Api.accelerometerGet().then(function (json) {
     if (!json || !json.ok) return json;
@@ -83,7 +83,7 @@ function syncAccelToggle() {
 // readout + chart duties only - anything that *reacts* to accelerometer data (LED
 // colours, triggering actions, etc) is left to Blockly programs / index.html samples
 // built on top of this data rather than hardcoded here. See blockly-toolbox.js's
-// "傾側控制頭/眼LED" example and index.html's fall-detection sample script.
+// "Tilt to control head/eye LED" example and index.html's fall-detection sample script.
 function onAccelSample(data) {
   document.getElementById("accelXVal").textContent = data.x.toFixed(2);
   document.getElementById("accelYVal").textContent = data.y.toFixed(2);
@@ -138,7 +138,7 @@ function drawSonarChart() {
   ctx.restore();
   ctx.fillStyle = "#a855f7";
   ctx.font = "11px sans-serif";
-  ctx.fillText("門檻 " + sonarThresholdCm + " cm", 6, midY - 6);
+  ctx.fillText((uiLang === "en" ? "Threshold " : "門檻 ") + sonarThresholdCm + " cm", 6, midY - 6);
 
   if (sonarHistory.length < 2) return;
 
@@ -214,10 +214,11 @@ function drawAccelChart() {
 
 function requestUuid() {
   document.getElementById("uuidOut").innerHTML = t("uuid_querying_hint");
-  // 後端 misc/request_uuid 經 chest cmd55 直讀, HTTP response
-  // 會順手附帶 {"ok":true,"uuid":"..."} (見 MainActivity)。這裡兩個都接: HTTP 有 uuid 就即刻顯示 (不用等 WS);
-  // WS event 照舊經 appendLog() -> uuidUpdateCard() 更新一次 (同一個值, 冪等)。
-  // HTTP ok:false 就顯示錯誤, 不再永久停在「查詢中」。
+  // The backend misc/request_uuid reads the chest cmd55 directly. The HTTP response
+  // also carries {"ok":true,"uuid":"..."} (see MainActivity). Handle both: show a uuid
+  // from HTTP at once (no need to wait for the WS). The WS event still updates once
+  // through appendLog() -> uuidUpdateCard() (same value, idempotent).
+  // When HTTP returns ok:false, show the error instead of staying "Querying" forever.
   return Alpha2Api.miscRequestUuid().then(function (res) {
     if (res && res.uuid) {
       var clean = String(res.uuid).replace(/[^A-Za-z0-9\-_]/g, "").trim();
@@ -230,16 +231,16 @@ function requestUuid() {
     if (res && res.ok === false && res.error) {
       document.getElementById("uuidOut").textContent = "❌ " + res.error;
     }
-    // ok:true 但沒有 uuid (舊版後端) / 還正在等 WS event: 保持「查詢中」,
-    // WS event 到了 appendLog 會更新。
+    // ok:true but no uuid (old backend), or still waiting for the WS event: keep "Querying".
+    // When the WS event arrives, appendLog() updates the field.
     return res;
   });
 }
 
-// ---------------- UUID card 開關 ---------------------------
-// 高風險操作 (直接寫 chest EEPROM), 預設收起內容, 用戶要自己揭開先看到/用到。
-// 沒有用 localStorage 記住狀態 — 每次進入這個 tab / 重新整頁都預設關閉, 避免
-// 手快快留了開著沒有為意。
+// ---------------- UUID card switch ---------------------------
+// High-risk operation (writes the chest EEPROM directly). Hide the body by default;
+// the user must open it before use. No localStorage memory: every tab entry or page
+// reload starts closed, so it cannot stay open by accident.
 
 function uuidCardToggle() {
   const enabled = document.getElementById("uuidCardEnabled");
@@ -251,13 +252,13 @@ function uuidCardToggle() {
 }
 
 // ---------------- UUID card -----------------------
-// 顯示 UUID + QR code (離線生成, app-qr.js) + 更改 ID (cmd54 寫入 chest EEPROM,
-// server 端 misc/set_uuid)。QR 內容就是 robotSeq=<ID>, 同官方 app 個 bind QR
-// 一致。
+// Show the UUID + QR code (offline generation, app-qr.js) + change the ID (cmd54 writes
+// the chest EEPROM, server side misc/set_uuid). The QR content is robotSeq=<ID>, which
+// matches the official app bind QR.
 //
-// 輸入框常駐, 打字時 (oninput) 即時在同一個 uuidQrCanvas 換上
-// 新 QR 做預覽 (未寫入 EEPROM); 按「寫入 EEPROM」先真正發送cmd54。輸入框留空
-// 時, canvas 顯示現有已知的 UUID (uuidCardLast)。
+// The input box stays on screen. Typing (oninput) previews a new QR in the same
+// uuidQrCanvas (not written to the EEPROM). The "Write EEPROM" button sends cmd54
+// for real. An empty box makes the canvas show the known UUID (uuidCardLast).
 
 let uuidCardLast = null;
 
@@ -267,21 +268,21 @@ function uuidUpdateCard(uuid) {
   if (val) val.textContent = uuid || "-";
   const status = document.getElementById("uuidWriteStatus");
   if (status && uuid) status.textContent = t("uuid_write_done_prefix") + uuid;
-  // 輸入框有內容時代表用戶正正在打新 ID 做預覽 — 不要用查詢回來的舊值覆蓋個
-  // 預覽 QR; 輸入框空白先顯示現有 UUID 個 QR。
+  // Content in the input box means the user is previewing a new ID: do not overwrite the
+  // preview QR with the old queried value. Only an empty box shows the current UUID QR.
   const input = document.getElementById("uuidNewInput");
   if (!input || !input.value.trim()) {
     uuidDrawQr(uuid);
   }
 }
 
-// 純畫 QR, 不改 uuidCardLast/status — 給 uuidUpdateCard() 同
-// uuidOnInputChange() 共用。
+// Draws the QR only. It does not change uuidCardLast/status. Shared by
+// uuidUpdateCard() and uuidOnInputChange().
 function uuidDrawQr(uuid) {
   const canvas = document.getElementById("uuidQrCanvas");
   if (canvas && uuid) {
     try {
-      // QR 內容是 robotSeq=<ID> 不是僅 ID (用戶實測官方格式)。
+      // The QR content is robotSeq=<ID>, not only the ID (verified against the official format).
       qrDrawToCanvas(canvas, "robotSeq=" + uuid);
     } catch (e) {
       showError("QR", e);
@@ -289,8 +290,8 @@ function uuidDrawQr(uuid) {
   }
 }
 
-// 打新 ID 時即時在同一個 uuidQrCanvas 預覽新 QR。純前端運算, 未寫入 EEPROM — 落 EEPROM 要另外按
-// 「寫入 EEPROM」(uuidWriteNew())。輸入清空返顯示現有 UUID。
+// Typing a new ID previews a new QR in the same uuidQrCanvas. Front-end math only, nothing
+// reaches the EEPROM. uuidWriteNew() ("Write EEPROM") does that. Clearing the input shows the current UUID.
 function uuidOnInputChange() {
   const input = document.getElementById("uuidNewInput");
   const hint = document.getElementById("uuidQrHint");
@@ -308,10 +309,10 @@ function uuidOnInputChange() {
   if (hint) hint.removeAttribute("data-i18n"), hint.textContent = t("uuid_preview_hint_short");
 }
 
-// 隨機碼產生器。在已知合法的編號範圍
-// BAF006UBT10000001 ~ BAF006UBT10000504 之間隨機選一個, 填入輸入框並觸發
-// QR 預覽 — 只填好輸入框, 不會自動寫入, 用戶要自己按「寫入 EEPROM」
-// 確認才會真正寫入 EEPROM。
+// Random ID generator. Pick a random ID in the known valid range
+// BAF006UBT10000001 ~ BAF006UBT10000504, put it in the input box, and trigger the
+// QR preview. This only fills the box. It never writes by itself. The user must press
+// "Write EEPROM" to confirm the real EEPROM write.
 function uuidGenerateRandom() {
   const min = 10000001;
   const max = 10000504;
@@ -341,8 +342,8 @@ function uuidWriteNew() {
     }
     if (status) status.textContent = t("uuid_write_wrote") + v +
         " — " + t("uuid_write_restart_hint");
-    // 寫入成功即刻將輸入框清空, 主顯示/QR 轉回做「已寫入的新值」— 等用戶看到
-    // 個 flow 已經去到下一步 (reboot), 而不是還停在「正在預覽」的狀態。
+    // After a successful write, clear the input box. The main display / QR switches to the
+    // new written value, so the user sees the flow moved to the next step (reboot), not a preview.
     if (input) input.value = "";
     const hint = document.getElementById("uuidQrHint");
     if (hint) hint.setAttribute("data-i18n", "uuid_qr_hint"), hint.textContent = t("uuid_qr_hint");
@@ -350,8 +351,8 @@ function uuidWriteNew() {
     const val = document.getElementById("uuidCardValue");
     if (val) val.textContent = v;
     uuidDrawQr(v);
-    // 注意: alpha2services 會 cache 開機時讀到的 SN, 即刻 request_uuid 可能還
-    // 顯示舊值 — 要重啟 alpha2services (或者重開機) 才會由 EEPROM 重新讀。
+    // Note: alpha2services caches the SN read at boot, so an immediate request_uuid may show
+    // the old value. Restart alpha2services (or reboot) to re-read it from the EEPROM.
   });
 }
 
