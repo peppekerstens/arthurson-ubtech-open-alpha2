@@ -125,14 +125,20 @@ public final class ChestSafetyVectorTest {
             String expect = (String) caseObj.get("expect");
 
             String actual;
+            String actualReason;
             try {
                 String reason = ChestSafety.checkChestFrames(hex(hexStr), allowSitDown);
                 actual = reason == null ? "allow" : "refuse";
+                actualReason = reasonCode(reason);
             } catch (Exception e) {
                 actual = "ERROR (" + e + ")";
+                actualReason = "ERROR (" + e + ")";
             }
-            System.out.println(name + ": expect=" + expect + " actual=" + actual);
+            String expectReason = (String) caseObj.get("reason");
+            System.out.println(name + ": expect=" + expect + " actual=" + actual
+                    + " reason=" + expectReason + "/" + actualReason);
             eq(expect, actual, name + " (case " + i + ")");
+            eq(expectReason, actualReason, name + " (reason)");
         }
 
         System.out.println("ChestSafetyVectorTest: passed=" + passed + " failed=" + failed);
