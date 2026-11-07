@@ -29,7 +29,8 @@ import java.util.Map;
  * {@code refuse} means a reason is returned, {@code allow} means null.
  * The returned reason text maps to the vector reason code
  * ({@code SIT_DOWN_19} to {@code sit_down_19}, {@code SIT_DOWN_40} to
- * {@code sit_down_40}, the {@code NOT_WHOLE} prefix to {@code not_whole}).
+ * {@code sit_down_40}, {@code LEN_BELOW_MIN} to {@code len_below_min},
+ * the {@code NOT_WHOLE} prefix to {@code not_whole}).
  *
  * <p>The test reads {@code allow_sit_down} strictly: a value that is not a
  * JSON boolean (a string, {@code null}, or a missing key) prints one clean
@@ -61,6 +62,7 @@ public final class ChestSafetyVectorTest {
         if (reason == null) return null;
         if (reason.startsWith(ChestSafety.SIT_DOWN_19)) return "sit_down_19";
         if (reason.startsWith(ChestSafety.SIT_DOWN_40)) return "sit_down_40";
+        if (reason.startsWith(ChestSafety.LEN_BELOW_MIN)) return "len_below_min";
         if (reason.startsWith(ChestSafety.NOT_WHOLE)) return "not_whole";
         return "UNMAPPED (" + reason + ")";
     }
@@ -115,11 +117,11 @@ public final class ChestSafetyVectorTest {
             return;
         }
         cases = (List<Object>) c;
-        // The shared vector file has exactly 41 cases. An empty or a changed
+        // The shared vector file has exactly 47 cases. An empty or a changed
         // list must fail the test, not silently pass.
-        if (cases.size() != 41) {
+        if (cases.size() != 47) {
             System.out.println("FAIL: the vector file has " + cases.size()
-                    + " cases, want 41");
+                    + " cases, want 47");
             System.exit(1);
             return;
         }
