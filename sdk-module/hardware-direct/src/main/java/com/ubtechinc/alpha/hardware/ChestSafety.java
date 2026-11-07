@@ -20,6 +20,10 @@ package com.ubtechinc.alpha.hardware;
  * than {@code 00}, unless the caller gives an explicit opt-in. Use it only for chest
  * frames: the head MCU uses cmd 0x19 for another job.
  *
+ * <p>Refuse a complete short-form frame with LEN below 7 (the long-form minimum,
+ * D-22, alpha2-python#35): the firmware does not parse the short form, and such a
+ * frame locks up the receive path. This rule wins over the sit-down reasons.
+ *
  * <p>The scan is more strict than the Python decoder: at each F8 8F it tries the long
  * form with any SRC and DST and the legacy short form. A frame with a correct checksum
  * and tail in one of the two forms counts.
@@ -122,6 +126,15 @@ public final class ChestSafety {
             + " because the chest could join them into a 'Sit down' frame (alpha2-brain#25)."
             + " Send allow_sit_down=true to send the bytes without a check";
 
+    /** Minimum LEN of the legacy short form (D-22, alpha2-python#35). */
+    public static final int SHORT_LEN_MIN = 7;
+
+    /** Reason for a complete short form whose LEN is below the long-form minimum. */
+    public static final String LEN_BELOW_MIN = "a short-form frame with LEN below 7 (the long-form minimum) locks up the"
+            + " receive path of the chest firmware: it stops answering VERSION for 10 s or"
+            + " more (alpha2-python#35, owner decision D-22). Send the long form. Send"
+            + " allow_sit_down=true only to a simulator on a loopback address";
+
     /** Total length of a valid long-form frame at {@code start}, else -1. */
     private static int longLength(byte[] b, int start) {
         if (start + 5 >= b.length) return -1;
@@ -154,10 +167,16 @@ public final class ChestSafety {
         return checkCommand(cmd, copy(b, start + 6, start + total - 2));
     }
 
-    /** Legacy short form: F8 8F LEN CMD PAYLOAD.. CHK ED, total = LEN + 5. */
+    /**
+     * Legacy short form: F8 8F LEN CMD PAYLOAD.. CHK ED, total = LEN + 5.
+     * A complete short frame with LEN below the long-form minimum is refused
+     * before the cmd check (D-22, alpha2-python#35): the LEN rule wins over
+     * the sit-down reasons.
+     */
     private static String checkShort(byte[] b, int start) {
         int total = shortLength(b, start);
         if (total < 0) return null;
+        if ((b[start + 2] & 0xFF) < SHORT_LEN_MIN) return LEN_BELOW_MIN;
         int cmd = b[start + 3] & 0xFF;
         return checkCommand(cmd, copy(b, start + 4, start + total - 2));
     }
