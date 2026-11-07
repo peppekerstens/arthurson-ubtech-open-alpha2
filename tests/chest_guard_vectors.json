@@ -1,7 +1,7 @@
 {
  "description": "Shared test vectors for the chest Sit down guard (alpha2-python#27). The guards of alpha2-python (check_chest_frames), alpha2-bridge (src/chest.rs) and open-alpha2 (ChestSafety.java) must give the expected result for each case.",
- "format": "hex: the raw bytes to the chest, lower case, no spaces. allow_sit_down: the opt-in flag of the call. expect: allow or refuse. reason: sit_down_19, sit_down_40, not_whole, or null for allow. A guard that has no reason codes compares expect only.",
- "rules": "Refuse cmd 0x19 with a payload other than [01], and cmd 0x40 with a first byte other than 00, in each complete frame at each F8 8F (long form with any SRC and DST, legacy short form, also inside the payload of another frame). Then refuse data that is not zero or more complete frames back to back. 0x00 padding is allowed. Empty data is allowed. allow_sit_down=true allows all bytes.",
+ "format": "hex: the raw bytes to the chest, lower case, no spaces. allow_sit_down: the opt-in flag of the call. expect: allow or refuse. reason: sit_down_19, sit_down_40, len_below_min, not_whole, or null for allow. A guard that has no reason codes compares expect only.",
+ "rules": "Refuse a complete short-form frame with LEN below 7 (the long-form minimum; the firmware does not parse the short form, alpha2-python#35, D-22). This rule wins over the sit-down rules. Then refuse cmd 0x19 with a payload other than [01], and cmd 0x40 with a first byte other than 00, in each complete frame at each F8 8F (long form with any SRC and DST, legacy short form with LEN of 7 or more, also inside the payload of another frame). Then refuse data that is not zero or more complete frames back to back. 0x00 padding is allowed. Empty data is allowed. allow_sit_down=true allows all bytes.",
  "cases": [
   {
    "name": "long19_00_host",
@@ -64,8 +64,8 @@
    "hex": "f88f0219001bed",
    "allow_sit_down": false,
    "expect": "refuse",
-   "reason": "sit_down_19",
-   "note": "legacy short form, cmd 0x19 [00]"
+   "reason": "len_below_min",
+   "note": "cmd 0x19 [00], LEN 2 below the minimum 7"
   },
   {
    "name": "split_first_half",
@@ -151,9 +151,49 @@
    "name": "short_read_valid",
    "hex": "f88f0206030bed",
    "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "len_below_min",
+   "note": "cmd 0x06 read, LEN 2 below the minimum 7"
+  },
+  {
+   "name": "short_read_len3",
+   "hex": "f88f030601020ced",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "len_below_min",
+   "note": "cmd 0x06 read, LEN 3 below the minimum 7"
+  },
+  {
+   "name": "short_read_len6",
+   "hex": "f88f060601020304051bed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "len_below_min",
+   "note": "cmd 0x06 read, LEN 6 below the minimum 7"
+  },
+  {
+   "name": "short40_01_len2",
+   "hex": "f88f02400143ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "len_below_min",
+   "note": "cmd 0x40 [01], LEN 2: the LEN rule wins over sit_down_40"
+  },
+  {
+   "name": "short_len7_cmd6",
+   "hex": "f88f070601020304050622ed",
+   "allow_sit_down": false,
    "expect": "allow",
    "reason": null,
-   "note": "legacy short form, cmd 6 [03]"
+   "note": "cmd 0x06 read, LEN 7 equal to the minimum: allowed"
+  },
+  {
+   "name": "nested_short_in_payload",
+   "hex": "f88f0e050003f88f0206030beda0ed",
+   "allow_sit_down": false,
+   "expect": "refuse",
+   "reason": "len_below_min",
+   "note": "a short frame (LEN 2) inside the payload of a long frame"
   },
   {
    "name": "three_reads",
@@ -330,6 +370,14 @@
    "expect": "allow",
    "reason": null,
    "note": "allow_sit_down=true"
+  },
+  {
+   "name": "optin_short_len2",
+   "hex": "f88f0206030bed",
+   "allow_sit_down": true,
+   "expect": "allow",
+   "reason": null,
+   "note": "a short frame (LEN 2) with the opt-in flag"
   }
  ]
 }
