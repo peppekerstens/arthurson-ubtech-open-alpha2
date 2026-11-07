@@ -17,7 +17,7 @@ Example:
 
 ```sh
 curl -H "Authorization: Bearer $ALPHA2_PANEL_TOKEN" -o mic8.wav \
-  "http://192.168.2.194:8888/stream/mic/record?seconds=5&channels=8"
+  "http://$ALPHA2_ROBOT_HOST:8888/stream/mic/record?seconds=5&channels=8"
 python3 scripts/mic5_tdoa.py mic8.wav
 ```
 
