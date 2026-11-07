@@ -1,31 +1,31 @@
-# MCP <-> OpenAPI 聲明源 (v2：自動生成用，唯一真相源之一)
-# 來源：
-#   - MCP tool 定義：XiaozhiBridge.java xiaozhiMcpBridge() listTools()/callTool()
-#     現已改為全部自動生成：inputSchema 由 scripts/generate-mcp-tools.py
-#     讀本檔 + openapi/open-alpha2-openapi.yml 生成
-#     app/src/main/java/com/open/alpha2/McpToolsGenerated.java，
-#     XiaozhiBridge.listTools() 只做 enable/disable 過濾，不再手寫 org.json。
-#   - OpenAPI 定義：openapi/open-alpha2-openapi.yml
-# 用途：確保 LLM 經 MCP 調用的參數與 HTTP 直接調用走同一套校驗 (ApiValidator.java + api-client.js)
-# 再生：
+# MCP <-> OpenAPI declaration source (v2, for auto-generation, one of the single sources of truth)
+# Sources:
+#   - MCP tool definitions: XiaozhiBridge.java xiaozhiMcpBridge() listTools()/callTool()
+#     now all auto-generated: inputSchema is built by scripts/generate-mcp-tools.py
+#     reading this file + openapi/open-alpha2-openapi.yml
+#     app/src/main/java/com/open/alpha2/McpToolsGenerated.java,
+#     XiaozhiBridge.listTools() only does the enable/disable filtering, no hand-written org.json.
+#   - OpenAPI definition: openapi/open-alpha2-openapi.yml
+# Purpose: make sure LLM calls over MCP and direct HTTP calls use the same validation (ApiValidator.java + api-client.js)
+# Regenerate:
 #   python scripts/generate-mcp-tools.py
-#   python scripts/generate-mcp-tools.py --check   # CI 用：生成結果與已提交檔比對
+#   python scripts/generate-mcp-tools.py --check   # CI use, compare the generated result with the committed file
 #
-# 規則：
-# - params 白名單制：只列出 MCP 對外暴露的參數；spec 有但此處無 = 刻意不暴露
-#   （見各條 exclude 說明，例如 servo trim、speech engine/voice/lang）。
-# - params 每條 {mcp, openapi, required, desc}：type/enum/minimum/maximum/default
-#   預設自動繼承 spec 對應 openapi 參數的 schema；如需覆寫才顯式寫 type/enum/minimum/maximum/default。
-# - alias：mcp 名 ≠ openapi 名時（time_ms→time、enabled→on、distance_cm→distance、
-#   speed_ms→speed），生成器用 spec 的約束、MCP 的名；callTool() 側讀 MCP 名
-#   （見 XiaozhiBridge callTool switch + SonarCenter mcp*()），屬薄轉調不重複校驗。
-# - required 指 MCP schema 的 required（LLM 視角），可比 spec 鬆：
-#   LED color/brightness 在 spec 必填，但在 MCP 為 optional（preset=stop 時免填，
-#   由 callTool 內 required_if 邏輯執行，與舊手寫行為一致）。
-# - mcp_only：spec 無、MCP 獨有參數（take_photo.question、image_to_text.uuid）。
-# - description：LLM -facing 英文，保持舊手寫文案逐字搬入，改文案只改此檔再重 gen。
-# - openapi: null：無直接 HTTP 對應（play_random_action、get_pir、get_sonar、
-#   image_to_text），schema 全由本檔 mcp_only/params 描述。
+# Rules:
+# - params whitelist: lists only the parameters MCP exposes; in the spec but not here = deliberately not exposed
+#   (see the exclude note of each entry, e.g. servo trim, speech engine/voice/lang).
+# - each param is {mcp, openapi, required, desc}, type/enum/minimum/maximum/default
+#   are inherited from the matching openapi param schema of the spec by default; write type/enum/minimum/maximum/default only to override.
+# - alias: when the mcp name is not the openapi name (time_ms->time, enabled->on, distance_cm->distance,
+#   speed_ms->speed), the generator uses the constraints of the spec and the name of MCP; the callTool() side reads the MCP name
+#   (see the XiaozhiBridge callTool switch + SonarCenter mcp*()), a thin pass-through call with no repeated validation.
+# - required is the required of the MCP schema (LLM view), it can be looser than the spec:
+#   LED color/brightness is required in the spec but optional in MCP (no need to fill when preset=stop,
+#   enforced by the required_if logic inside callTool, same as the old hand-written behavior).
+# - mcp_only: not in the spec, MCP-only parameters (take_photo.question, image_to_text.uuid).
+# - description: LLM-facing English, keeps the old hand-written text word for word; to change the text, edit this file and re-gen.
+# - openapi: null: no direct HTTP counterpart (play_random_action, get_pir, get_sonar,
+#   image_to_text), the schema is described fully by the mcp_only/params of this file.
 
 sync_version: 2.0
 generated_from: openapi/open-alpha2-openapi.yml
@@ -57,7 +57,7 @@ mappings:
         required: true
         desc: 'Chinese or English action name, e.g. "舉左手" or "take left hand".'
     exclude: [panel_token]
-    note: MCP 用人類可讀名 fuzzy match（resolveActionId），HTTP 用精確名
+    note: MCP uses the human readable name with fuzzy match (resolveActionId), HTTP uses the exact name
 
   - mcp: self.robot.stop_action
     openapi: /api/action/stop
@@ -73,7 +73,7 @@ mappings:
       If this turn already plays a specific action via self.robot.play_action, skip
       this one instead of calling both.
     params: []
-    note: 無直接 HTTP 對應，隨機選動作（resolveRandomActionId）
+    note: no direct HTTP counterpart, picks a random action (resolveRandomActionId)
 
   - mcp: self.robot.servo_set_one
     openapi: /api/servo/one
@@ -95,7 +95,7 @@ mappings:
         required: false
         desc: Movement duration in milliseconds. Default 1000.
     exclude: [trim, panel_token]
-    note: trim 刻意不暴露（經 cmd12 寫 EEPROM，MCP 不提供）；time_ms alias time
+    note: trim is deliberately not exposed (written to the EEPROM via cmd12, MCP does not provide it); time_ms alias time
 
   - mcp: self.robot.servo_set_all
     openapi: /api/servo/all
@@ -135,7 +135,7 @@ mappings:
         openapi: brightness
         required: false
         desc: 1-9, required unless preset=stop.
-    note: spec 上 color/brightness 必填，MCP 放寬為 optional（preset=stop 免填，由 callTool 執行 required_if）
+    note: in the spec color/brightness is required, MCP relaxes it to optional (no need to fill when preset=stop, enforced by callTool required_if)
     exclude: [panel_token, speed, p3, p4]
 
   - mcp: self.robot.led_set_eye
@@ -176,7 +176,7 @@ mappings:
         required: false
         desc: Breathing speed 100-1000ms, only used when preset=breathing. Default 150.
     exclude: [panel_token]
-    note: v1 誤寫 mcp 名 speed，實際 code/callTool 讀 speed_ms（MouthLedData.breathing），v2 以 code 為準修正
+    note: v1 wrote the mcp name speed by mistake, the actual code/callTool reads speed_ms (MouthLedData.breathing), v2 corrects it by the code
 
   - mcp: self.sensors.get_pir
     openapi: null
@@ -184,7 +184,7 @@ mappings:
       Read the last known PIR motion state (most recent event, not a live poll;
       "unknown" if disabled or nothing received yet).
     params: []
-    note: 對應 broadcast 查詢，無 HTTP GET，僅 WebSocket pir_state
+    note: corresponds to the broadcast query, no HTTP GET, only the WebSocket pir_state
 
   - mcp: self.sensors.set_pir_enabled
     openapi: /api/pir/set
@@ -203,7 +203,7 @@ mappings:
       Read the last known sonar distance in cm plus the trigger threshold (most recent
       reading, not a live poll; -1 if none yet).
     params: []
-    note: 讀數經 WebSocket sonar_distance，配置經 /api/servo/sonar
+    note: the reading goes via the WebSocket sonar_distance, the config via /api/servo/sonar
 
   - mcp: self.sensors.set_sonar_threshold
     openapi: /api/servo/sonar
@@ -229,7 +229,7 @@ mappings:
         type: string
         required: false
         desc: Optional question to focus the photo description on.
-    note: question 為 MCP 獨有（vision/explain 用），HTTP snapshot 無此參數
+    note: question is MCP-only (used by vision/explain), the HTTP snapshot has no such parameter
 
   - mcp: self.camera.image_to_text
     openapi: null
@@ -242,7 +242,7 @@ mappings:
         type: string
         required: false
         desc: Accepted but not required; the most recent photo is always returned.
-    note: 兼容 shim——直接回傳最近一張相 inline，唔再影；uuid 照收但唔用（單一 device 永遠得一張最新）
+    note: compatibility shim, returns the most recent photo inline directly, does not take a new one; uuid is accepted but not used (a single device always has one latest photo)
 
   - mcp: self.robot.speak
     openapi: /api/speech/tts
@@ -254,7 +254,7 @@ mappings:
         required: true
         desc: Text to speak.
     exclude: [engine, voice, lang, pitch, rate, panel_token]
-    note: engine/voice/lang/pitch/rate 刻意不暴露（callTool 固定 speech_startTTS en_us，與舊手寫行為一致；v1 誤寫 engine 預設 nuance 已移除）
+    note: engine/voice/lang/pitch/rate are deliberately not exposed (callTool is fixed to speech_startTTS en_us, same as the old hand-written behavior; the v1 mistaken engine default nuance is removed)
 
   - mcp: self.media.list_music
     openapi: /api/audio/local_music/list
