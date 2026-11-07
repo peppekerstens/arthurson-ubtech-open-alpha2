@@ -6,9 +6,9 @@ Usage:
   python scripts/generate-api-client.py
   -> writes app/src/main/assets/web/api-client.js
   python scripts/generate-api-client.py --check
-  -> 只比對不寫檔，drift 即 exit 1 (啱 CI 用；本地誤跑不會覆寫)
+  -> compares only; does not write the file. Drift is exit 1 (suitable for CI; an accidental local run does not overwrite)
 
-This is the "2. 前端 Typed JS" part of the 1+2 OpenAPI simplification:
+This is the "2. Front-end Typed JS" part of the 1+2 OpenAPI simplification:
 - Single source of truth: openapi yaml
 - No hand-written fetch("...alpha2/...") strings scattered across 8 app-*.js files
 - Auto-validates enums/ranges before network round-trip (mirrors ApiValidator.java)
@@ -26,8 +26,8 @@ SPEC = ROOT / "openapi" / "open-alpha2-openapi.yml"
 OUT = ROOT / "app" / "src" / "main" / "assets" / "web" / "api-client.js"
 
 def js_value(v):
-    # enum 值轉 JS 字面值。YAML 1.1 地雷：off/on/yes/no 不加引號會 parse 做
-    # boolean，直接 f-string 會漏出 Python 字面值（False/True/None）整壞 JS。
+    # Convert enum values to JS literals. YAML 1.1 trap: off/on/yes/no without quotes parse as
+    # boolean; a direct f-string leaks the Python literals (False/True/None) and breaks the JS.
     if v is True: return "true"
     if v is False: return "false"
     if v is None: return "null"
@@ -69,9 +69,9 @@ def func_name(method: str, path: str) -> str:
     return base
 
 SPECIFIC_DOC = {
-    "/api/status": "取得系統狀態",
-    "/api/servo/one": "單顆舵機",
-    "/api/speech/tts": "TTS 播報",
+    "/api/status": "Get the system status",
+    "/api/servo/one": "Single servo",
+    "/api/speech/tts": "TTS broadcast",
 }
 
 with open(SPEC, encoding="utf-8") as f:
@@ -94,8 +94,8 @@ lines.append("")
 lines.append("const Alpha2Api = (function() {")
 lines.append("  function qs(params) { return params ? '?' + new URLSearchParams(params).toString() : ''; }")
 lines.append("  function assertEnum(val, allowed, key) { if (val != null && !allowed.includes(val)) throw new Error(key + ' must be one of ' + allowed.join(',')); }")
-lines.append("  // 2026-09-09：數字 enum（ubx/speed 0.5/0.67/…）用數值比對＋後端同款 0.001 容差——")
-lines.append("  // URL/query 來的是字串，嚴格 includes 會誤殺 \"1\" 之類合法值。")
+lines.append("  // 2026-09-09: numeric enums (ubx/speed 0.5/0.67/...) use a numeric comparison + the same 0.001 tolerance as the backend --")
+lines.append("  // URL/query values arrive as strings; a strict includes wrongly kills legal values like \"1\".")
 lines.append("  function assertEnumNum(val, allowed, key) { if (val != null && !allowed.some(function(a){ return Math.abs(Number(val)-a) < 0.001; })) throw new Error(key + ' must be one of ' + allowed.join(',')); }")
 lines.append("  function assertRange(val, min, max, key) { if (val < min || val > max) throw new Error(key + ' must be between '+min+' and '+max); }")
 lines.append("")
@@ -146,16 +146,16 @@ for tag in sorted(grouped.keys()):
             typ = p.get("schema",{}).get("type","string")
             js_params.append(f"{name}{'!' if req else ''}:{typ}")
         doc = f"{fid}({', '.join(param_names)}) — {summary} [{method.upper()} {path}]"
-        # /upload/*, /stream/*, /ws, /, /blockly.html 有各自 handler，不經 JSON api
+        # /upload/*, /stream/*, /ws, /, /blockly.html have their own handlers; they do not go through the JSON api
         if path.startswith("/upload/") or path.startswith("/stream/") or path == "/ws":
             # skip generating for non-API (stream/ws/upload) — they have separate handlers
             continue
         if path in ("/", "/blockly.html"):
             continue
-        # Caller 必須同後端路由前綴對齊 (見 MainActivity dispatch + check-api-client-routes.py)：
+        # The caller must line up with the backend route prefix (see the MainActivity dispatch + check-api-client-routes.py):
         # api() -> /api/alpha2/* (handleApi), sysApi() -> /api/system/*,
         # directApi() -> /api/direct/*, xiaozhiApi() -> /api/xiaozhi/*。
-        # 直接用 api('system/...') 會打去 /api/alpha2/system/... 而 404。
+        # Using api('system/...') directly goes to /api/alpha2/system/... and 404s.
         if path.startswith("/api/system/"):
             caller, rel = "sysApi", path[len("/api/system/"):]
         elif path.startswith("/api/direct/"):
@@ -178,7 +178,7 @@ for tag in sorted(grouped.keys()):
             enum_vals = schema.get("enum")
             if enum_vals:
                 js_list = "[" + ", ".join(js_value(v) for v in enum_vals) + "]"
-                # 全字串行嚴格比對；有數字就用數值版（見上面 assertEnumNum）。
+                # Strict full-string comparison; use the numeric version when there are numbers (see the assertEnumNum above).
                 fn = "assertEnum" if all(isinstance(v, str) for v in enum_vals) else "assertEnumNum"
                 lines.append(f"    if (params && params.{name} != null) {fn}(params.{name}, {js_list}, '{name}');")
             if schema.get("type") in ("integer", "number") and ("minimum" in schema or "maximum" in schema):
@@ -226,15 +226,15 @@ lines.append("//   Alpha2Api.ledHeadSet({color:1, brightness:9, preset:'breathe'
 lines.append("//   Alpha2Api.xiaozhiConnect()")
 
 OUT.parent.mkdir(parents=True, exist_ok=True)
-# 強制使用 LF 換行，否則 Windows 上 pathlib 預設會轉為 CRLF，導致 CI (Ubuntu/LF) 的 git diff 誤判 drift。
-# 參考 logs_91129359938.zip drift 失敗：整個 api-client.js 被視為 758 行全改，實為 CRLF vs LF + 缺尾換行。
+# Force LF line endings; otherwise on Windows pathlib defaults to CRLF and the CI (Ubuntu/LF) git diff wrongly flags drift.
+# Reference: the logs_91129359938.zip drift failure; the whole api-client.js looked like 758 lines all changed, but it was CRLF vs LF + a missing trailing newline.
 new_text = "\n".join(lines) + "\n"
 if "--check" in sys.argv[1:]:
     old_text = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
     if old_text == new_text:
-        print(f"api-client.js 一致 ({len(exported)} functions)")
+        print(f"api-client.js in sync ({len(exported)} functions)")
     else:
-        print(f"api-client.js drift（spec 改咗未重 gen？跑 python scripts/generate-api-client.py）")
+        print(f"api-client.js drift (spec changed without a re-gen? run python scripts/generate-api-client.py)")
         for line in difflib.unified_diff(
                 old_text.splitlines(), new_text.splitlines(),
                 fromfile="committed", tofile="generated", lineterm="", n=1):

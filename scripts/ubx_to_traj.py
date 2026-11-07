@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""ubx -> traj.csv (player語義: 每格slot=(s+e)*timeBase, 發送move=s*timeBase).
+"""ubx -> traj.csv (player semantics: each tick slot=(s+e)*timeBase, the sent move=s*timeBase).
 
-用法: python scripts/ubx_to_traj.py <in.ubx> <out.csv>
-CSV欄: t_ms,s1..s20,move_ms (每行一格servo幀起點; 多track首尾相接)
+Usage: python scripts/ubx_to_traj.py <in.ubx> <out.csv>
+CSV columns: t_ms,s1..s20,move_ms (one line per servo frame start; multiple tracks join end to start)
 """
 import struct, sys, csv
 
