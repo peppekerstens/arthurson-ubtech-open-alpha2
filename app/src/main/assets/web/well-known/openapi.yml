@@ -2041,7 +2041,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/OkWrapper'
         '200':
-          description: Download state
+          description: Download status
           content:
             application/json:
               schema:
