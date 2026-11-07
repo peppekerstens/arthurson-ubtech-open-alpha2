@@ -366,6 +366,13 @@ public class XiaozhiClient {
         sendListenControl("stop", null);
     }
 
+    /** Manual mode (push to talk, alpha2-brain#16): frames flow only between this
+     *  listen start and the listen stop the device sends on key release. No server
+     *  VAD, no auto-continue - the device owns the turn boundaries. */
+    public void sendListenStartManual() throws IOException {
+        sendListenControl("start", "manual");
+    }
+
     /** PHASE 4 (text input): sends a piece of typed text as if it were a recognized
      *  utterance, using the device->server "Wake Word Detected" message shape from
      *  websocket.md section 4.1 #4 - {"type":"listen","state":"detect","text":"..."}.

@@ -52,6 +52,10 @@ public final class XiaozhiConfig {
      *  start lights the mouth LED only, the robot does not move. See
      *  filler_action/get|set. */
     public static final String PREF_XIAOZHI_TTS_FILLER_ACTION_ENABLED = "xiaozhi_tts_filler_action_enabled";
+    /** Push-to-talk on the chest mute key + half-duplex gate for the plain
+     *  session (alpha2-brain#16). Default false = the exact behavior of build
+     *  0aa89ed (release ignored, no uplink gate, no push to talk). */
+    public static final String PREF_XIAOZHI_PUSH_TO_TALK_ENABLED = "xiaozhi_push_to_talk_enabled";
 
     /** OTA 自架設定快照 (activation / vision 讀一次取齊，不用逐個 key 查)。 */
     public static final class OtaConfig {
@@ -144,6 +148,15 @@ public final class XiaozhiConfig {
             return prefs().getBoolean(PREF_XIAOZHI_TTS_FILLER_ACTION_ENABLED, true);
         } catch (Exception e) {
             return true;
+        }
+    }
+
+    /** Push-to-talk switch (alpha2-brain#16), default false. */
+    public boolean isPushToTalkEnabled() {
+        try {
+            return prefs().getBoolean(PREF_XIAOZHI_PUSH_TO_TALK_ENABLED, false);
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -304,6 +317,17 @@ public final class XiaozhiConfig {
     public HttpServer.ApiResponse fillerActionSet(Map<String, String> query) {
         boolean enabled = ApiValidator.requireBoolean(query, "enabled");
         prefs().edit().putBoolean(PREF_XIAOZHI_TTS_FILLER_ACTION_ENABLED, enabled).apply();
+        return HttpServer.ApiResponse.ok("{\"ok\":true,\"enabled\":" + enabled + "}");
+    }
+
+    public HttpServer.ApiResponse pushToTalkGet() {
+        return HttpServer.ApiResponse.ok("{\"ok\":true,\"enabled\":"
+                + isPushToTalkEnabled() + "}");
+    }
+
+    public HttpServer.ApiResponse pushToTalkSet(Map<String, String> query) {
+        boolean enabled = ApiValidator.requireBoolean(query, "enabled");
+        prefs().edit().putBoolean(PREF_XIAOZHI_PUSH_TO_TALK_ENABLED, enabled).apply();
         return HttpServer.ApiResponse.ok("{\"ok\":true,\"enabled\":" + enabled + "}");
     }
 
