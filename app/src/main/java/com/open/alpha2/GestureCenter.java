@@ -196,15 +196,38 @@ public final class GestureCenter {
         }, 1500);
     }
 
-    /** 即行一格音量（tap 靠這一下，不靠 repeat）。行完即更頭燈綠色音量計＋tick 一聲。 */
-    private void stepVolume(boolean up) {
-        if (audioManager != null) {
-            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC,
-                    up ? AudioManager.ADJUST_RAISE : AudioManager.ADJUST_LOWER,
-                    AudioManager.FLAG_SHOW_UI | (tickReady() ? 0 : AudioManager.FLAG_PLAY_SOUND));
-            playTick();
-            ledCenter.showVolumeMeter();
+    /** Pref key of the early key feedback switch (alpha2-brain#53). Default false. */
+    public static final String PREF_KEY_EARLY_FEEDBACK = "key_early_feedback_enabled";
+
+    /** True when the tick plays before the volume binder call. Default false. */
+    private boolean isEarlyFeedbackEnabled() {
+        try {
+            return appContext.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+                    .getBoolean(PREF_KEY_EARLY_FEEDBACK, false);
+        } catch (Exception e) {
+            return false;
         }
+    }
+
+    /** One volume step for one key press: the same step as before alpha2-brain#53, only the
+     *  order of tick and binder call follows the early feedback switch. */
+    private void stepVolume(final boolean up) {
+        if (audioManager == null) return;
+        VolumeStepSequence.run(isEarlyFeedbackEnabled(), tickReady(),
+                new VolumeStepSequence.Actions() {
+                    @Override public void tick() {
+                        playTick();
+                    }
+                    @Override public void adjustVolume(boolean playSoundFlag) {
+                        audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC,
+                                up ? AudioManager.ADJUST_RAISE : AudioManager.ADJUST_LOWER,
+                                AudioManager.FLAG_SHOW_UI
+                                        | (playSoundFlag ? AudioManager.FLAG_PLAY_SOUND : 0));
+                    }
+                    @Override public void meter() {
+                        ledCenter.showVolumeMeter();
+                    }
+                });
     }
 
     /** SoundPool 預載（start() 做一次；load 係非同步，頭幾下趕唔切就靜）。 */

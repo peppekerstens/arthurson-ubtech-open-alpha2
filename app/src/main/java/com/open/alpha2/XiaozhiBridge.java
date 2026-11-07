@@ -1204,6 +1204,12 @@ public final class XiaozhiBridge {
             case "ptt/set":
                 return xiaozhiConfig.pushToTalkSet(query);
 
+            case "key_feedback/get":
+                return xiaozhiConfig.keyFeedbackGet();
+
+            case "key_feedback/set":
+                return xiaozhiConfig.keyFeedbackSet(query);
+
             case "boot_voice/get":
                 return xiaozhiConfig.bootVoiceGet();
 

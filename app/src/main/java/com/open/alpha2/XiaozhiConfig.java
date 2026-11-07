@@ -331,6 +331,24 @@ public final class XiaozhiConfig {
         return HttpServer.ApiResponse.ok("{\"ok\":true,\"enabled\":" + enabled + "}");
     }
 
+    public HttpServer.ApiResponse keyFeedbackGet() {
+        boolean enabled;
+        try {
+            enabled = prefs().getBoolean(GestureCenter.PREF_KEY_EARLY_FEEDBACK, false);
+        } catch (Exception e) {
+            enabled = false;
+        }
+        return HttpServer.ApiResponse.ok("{\"ok\":true,\"enabled\":" + enabled + "}");
+    }
+
+    /** Early key feedback (alpha2-brain#53): the head key tick plays before the volume
+     *  binder call. Default false. */
+    public HttpServer.ApiResponse keyFeedbackSet(Map<String, String> query) {
+        boolean enabled = ApiValidator.requireBoolean(query, "enabled");
+        prefs().edit().putBoolean(GestureCenter.PREF_KEY_EARLY_FEEDBACK, enabled).apply();
+        return HttpServer.ApiResponse.ok("{\"ok\":true,\"enabled\":" + enabled + "}");
+    }
+
     public HttpServer.ApiResponse bootVoiceGet() {
         return HttpServer.ApiResponse.ok("{\"ok\":true,\"mode\":\""
                 + MainActivity.jsonSafe(getBootVoiceMode()) + "\"}");
