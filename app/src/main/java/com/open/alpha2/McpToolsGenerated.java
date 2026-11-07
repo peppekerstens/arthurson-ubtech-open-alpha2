@@ -15,7 +15,7 @@ import org.json.JSONObject;
  * - The inputSchema parameter constraints (type/enum/minimum/maximum/default) inherit from the spec,
  *   the same rule set as ApiValidator.java. A spec parameter with no sync decision fails the generation
  *   (see the generator uncovered check). It forces the two sides to line up.
- * - alias（time_ms→time、enabled→on、distance_cm→distance、speed_ms→speed）
+ * - alias (time_ms to time, enabled to on, distance_cm to distance, speed_ms to speed)
  *   This side exposes only the MCP name; the callTool() side reads the MCP name (see XiaozhiBridge).
  * - The LED color/brightness are optional in the MCP (preset=stop needs no fill; callTool runs
  *   required_if). The same as the old hand-written behaviour. The spec side stays required.

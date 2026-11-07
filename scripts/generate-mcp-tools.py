@@ -213,7 +213,7 @@ def render_java(tools) -> str:
     L.append(" * - The inputSchema parameter constraints (type/enum/minimum/maximum/default) inherit from the spec,")
     L.append(" *   the same rule set as ApiValidator.java. A spec parameter with no sync decision fails the generation")
     L.append(" *   (see the generator uncovered check). It forces the two sides to line up.")
-    L.append(" * - alias（time_ms→time、enabled→on、distance_cm→distance、speed_ms→speed）")
+    L.append(" * - alias (time_ms to time, enabled to on, distance_cm to distance, speed_ms to speed)")
     L.append(" *   This side exposes only the MCP name; the callTool() side reads the MCP name (see XiaozhiBridge).")
     L.append(" * - The LED color/brightness are optional in the MCP (preset=stop needs no fill; callTool runs")
     L.append(" *   required_if). The same as the old hand-written behaviour. The spec side stays required.")

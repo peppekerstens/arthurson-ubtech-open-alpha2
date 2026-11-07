@@ -291,7 +291,7 @@ def build_trackh(block_contents):
 
 
 def build_chain(items):
-    """items: list of (type, data)。"""
+    """items: list of (type, data)."""
     body = b"".join(w32(t) + w32(len(dd)) + dd for t, dd in items)
     new_len = 8 + len(body)
     return w32(new_len) + w32(len(items)) + body

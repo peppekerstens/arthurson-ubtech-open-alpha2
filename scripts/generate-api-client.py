@@ -154,7 +154,7 @@ for tag in sorted(grouped.keys()):
             continue
         # The caller must line up with the backend route prefix (see the MainActivity dispatch + check-api-client-routes.py):
         # api() -> /api/alpha2/* (handleApi), sysApi() -> /api/system/*,
-        # directApi() -> /api/direct/*, xiaozhiApi() -> /api/xiaozhi/*。
+        # directApi() -> /api/direct/*, xiaozhiApi() -> /api/xiaozhi/*.
         # Using api('system/...') directly goes to /api/alpha2/system/... and 404s.
         if path.startswith("/api/system/"):
             caller, rel = "sysApi", path[len("/api/system/"):]
