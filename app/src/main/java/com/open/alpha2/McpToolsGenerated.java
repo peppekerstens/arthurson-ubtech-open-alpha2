@@ -5,20 +5,20 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * MCP tool 定義（全部自動生成，切勿手改）。
+ * MCP tool definitions (fully generated; do not edit by hand).
  *
- * 來源：openapi/open-alpha2-openapi.yml（參數約束）＋
- * openapi/mcp-openapi-sync.yml（工具清單/description/alias/required）。
- * 再生：python scripts/generate-mcp-tools.py
+ * Sources: openapi/open-alpha2-openapi.yml (parameter constraints) +
+ * openapi/mcp-openapi-sync.yml (tool list/description/alias/required).
+ * Regenerate: python scripts/generate-mcp-tools.py
  *
- * 約定：
- * - inputSchema 參數約束（type/enum/minimum/maximum/default）繼承 spec，
- *   與 ApiValidator.java 同一套規則；spec 加參數而 sync 未表態會生成失敗
- *   （見 generator 的 uncovered 檢查），逼兩邊對齊。
+ * Rules:
+ * - The inputSchema parameter constraints (type/enum/minimum/maximum/default) inherit from the spec,
+ *   the same rule set as ApiValidator.java. A spec parameter with no sync decision fails the generation
+ *   (see the generator uncovered check). It forces the two sides to line up.
  * - alias（time_ms→time、enabled→on、distance_cm→distance、speed_ms→speed）
- *   在此只暴露 MCP 名；callTool() 側讀 MCP 名（見 XiaozhiBridge）。
- * - LED color/brightness 在 MCP 為 optional（preset=stop 免填，callTool 執行
- *   required_if），與舊手寫行為一致；spec 側維持必填。
+ *   This side exposes only the MCP name; the callTool() side reads the MCP name (see XiaozhiBridge).
+ * - The LED color/brightness are optional in the MCP (preset=stop needs no fill; callTool runs
+ *   required_if). The same as the old hand-written behaviour. The spec side stays required.
  */
 public final class McpToolsGenerated {
     private McpToolsGenerated() {}
@@ -483,7 +483,7 @@ public final class McpToolsGenerated {
             t.put("inputSchema", s);
             tools.put(t);
         }
-        // 2026-09-09：再生漏改 TOOL_COUNT 即靜默錯，runtime 斷言釘死。
+        // 2026-09-09: a regeneration that misses TOOL_COUNT is a silent error; the runtime assertion pins it.
         if (tools.length() != TOOL_COUNT) throw new IllegalStateException(
                 "TOOL_COUNT=" + TOOL_COUNT + " but built " + tools.length());
         return tools;
