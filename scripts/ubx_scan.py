@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""掃全量 .ubx：(1) 有無具名 keyframe（h 非零）；(2) 每 track 葉 (a,b,c,d)＋段 e/f。"""
+"""Scan the full set of .ubx files: (1) is there a named keyframe (h non-zero); (2) each track leaf (a,b,c,d) plus the segment e/f."""
 import glob
 import struct
 import sys
@@ -91,4 +91,4 @@ for path in files:
             p += 4 + item_len
     except Exception as ex:
         print("PARSE-FAIL " + fid + " " + str(ex))
-print("具名 keyframe 檔案數：", len(named_files), named_files[:10])
+print("files with a named keyframe:", len(named_files), named_files[:10])

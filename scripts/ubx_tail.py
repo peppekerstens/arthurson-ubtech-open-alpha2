@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""對比各版 track1 尾格手臂（Rroll servo2 / Lroll servo5）。"""
+"""Compare the track1 last-frame arms across the versions (Rroll servo2 / Lroll servo5)."""
 import os
 import sys
 

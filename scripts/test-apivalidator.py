@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-純 Java 單元測試執行器 (零依賴，不用 JUnit/gradle)。
+A pure Java unit test runner (zero dependencies, no JUnit/gradle).
 
-原因見 app/src/test/java/com/open/alpha2/ApiValidatorTest.java 檔頭：
-gradle cache 無 junit，不想整斷 `--offline` build。
+See the header of app/src/test/java/com/open/alpha2/ApiValidatorTest.java for the reason:
+the gradle cache has no junit, and the `--offline` build must not break.
 
-流程：找 android.jar (SDK) + javac → 編譯被測類 + Test
-→ 跑 main() → 非零 exit = 失敗 (啱 CI 用)。
-跑三套：ApiValidatorTest (ApiValidator closure)＋ColorTrackTest
-(ColorTrackLogic 單檔)＋MusicEqTest (MusicEq 單檔，後兩者連 android.jar
-都唔掂)。
+
+Flow: find android.jar (the SDK) + javac -> compile the class under test + the Test
+-> run main() -> a non-zero exit = failure (suitable for CI).
+Three suites: ApiValidatorTest (the ApiValidator closure) + ColorTrackTest
+(ColorTrackLogic single file) + MusicEqTest (MusicEq single file; the last two do not even need android.jar).
+
 Also: StopWordMatcherTest, ServoStreamCoreTest, MicSlotsTest, SleepModePolicyTest and
 DirectChestControllerTest (alpha2-brain#30, pure java.* with stubs in scripts/test-stubs).
 ChestReplyMatchTest (alpha2-board-sim#12): the chest VERSION reply match.
@@ -18,7 +19,7 @@ HeadKeyClickTest (head key click codes 0x3c01/0x3d01) and WakeCommandMatchTest (
 command after the wake word), robot session 2026-11-01.
 StopEchoGuardTest (alpha2-brain#52): the stop echo guard time windows.
 
-用法: python scripts/test-apivalidator.py
+Usage: python scripts/test-apivalidator.py
 """
 import os
 import pathlib
@@ -33,17 +34,17 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 def find_sdk() -> pathlib.Path:
     cands = []
-    # 1. local.properties (本機，不入 repo)
+    # 1. local.properties (this machine; not in the repo)
     lp = ROOT / "local.properties"
     if lp.exists():
         m = re.search(r"sdk\.dir\s*=\s*(.+)", lp.read_text(encoding="utf-8"))
         if m:
             cands.append(pathlib.Path(m.group(1).strip()))
-    # 2. 環境變數 (CI 用這個)
+    # 2. Environment variable (CI uses this)
     for env in ("ANDROID_SDK_ROOT", "ANDROID_HOME"):
         if os.environ.get(env):
             cands.append(pathlib.Path(os.environ[env]))
-    # 3. 常見位置
+    # 3. Common locations
     home = pathlib.Path.home()
     cands += [
         home / "AppData" / "Local" / "Android" / "Sdk",
@@ -54,11 +55,11 @@ def find_sdk() -> pathlib.Path:
     for c in cands:
         if c and (c / "platforms").is_dir():
             return c
-    raise SystemExit("找不到 Android SDK (試過 local.properties / ANDROID_SDK_ROOT / 常見路徑)")
+    raise SystemExit("Android SDK not found (tried local.properties / ANDROID_SDK_ROOT / common paths)")
 
 
 def find_android_jar(sdk: pathlib.Path) -> pathlib.Path:
-    # 跟 app/build.gradle compileSdkVersion，找不到就用最高版 (stub 來，邊版都得)
+    # Follow the compileSdkVersion of app/build.gradle; if not found, use the highest version (it is a stub; any version works)
     want = "android-25"
     gradle = (ROOT / "app" / "build.gradle").read_text(encoding="utf-8")
     m = re.search(r"compileSdkVersion\s+(\d+)", gradle)
@@ -69,11 +70,11 @@ def find_android_jar(sdk: pathlib.Path) -> pathlib.Path:
         key=lambda p: p.name,
     )
     if not plats:
-        raise SystemExit(f"{sdk}/platforms 入面無 android.jar")
+        raise SystemExit(f"no android.jar inside {sdk}/platforms")
     for p in plats:
         if p.name == want:
             return p / "android.jar"
-    print(f"注意：無 {want}，用 {plats[-1].name} 代替 (只是 stub，无影响)");
+    print(f"Note: {want} is missing; {plats[-1].name} stands in for it (only a stub; no effect)");
     return plats[-1] / "android.jar"
 
 
@@ -81,19 +82,19 @@ def main() -> int:
     javac = shutil.which("javac")
     java = shutil.which("java")
     if not javac or not java:
-        raise SystemExit("搵唔到 javac/java，請裝 JDK 11+ 並加落 PATH")
+        raise SystemExit("javac/java not found; install JDK 11+ and add it to the PATH")
     sdk = find_sdk()
     jar = find_android_jar(sdk)
     print(f"SDK: {sdk}  android.jar: {jar.name}")
 
     src = ROOT / "app" / "src" / "main" / "java" / "com" / "open" / "alpha2"
     test = ROOT / "app" / "src" / "test" / "java" / "com" / "open" / "alpha2" / "ApiValidatorTest.java"
-    assert test.exists(), f"測試檔不見了: {test}"
+    assert test.exists(), f"test file gone: {test}"
 
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="apivalidator-test-"))
-    # ApiValidator → HttpServer → WebSocketServer → EventBus 這條 closure
-    # 僅掂到 android.util/Log + java.*，一齊編即可 (不用整個 app)。
-    # 2026-09 橫切簡化後 HttpServer/EventBus 共用 JsonUtil/IOUtil，一齊編。
+    # The ApiValidator -> HttpServer -> WebSocketServer -> EventBus closure
+    # only touches android.util/Log + java.*; compile them together (no need for the whole app).
+    # After the 2026-09 cross-cutting simplification, HttpServer/EventBus share JsonUtil/IOUtil; compile them together.
     files = [
         str(src / "ApiValidator.java"),
         str(src / "JsonUtil.java"),
@@ -111,7 +112,7 @@ def main() -> int:
     if r.returncode != 0:
         print(r.stdout)
         print(r.stderr)
-        raise SystemExit("編譯失敗")
+        raise SystemExit("compilation failed")
 
     r = subprocess.run(
         [java, "-cp", str(tmp) + os.pathsep + str(jar), "com.open.alpha2.ApiValidatorTest"],
@@ -125,7 +126,7 @@ def main() -> int:
         print("FAIL")
         return r.returncode
 
-    # 第二套：ColorTrackTest (ColorTrackLogic 純 java.*，唔經 android stub)。
+    # The second suite: ColorTrackTest (ColorTrackLogic is pure java.*; no android stub).
     testdir = ROOT / "app" / "src" / "test" / "java" / "com" / "open" / "alpha2"
     files2 = [
         str(src / "ColorTrackLogic.java"),
@@ -136,7 +137,7 @@ def main() -> int:
     if r.returncode != 0:
         print(r.stdout)
         print(r.stderr)
-        raise SystemExit("編譯失敗 (ColorTrackTest)")
+        raise SystemExit("compilation failed (ColorTrackTest)")
     r = subprocess.run(
         [java, "-cp", str(tmp), "com.open.alpha2.ColorTrackTest"],
         capture_output=True, text=True,
@@ -149,7 +150,7 @@ def main() -> int:
         print("FAIL")
         return r.returncode
 
-    # 第三套：MusicEqTest (MusicEq 純 java.*，唔經 android stub)。
+    # The third suite: MusicEqTest (MusicEq is pure java.*; no android stub).
     files3 = [
         str(src / "MusicEq.java"),
         str(testdir / "MusicEqTest.java"),
@@ -159,7 +160,7 @@ def main() -> int:
     if r.returncode != 0:
         print(r.stdout)
         print(r.stderr)
-        raise SystemExit("編譯失敗 (MusicEqTest)")
+        raise SystemExit("compilation failed (MusicEqTest)")
     r = subprocess.run(
         [java, "-cp", str(tmp), "com.open.alpha2.MusicEqTest"],
         capture_output=True, text=True,

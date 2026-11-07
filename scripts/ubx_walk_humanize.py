@@ -1,68 +1,92 @@
 #!/usr/bin/env python3
 """
-.ubx 步態擬人化重建：去一格格頓挫 (零依賴，不用 gradle)。
+.ubx gait humanization rebuild: remove the step-by-step stutter (zero
+dependencies, no gradle).
 
-背景：1508999860568.ubx（前進）主步態是 6 個關鍵幀循環兩次，
-每幀槽位 (s+e)*T 長達 500~900ms，move 完還要 hold (e=5) 先跳下幀，
-速度三角波、逐格停 → 目視一格格。手腳對擺相位原檔已有，只是被頓挫遮住。
+Background: the main gait of 1508999860568.ubx (forward) is a loop of 6
+keyframes played twice. Each frame slot (s+e)*T is 500 to 900 ms. After the
+move ends, a hold (e=5) precedes the jump to the next frame. The speed is a
+triangle wave and the motion stops per frame. This shows as a step-by-step
+look. The arm and leg counter-swing phase already exists in the original
+file. The stutter hides it.
 
-做法（保守、安全第一，不發明新步幅）：
-1. 逐軸 Catmull-Rom 插值（步態循環用 ghost 起步＋seam 真鄰居，首尾不斷速；
-   起步/收步用 duplicated endpoint，自然 ease-in/out）。
-2. 每個原間隔細分為 5-tick 子幀（track1 每格 100ms；track0/2 每格 250ms；
-   v2 試過 1 tick/20ms 太密太惡，棄用），s=5、e=0：move 動滿成格，
-   格與格之間零停留，總 tick 守恆（不計 lead-in）。
-3. 開場 2 秒 lead-in：由站直 home pose 慢慢沉入起步 pose（v2 無這段，
-   首格 50ms 直扯 85 格，部機發狂 reboot）。
-4. 2 pass 鄰域平均磨走 CR 過關鍵幀那下曲率突變（步態 wrap，起收段釘死首尾）。
-5. 全部角度 clamp 入 SERVO_CALIBRATION（同 blockly-servo-data.js 一致），
-   防插值 overshoot 整壞舵機。
-5. 非舵機字節（燈 type2/3、ftable、d.d 葉、eblob 非角度字節、aux 副段）
-   全部原樣保留；只重算各層長度（outer/echo/count）。
+Approach (conservative, safety first, no new stride):
+1. Per-axis Catmull-Rom interpolation (the gait loop uses a ghost start plus
+   the real seam neighbors, no speed change at the seam; start and stop use a
+   duplicated endpoint, a natural ease-in/out).
+2. Subdivide each original interval into 5-tick subframes (track1 is 100 ms
+   per tick; track0/2 is 250 ms per tick; v2 tried 1 tick/20 ms, too dense
+   and bad, abandoned), s=5, e=0: the move fills the whole tick, zero dwell
+   between ticks, the total tick count is preserved (excluding the lead-in).
+3. A 2 s opening lead-in: sink slowly from the standing home pose to the
+   start pose (v2 has no such segment; the first tick is 50 ms pulling 85
+   ticks directly, and the robot reboots in panic).
+4. Two passes of neighborhood averaging smooth the curvature jump of the CR
+   crossing a keyframe (the gait wraps; the start and stop segments pin both
+   ends).
+5. Clamp all angles into SERVO_CALIBRATION (identical to
+   blockly-servo-data.js) to stop an interpolation overshoot from damaging
+   the servos.
+6. The non-servo bytes (light type2/3, ftable, d.d leaves, the non-angle
+   bytes of the eblob, the aux subsegment) all stay as-is; only the length
+   of each layer is recomputed (outer/echo/count).
 
-用法：
+Usage:
   python scripts/ubx_walk_humanize.py dump <in.ubx>
   python scripts/ubx_walk_humanize.py humanize <in.ubx> <out.ubx>
 
-驗證：重建後用同檔 parser 回讀（長度/echo/幀數/總時長對比），
-另可用 javac 直編 sdk UbxParser 回讀（見 scripts/verify-ubx.py 註解）。
+Verification: after the rebuild, read the file back with the parser of this
+file (compare the length, the echo, the frame count, the total time). You can
+also compile the sdk UbxParser directly with javac and read it back (see the
+comment in scripts/verify-ubx.py).
 """
 import struct
 import sys
 
-# 同 app/.../blockly-servo-data.js SERVO_CALIBRATION（min/max/home），
-# 插值後 clamp 用，不要超出硬件校準範圍。
+# Same as app/.../blockly-servo-data.js SERVO_CALIBRATION (min/max/home),
+# used for the clamp after interpolation. Do not exceed the hardware
+# calibration range.
 CAL = {
     1: (5, 235), 2: (50, 210), 3: (55, 185), 4: (5, 235), 5: (30, 190),
     6: (55, 185), 7: (100, 200), 8: (20, 220), 9: (35, 230), 10: (35, 215),
     11: (100, 190), 12: (40, 140), 13: (20, 220), 14: (10, 205), 15: (25, 205),
     16: (50, 140), 17: (95, 125), 18: (95, 125), 19: (75, 165), 20: (105, 155),
 }
-SUB_TICKS = 5  # 子幀 tick 數（100ms 級：track1 每格 100ms，track0/2 每格 250ms）
-SUB_S = 5      # 子幀 move 部
-SUB_E = 1      # 子幀 hold 部（預設跟原版節奏；e=0 零停留只限明確版本）
-SMOOTH_PASSES = 0  # 鄰域平均 pass 數（預設不磨；要順滑先開）
-LEAD_TICKS = 0  # 開場 lead-in（預設沒有；官方原檔是即時起步）
-# 開場 lead-in：由站直 home pose 慢速沉入起步 pose K0（只限明確版本，例 LEAD_TICKS=40
-# 即 40 ticks x 50ms = 2000ms；教訓：v2 首格由站直 50ms 直扯 K0 致發狂 reboot）。
-# 預設 0 ＝跟官方即時起步。
+SUB_TICKS = 5  # subframe tick count (100 ms class: track1 is 100 ms per tick, track0/2 is 250 ms per tick)
+SUB_S = 5      # subframe move part
+SUB_E = 1      # subframe hold part (the default follows the original rhythm; e=0 zero dwell is for an explicit version only)
+SMOOTH_PASSES = 0  # neighborhood averaging pass count (the default does not smooth; turn it on first for a smooth result)
+LEAD_TICKS = 0  # opening lead-in (the default has none; the official original file starts at once)
+# Opening lead-in: sink slowly from the standing home pose to the start pose K0
+# (an explicit version only, e.g. LEAD_TICKS=40 is 40 ticks x 50 ms = 2000 ms;
+# lesson: the v2 first tick pulled K0 directly from the standing pose in 50 ms
+# and the robot reboots in panic). The default 0 follows the official instant start.
 LEAD_TICKS = 0
 HOME_POSE = [120, 120, 120, 120, 120, 120, 120, 65, 145, 140,
              120, 120, 175, 95, 100, 120, 120, 120, 120, 120]
-# 步數＋變速（只限明確版本參數化；預設 N_CYCLES=2 即原循環數，SPEEDUP=1 即原速）。
-# 例 8 步：N_CYCLES=4；變速經 timeBase bake 入檔（整數 ms 檔位：20→13，50→33，
-# 約 1.53x；App 變速按鈕播這檔時要留在 1x，不要疊加）。
+# Step count plus speed-up (parameterized for an explicit version only; the
+# default N_CYCLES=2 is the original loop count, SPEEDUP=1 is the original speed).
+# Example 8 steps: N_CYCLES=4. The speed-up is baked into the file through
+# the timeBase (integer ms slots: 20 to 13, 50 to 33, about 1.53x; when the
+# App speed button plays this file it must stay at 1x, do not stack).
 N_CYCLES = 2
 SPEEDUP = 1
-# 步態段弦長勻速重採樣（原 25/45-tick 交替一衝一停，拉勻做等速；格數時長不變）。
-# 預設 0＝不做。
+# Uniform chord-length resampling of the gait segment. The original 25/45-tick
+# alternation is a burst-stop; level it out for a constant speed. The tick
+# count and the duration do not change. The default 0 does not do it.
 UNIFORM_RESAMPLE = 0
-# 收步：尾循環 blend 入站定 STAND（出廠校準 home 位，最穩陣站姿）。
-# 背景：步態尾格是風車手（膊頭 204/37），播完凍住＋慢鬆開，看來似無端擘開；
-# 收起入站定就站定收尾（真機片實證）。預設 0＝不做（跟原檔尾格）。
-# BLEND_ARMS/BLEND_LEGS：手／腳各用尾幾個循環收（手可早過腳開始收）；
-# OUTRO_HOME：id==2 收步段單格手臂按返 HOME（原 O0 擘開 200/40，
-# 播不播都好，留在這裡是計時炸彈）。
+# Stop: blend the last loop into the standing pose STAND (the factory
+# calibrated home position, the steadiest standing pose).
+# Background: the last gait frame is a windmill arm (shoulder 204/37). After
+# playback it freezes and relaxes slowly, so it looks like it opened for no
+# reason. Folding back into the standing pose ends in a steady stand
+# (verified on the real robot). The default 0 does not do it (it follows the
+# last frame of the original file).
+# BLEND_ARMS/BLEND_LEGS: how many last loops the arms / the legs each use to
+# fold back (the arms can start before the legs).
+# OUTRO_HOME: in the single frame of the id==2 stop segment, press the arms
+# back to HOME (the original O0 is open at 200/40; it plays fine either way,
+# but leaving it here is a time bomb).
 END_BLEND = 0
 BLEND_ARMS = 1
 BLEND_LEGS = 1
@@ -126,8 +150,9 @@ def parse_ubx(path):
 
 
 def parse_blist_frames(d, bo):
-    """回 (da_list, timebases)。da_list 每項 {ftab, a, b, chain_raw, blocks}，
-    blocks 只拆 type1，其餘 type 留 raw。"""
+    """Return (da_list, timebases). Each item of da_list is
+    {ftab, a, b, chain_raw, blocks}. Only the type1 blocks are split; the other
+    types stay raw."""
     if le(d, bo) != len(d[bo:bo + le(d, bo)]) and False:
         pass
     nda = le(d, bo + 4)
@@ -215,7 +240,7 @@ def parse_trackh(data):
 
 def frame_angles(frm):
     data = frm["raw"]
-    epos = 80  # 相對 fo
+    epos = 80  # relative to fo
     angs = []
     for gi in range(20):
         o = epos + gi * 8 + 8
@@ -228,7 +253,7 @@ def angles_of_eblob_template(raw):
 
 
 def build_servo_frame(template_raw, s, e, angles):
-    """template_raw 為原幀 fo 起 L1 字節；只改 s/e/20 軸角度字節，其餘照抄。"""
+    """template_raw is the L1 bytes of the original frame from fo. Only the s/e and the 20 axis angle bytes change; the rest is copied as-is."""
     b = bytearray(template_raw)
     struct.pack_into("<i", b, 8, s)
     struct.pack_into("<i", b, 12, e)
@@ -242,14 +267,14 @@ def build_servo_frame(template_raw, s, e, angles):
 
 
 def build_block(template_raw, frame_bytes_list, win=None):
-    """template_raw 為原 block bo 起 bl1 字節；只換幀列，更新 echo/count。
-    win=(start,end) 另計 block 窗口（v4 步數加倍後原窗口不合用；player 忽略，純記帳）。"""
+    """template_raw is the bl1 bytes of the original block from bo. Only the frame list changes; the echo and the count are updated.
+    win=(start,end) sets the block window on its own (after the v4 step doubling the original window no longer fits; the player ignores it, pure bookkeeping)."""
     head = template_raw[:80]  # echo+a+b+c+d[30]+count
     body = b"".join(w32(len(f)) + f for f in frame_bytes_list)
     new_l1 = 80 + len(body)
     out = bytearray()
-    out += w32(new_l1)  # echo（调用方再寫 outer）
-    out += head[4:76]   # a/b/c/d[30]（72B）
+    out += w32(new_l1)  # echo (the caller writes the outer length again)
+    out += head[4:76]   # a/b/c/d[30] (72 B)
     if win is not None:
         struct.pack_into("<i", out, 8, win[0])   # b=start
         struct.pack_into("<i", out, 12, win[1])  # c=end
@@ -273,10 +298,10 @@ def build_chain(items):
 
 
 def build_da(template, new_chain):
-    """template 為 parse_blist_frames 的 da 項；重建整個 d.a（含 outer+echo）。"""
+    """template is the da item of parse_blist_frames. Rebuild the whole d.a (outer + echo included)."""
     ftab = template["ftab"]
     head = bytearray(template["head224"])
-    struct.pack_into("<i", head, 220, len(new_chain))  # h = i-blob 長要跟著改
+    struct.pack_into("<i", head, 220, len(new_chain))  # h = the i-blob length must change with it
     new_l1 = 8 + len(ftab) + 224 + len(new_chain)
     out = w32(new_l1) + w32(new_l1) + w32(len(ftab)) + ftab + bytes(head) + new_chain
     return out
@@ -294,8 +319,8 @@ def catmull(p0, p1, p2, p3, t):
 
 
 def smooth_seq(poses, cyclic, passes=SMOOTH_PASSES):
-    """鄰域平均（半徑 1）：CR 保過關鍵幀但曲率突變，這裡磨埋它。
-    cyclic 步態 wrap 首尾；起收段首尾兩格釘死（保出入 pose 精確銜接）。"""
+    """Neighborhood averaging (radius 1): the CR passes the keyframes but the curvature jumps; smooth that away here.
+    cyclic wraps the gait at the seam. The start and stop segments pin the first and last frames (keep the in/out pose join exact)."""
     n = len(poses)
     for _ in range(passes):
         out = []
@@ -312,9 +337,9 @@ def smooth_seq(poses, cyclic, passes=SMOOTH_PASSES):
 
 
 def smooth_pairs(keys2, ticks, sub_ticks=None):
-    """keys2 首為 ghost（上一 pose），ticks[i] 為 keys2[i]→keys2[i+1] 間隔 tick。
-    每幀即一次過渡（含首幀 ghost→K0），故 n keys 對 n 間隔，總時長守恆。
-    sub_ticks：每子幀 tick（預設 SUB_TICKS；=1 取 1-tick 精細採樣供勻速重參用）。"""
+    """The first of keys2 is the ghost (the previous pose). ticks[i] is the tick count of the keys2[i] to keys2[i+1] interval.
+    Each frame is one transition (the first frame is the ghost to K0), so n keys match n intervals and the total time is preserved.
+    sub_ticks: the ticks per subframe (default SUB_TICKS; =1 takes a 1-tick fine sampling for the uniform resampling)."""
     assert len(keys2) == len(ticks) + 1, (len(keys2), len(ticks))
     st = sub_ticks if sub_ticks else SUB_TICKS
     poses = []
@@ -333,9 +358,9 @@ def smooth_pairs(keys2, ticks, sub_ticks=None):
 
 
 def resample_uniform(fine, n_out):
-    """按關節空間弦長勻速重採樣：fine 為密採樣 pose 列（含起終點），
-    回 n_out 個 pose（不含起點、含終點），總時長不變、每格走等距，
-    消滅原 25/45-tick 交替造成的一衝一停節奏。"""
+    """Uniform-speed resampling by the joint-space chord length. fine is the densely sampled pose list (start and end point included).
+    Return n_out poses (start point out, end point in). The total time is unchanged and each tick travels an equal distance.
+    This removes the burst-stop rhythm of the original 25/45-tick alternation."""
     import math
     cum = [0.0]
     for i in range(1, len(fine)):
@@ -361,7 +386,7 @@ def resample_uniform(fine, n_out):
 
 
 def smooth_cyclic(ckeys, cticks):
-    """步態循環：n keys 對 n 間隔，wrap 首尾，節奏不斷。"""
+    """The gait loop: n keys match n intervals, the seam wraps, the rhythm does not break."""
     assert len(ckeys) == len(cticks)
     n = len(ckeys)
     poses = []
@@ -408,9 +433,9 @@ def dump(path):
 def humanize(in_path, out_path):
     m = parse_ubx(in_path)
     d = m["raw"]
-    # 先算播放序上每個 servo d.a 的首/尾 pose，供 ghost 過渡（跨 track 跳步順滑）。
+    # First work out the first/last pose of each servo d.a in play order, for the ghost transition (a smooth step across tracks).
     order = []  # (track_idx, da_idx)
-    parsed = {}  # (ti, di) -> da（同一物件，id 穩定）
+    parsed = {}  # (ti, di) -> da (the same object, the id is stable)
     for ti, t in enumerate(m["tracks"]):
         for di, da in enumerate(parse_blist_frames(d, t["blist_off"])):
             if da["fh"] > 0 and da["f"] == 0:
@@ -427,11 +452,11 @@ def humanize(in_path, out_path):
     prev_last = None
     first_key = order[0] if order else None
     for key in order:
-        ghost_of[key] = prev_last  # 首個為 None（lead-in 由 HOME 起步）
+        ghost_of[key] = prev_last  # the first is None (the lead-in starts from HOME)
         prev_last = lasts[key]
     pos_in_order = {key: i for i, key in enumerate(order)}
-    # ghost 用重建後尾 pose（串行跟進）：blend 改尾當時，下一段不可以再用原尾
-    # （否則 track1 收 HOME、track2 由舊 W5 起步，中間斷一截——實證捉到）。
+    # The ghost uses the rebuilt tail pose (serial follow-up): when the blend changes the tail, the next segment must not reuse the old tail
+    # (otherwise track1 ends at HOME and track2 starts from the old W5, and the middle drops a chunk - caught by test).
     rebuilt_end = {}
     new_tracks = []
     for ti, t in enumerate(m["tracks"]):
@@ -439,11 +464,11 @@ def humanize(in_path, out_path):
         new_das = []
         for di, da in enumerate(das):
             if da["fh"] == 0 or da["f"] != 0:
-                # 非舵機 d.a：原樣保留（無 servo 鏈可改）
+                # Non-servo d.a: keep it as-is (no servo chain to change)
                 new_das.append(rebuild_da_verbatim(d, da))
                 continue
             blks = parse_chain(da["chain"], da["fh"])
-            # 原內容 tick（v4 cap 用）：type1 全幀 (s+e) 之和
+            # The original content ticks (for the v4 cap): the sum of (s+e) of all type1 frames
             orig_ticks = 0
             for (ty0, data0) in blks:
                 if ty0 == 1:
@@ -470,24 +495,24 @@ def humanize(in_path, out_path):
                 if ty == 1:
                     new_items.append((ty, new_type1))
                 elif ty == 0 and len(data) == 8:
-                    # v4 變速：timeBase 照 SPEEDUP 縮（20→13，50→33）
+                    # v4 speed-up: shrink the timeBase by SPEEDUP (20 to 13, 50 to 33)
                     a0 = le(data, 0)
-                    # loop-cap 跟內容加大：新 cap＝新內容＋原 margin（原 cap－原內容）。
-                    # 不跟會官方播半腰斬（f/i$a 線程 b<cap 停，8 步檔實證）。
+                    # The loop-cap follows the content growth: new cap = new content + the original margin (original cap - original content).
+                    # If it does not follow, the official player cuts the run halfway (the f/i$a thread stops at b < cap; proven on the 8-step file).
                     margin = le(data, 4) - orig_ticks
                     if margin < 0:
                         margin = 0
                     new_cap = new_ticks + margin
                     new_items.append((ty, w32(max(1, round(a0 / SPEEDUP))) + w32(new_cap)))
                 else:
-                    new_items.append((ty, data))  # type2/3 原樣
+                    new_items.append((ty, data))  # type2/3 as-is
             new_chain = build_chain(new_items)
             new_das.append(build_da(da, new_chain))
-        # 重建 b-list
+        # Rebuild the b-list
         body = b"".join(new_das)
         new_blen = 8 + len(body)
         new_blist = w32(new_blen) + w32(len(new_das)) + body
-        # 重建 track（body = echo4+id4+fLen4+ftab+aLen4+aleaf+bLen4+blist）
+        # Rebuild the track (body = echo4+id4+fLen4+ftab+aLen4+aleaf+bLen4+blist)
         ftab, aleaf = t["ftab"], t["aleaf"]
         new_decl = 20 + len(ftab) + len(aleaf) + len(new_blist)
         new_track = (w32(new_decl) + w32(new_decl) + w32(t["id"]) +
@@ -502,7 +527,7 @@ def humanize(in_path, out_path):
     total = len(head) + len(motion) + len(aux)
     out = w32(total) + head[4:] + motion + aux
     open(out_path, "wb").write(out)
-    # 回讀驗證
+    # Read-back check
     m2 = parse_ubx(out_path)
     print("wrote:", out_path, "size:", len(out))
     print("re-parse ok, tracks:", len(m2["tracks"]))
@@ -510,12 +535,12 @@ def humanize(in_path, out_path):
 
 def rebuild_da_verbatim(d, da):
     fp = da["fp"]
-    return d[fp - 4:fp + da["L1"]]  # outer+內容
+    return d[fp - 4:fp + da["L1"]]  # outer + content
 
 
 def rebuild_type1(data, ghost_prev, lead_ticks=0, tid=None):
     blks = parse_trackh(data)
-    # 收集全 d.a 幀序（player 播放序即此序）；每幀即由上一 pose 過渡到本幀。
+    # Collect the frame order of the whole d.a (the player play order is this order). Each frame is a transition from the previous pose to this frame.
     seq = []
     for blk in blks:
         for f in blk["frames"]:
@@ -523,8 +548,8 @@ def rebuild_type1(data, ghost_prev, lead_ticks=0, tid=None):
     keys = [angles_of_eblob_template(f["raw"]) for f in seq]
     ticks = [f["s"] + f["e"] for f in seq]
     n = len(keys)
-    # 步態循環判定：6 格一循環、重複多次（原檔 12 幀 = 2 次）。
-    # v4 擴到 N_CYCLES 次：keys2=[ghost]+cycle*N（seam 是內點，鄰居正確不斷速）。
+    # Gait loop detection: 6 frames per loop, repeated several times (the original file has 12 frames = 2 times).
+    # v4 extends it to N_CYCLES times: keys2 = [ghost] + cycle * N (the seam is an interior point, the neighbors are correct, no speed change).
     cyc = None
     if n >= 6 and n % 6 == 0 and all(k == keys[i % 6] for i, k in enumerate(keys)):
         cyc = (keys[:6], ticks[:6])
@@ -532,18 +557,18 @@ def rebuild_type1(data, ghost_prev, lead_ticks=0, tid=None):
         ck, ct = cyc
         ek = ck * N_CYCLES
         et = ct * N_CYCLES
-        new_ticks = sum(et)  # cap 用：擴充後總內容 tick
+        new_ticks = sum(et)  # for the cap: the total content ticks after the extension
         g = ghost_prev if ghost_prev is not None else ck[-1]
         keys2 = [g] + ek
         if UNIFORM_RESAMPLE:
-            # 密採樣（1-tick）→ 弦長勻速重取樣 → 輕磨：同格數同總時長，速度拉勻
+            # Dense sampling (1 tick) -> uniform chord-length resampling -> a light smooth: the same tick count and total time, the speed levelled
             fine = smooth_seq(smooth_pairs(keys2, et, 1), False)
             n_out = sum(et) // SUB_TICKS
             new_poses = smooth_seq(resample_uniform(fine, n_out), False)
         else:
             new_poses = smooth_seq(smooth_pairs(keys2, et), True)
         if END_BLEND:
-            # 收步：手腳分開收（手早腳遲都得）；起點無縫銜接，終點＝STAND。
+            # Stop: fold the arms and the legs back separately (arms early and legs late is fine); the start joins seamlessly, the end point = STAND.
             cyc_per = len(new_poses) // N_CYCLES
             assert cyc_per * N_CYCLES == len(new_poses), (len(new_poses), N_CYCLES)
             for span_cyc, do_legs in ((BLEND_ARMS, False), (BLEND_LEGS, True)):
@@ -559,9 +584,9 @@ def rebuild_type1(data, ghost_prev, lead_ticks=0, tid=None):
                     else:
                         new_poses[base + j] = [(1 - te) * a + te * b if k < 6 else a
                                                for k, (a, b) in enumerate(zip(row, STAND_POSE))]
-        # 分回原 block 數（tick 均分；窗口按官方格式重計：end=start+ticks，
-        # 下一格 start=end+1，原檔例 0-190/191-381；player 忽略窗口，
-        # 但 alpha2services 為準就要啱）
+        # Split back into the original block count (the ticks divide evenly; the windows are recounted in the official format: end = start + ticks,
+        # the next frame starts at end + 1; the original file example is 0-190/191-381; the player ignores the windows,
+        # but the values must be right if alpha2services is the reference)
         per = len(new_poses) // len(blks)
         groups = [new_poses[i * per:(i + 1) * per] for i in range(len(blks))]
         bt_total = sum(et)
@@ -574,12 +599,12 @@ def rebuild_type1(data, ghost_prev, lead_ticks=0, tid=None):
         tmpl_frames = [b["frames"] for b in blks]
     else:
         if OUTRO_HOME and tid == 2 and len(keys) == 1:
-            # 收步段單格：手臂按返 HOME（原 O0 擘開，播出來就是尾段十字；
-            # 腳本來已站定，成格置 HOME 等於站定 1.25 秒，時長不變）
+            # Single frame of the stop segment: press the arms back to HOME (the original O0 is open; it plays as a cross at the tail;
+            # the legs are already standing, so the whole frame at HOME is a 1.25 s steady stand, the time is unchanged)
             keys = [list(STAND_POSE)]
         if lead_ticks > 0:
-            # 開場：HOME→K0 用 lead_ticks 慢速沉入，取代原首格 slot
-            # （v2 血淚：不加這段會發狂 reboot）
+            # Opening: HOME to K0 sinks slowly over lead_ticks and replaces the slot of the original first frame
+            # (the v2 lesson: without this segment the robot reboots in panic)
             assert ghost_prev is None
             keys2 = [HOME_POSE] + keys
             ticks2 = [lead_ticks] + ticks[1:]
@@ -588,9 +613,9 @@ def rebuild_type1(data, ghost_prev, lead_ticks=0, tid=None):
             keys2 = [ghost] + keys
             ticks2 = ticks
         new_poses = smooth_seq(smooth_pairs(keys2, ticks2), False)
-        # 按每 blk tick 比例分組（lead-in 取代首 blk 首格 slot；總 tick 守恆），
-        # 窗口按官方格式重計（end=start+ticks，下一格 start=end+1；
-        # 原檔例 blk0 0-20、blk1 21-51）
+        # Group by the tick ratio of each blk (the lead-in replaces the slot of the first frame of the first blk; the total ticks are preserved).
+        # The windows are recounted in the official format (end = start + ticks, the next frame starts at end + 1;
+        # the original file example is blk0 0-20, blk1 21-51)
         groups = []
         wins = []
         pos = 0
@@ -610,7 +635,7 @@ def rebuild_type1(data, ghost_prev, lead_ticks=0, tid=None):
         new_ticks = sum(ticks2)
     new_contents = []
     for blk, poses, tfrms, win in zip(blks, groups, tmpl_frames, wins):
-        tmpl = tfrms[-1]["raw"]  # 該 blk 尾幀模板（eblob 雜湊字節同構）
+        tmpl = tfrms[-1]["raw"]  # the last frame template of the blk (the eblob hash bytes are isomorphic)
         fbytes = [build_servo_frame(tmpl, SUB_S, SUB_E, p) for p in poses]
         new_contents.append(build_block(blk["raw"], fbytes, win))
     last_pose = new_poses[-1] if new_poses else None
@@ -618,14 +643,14 @@ def rebuild_type1(data, ghost_prev, lead_ticks=0, tid=None):
 
 
 def chain(path):
-    """官方模型模擬播序證明：逐 track 行入口→鏈（同 Java computePlayOrder 同規則），
-    印每段 tick＋時長＋全檔總時長。原檔 vs 改檔對比用（步數/時長差異一目了然）。"""
+    """Proof of the simulated play order of the official model: walk the entry to the chain per track (the same rules as the Java computePlayOrder).
+    Print the ticks and the time of each segment plus the total time of the whole file. Use it to compare the original file against the changed file (the step count and time differences are plain at a glance)."""
     m = parse_ubx(path)
     d = m["raw"]
     print("chain:", path)
     grand_ms = 0
     for t in m["tracks"]:
-        # 葉 (a,b,c,d)
+        # Leaves (a,b,c,d)
         leaves = []
         ad = t["aleaf"]
         if len(ad) >= 8 and le(ad, 0) == len(ad):
@@ -639,7 +664,7 @@ def chain(path):
                 leaves.append((le(ad, ap + 4), le(ad, ap + 8),
                                le(ad, ap + 12), le(ad, ap + 16)))
                 ap += l1
-        # key (a->d)
+        # Key (a->d)
         keyD = {}
         ft = t["ftab"]
         if len(ft) >= 8 and le(ft, 0) == len(ft):
@@ -652,7 +677,7 @@ def chain(path):
                     continue
                 keyD[le(ft, fp + 4)] = le(ft, fp + 13)
                 fp += l1
-        # 段表（blist 序）：(e, f, ticks, nframes, timeBase)；非 servo 段 ticks/n=0
+        # Segment table (blist order): (e, f, ticks, nframes, timeBase); the non-servo segments have ticks/n=0
         alld = []
         bo = t["blist_off"]
         bp = bo + 8
@@ -684,7 +709,7 @@ def chain(path):
         print("  trk%d:" % t["id"])
         total_ms = 0
         shown = []
-        # entry：(a==-1,b==0) 葉；無即回退解析序（servo 段列）
+        # Entry: the (a==-1, b==0) leaves; if there are none, fall back to the parse order (the servo segment list)
         pending = [lf for lf in leaves if lf[0] == -1 and lf[1] == 0]
         if not pending:
             for i, s in enumerate([s for s in alld if s["f"] == 0]):
@@ -742,8 +767,8 @@ def chain(path):
 
 
 def droptrack(in_path, out_path, keep_ids):
-    """抌走指定外 track（試驗用：驗證收步段是否 spread 元兇）。
-    只重算 motion 層長度，保留段一字不改；keep_ids 以外全抌。"""
+    """Drop the given outer tracks (for a test: check whether the stop segment is the root cause of the spread).
+    Recompute only the length of the motion layer. The kept segments stay byte for byte; everything outside keep_ids is dropped."""
     d = open(in_path, "rb").read()
     ms = 21
     e_len = le(d, 17)
@@ -785,8 +810,8 @@ if __name__ == "__main__":
         droptrack(sys.argv[2], sys.argv[3],
                   set(int(x) for x in sys.argv[4:]))
     elif cmd == "humanize":
-        # humanize <in> <out> [KEY=VAL ...]：覆寫模組參數
-        # （例：8 步普通版 N_CYCLES=4 SPEEDUP=1 SUB_S=5 SUB_E=1 SMOOTH_PASSES=0 LEAD_TICKS=0）
+        # humanize <in> <out> [KEY=VAL ...]: override the module parameters
+        # (example: the 8-step normal version N_CYCLES=4 SPEEDUP=1 SUB_S=5 SUB_E=1 SMOOTH_PASSES=0 LEAD_TICKS=0)
         for arg in sys.argv[4:]:
             k, _, v = arg.partition("=")
             try:

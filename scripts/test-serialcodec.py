@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-SerialFrameCodec 單元測試執行器 (零依賴，不用 JUnit/gradle/SDK)。
+A SerialFrameCodec unit test runner (zero dependencies, no JUnit/gradle/SDK).
 
-同 scripts/test-apivalidator.py 同一格局：不想整斷 `--offline` build，
-所以不經 gradle `test` task。分別：SerialFrameCodec 只掂 java.*，
-連 android.jar stub 都不用找——僅要 PATH 有 javac/java。
+Same layout as scripts/test-apivalidator.py: the `--offline` build must not break,
+so no gradle `test` task. The difference: SerialFrameCodec only touches java.*,
+so even the android.jar stub does not need to be found. Only javac/java in the PATH is needed.
 
-流程：javac 編 SerialFrameCodec + SerialFrameCodecTest → 跑 main() →
-非零 exit = 失敗 (啱 CI 用)。
+Flow: javac compiles SerialFrameCodec + SerialFrameCodecTest, then runs main().
+A non-zero exit is a failure (suitable for CI).
 
-用法: python scripts/test-serialcodec.py
+Usage: python scripts/test-serialcodec.py
 """
 import os
 import pathlib
@@ -25,15 +25,15 @@ def main() -> int:
     javac = shutil.which("javac")
     java = shutil.which("java")
     if not javac or not java:
-        raise SystemExit("搵唔到 javac/java，請裝 JDK 11+ 並加落 PATH")
+        raise SystemExit("javac/java not found. Install JDK 11+ and add it to the PATH")
 
     src = ROOT / "sdk-module" / "hardware-direct" / "src" / "main" / "java" / "com" / "ubtechinc" / "alpha" / "hardware"
     test = ROOT / "sdk-module" / "hardware-direct" / "src" / "test" / "java" / "com" / "ubtechinc" / "alpha" / "hardware" / "SerialFrameCodecTest.java"
-    assert (src / "SerialFrameCodec.java").exists(), f"源檔不見了: {src}"
-    assert test.exists(), f"測試檔不見了: {test}"
+    assert (src / "SerialFrameCodec.java").exists(), f"source file missing: {src}"
+    assert test.exists(), f"test file missing: {test}"
 
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="serialcodec-test-"))
-    # SerialFrameCodec 純 java.* (java.nio/java.util)，不用任何 classpath。
+    # SerialFrameCodec is pure java.* (java.nio/java.util). No classpath is needed.
     files = [
         str(src / "SerialFrameCodec.java"),
         str(test),
@@ -43,7 +43,7 @@ def main() -> int:
     if r.returncode != 0:
         print(r.stdout)
         print(r.stderr)
-        raise SystemExit("編譯失敗")
+        raise SystemExit("compilation failed")
 
     r = subprocess.run(
         [java, "-cp", str(tmp), "com.ubtechinc.alpha.hardware.SerialFrameCodecTest"],

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""全量 .ubx leaf-order 驗證：parse 零失敗＋order 統計＋列出被重排的 track。"""
+"""Full-set .ubx leaf-order check: zero parse failures + the order statistics + the list of reordered tracks."""
 import glob
 import subprocess
 
