@@ -1166,6 +1166,16 @@ const Alpha2Api = (function() {
     return xiaozhiApi('filler_action/set', params);
   }
 
+  function xiaozhiKeyFeedbackGet(params) {
+    // Query the early key feedback switch (default off)
+    return xiaozhiApi('key_feedback/get', params);
+  }
+
+  function xiaozhiKeyFeedbackSet(params) {
+    // Set the early key feedback switch (off = legacy order, on = tick before the volume call)
+    return xiaozhiApi('key_feedback/set', params);
+  }
+
   function xiaozhiMcpConfigGet(params) {
     // Get the MCP disabled list (the master switch is removed, mcpEnabled is always true)
     return xiaozhiApi('mcp_config/get', params);
@@ -1442,6 +1452,8 @@ const Alpha2Api = (function() {
     xiaozhiDisconnect,
     xiaozhiFillerActionGet,
     xiaozhiFillerActionSet,
+    xiaozhiKeyFeedbackGet,
+    xiaozhiKeyFeedbackSet,
     xiaozhiMcpConfigGet,
     xiaozhiMcpConfigSet,
     xiaozhiMcpToolsList,
