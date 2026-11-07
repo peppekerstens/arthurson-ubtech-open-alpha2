@@ -3,8 +3,8 @@ info:
   title: Open Alpha2 WebSocket Events
   version: beta 7
   description: |
-    WebSocket 即時事件總線 (RFC6455) `GET /ws`，由 `WebSocketServer.java:34` + `EventBus.java` + `RobotEventReceiver.java` 驅動。
-    所有 HTTP `/api/*` 操作的非同步結果皆經此推送，無需輪詢。前端 `app-log.js` 全量訂閱。
+    WebSocket live event bus (RFC6455) `GET /ws`, driven by `WebSocketServer.java:34` + `EventBus.java` + `RobotEventReceiver.java`.
+    All async results of HTTP `/api/*` operations are pushed here, no polling needed. The front end `app-log.js` subscribes to all events.
   contact:
     name: Open Alpha2
     url: https://github.com/arthurson/ubtech-open-alpha2
@@ -15,21 +15,21 @@ servers:
   alpha2:
     url: ws://{robotIp}:8888/ws
     protocol: websocket
-    description: 機械人本機 WebSocket
+    description: Robot local WebSocket
     variables:
       robotIp:
         default: 192.168.43.185
-        description: 機械人 IP
+        description: Robot IP
 
 channels:
   /ws:
     subscribe:
-      summary: 訂閱全部即時事件
+      summary: Subscribe to all live events
       operationId: wsSubscribe
       message:
         $ref: '#/components/messages/EventEnvelope'
     publish:
-      summary: 客戶端發送 (目前僅用於 ping/keepalive，業務下行由 server 推送)
+      summary: Client send (currently used only for ping/keepalive, the business downlink is pushed by the server)
       operationId: wsPublish
       message:
         $ref: '#/components/messages/ClientPing'
@@ -38,24 +38,24 @@ components:
   messages:
     EventEnvelope:
       name: EventEnvelope
-      title: 通用事件外殼
+      title: Generic event envelope
       payload:
         type: object
         required: [type, data]
         properties:
           type:
             type: string
-            description: 事件類型
+            description: Event type
             enum:
-              # 2026-09-14 全面重新對照 EventBus.get().publish(...) 實際 call
-              # site (含常量形式如 XiaozhiClient.EVT_STATE) 補齊：修正咗幾個
-              # 同代碼唔對應嘅名 (bt->bt_connection, wifi->wifi_result,
-              # mcp_tool_call->xiaozhi_mcp, xiaozhi_status->xiaozhi_state)，
-              # 刪咗 sonar_distance (代碼冇呢個 event type, 只係 sonar payload
-              # 入面一個 field key, 見下面 examples 已改用 sonar_obstacle) 同
-              # xiaozhi_chat (代碼從未 publish 過，已經拆做
-              # xiaozhi_llm/tts/stt/alert/custom/system 六個獨立 event，一併補
-              # 齊)，加埋十幾個代碼一直有 publish 但呢度冇列嘅 event。
+              # 2026-09-14 full re-check against the real EventBus.get().publish(...) calls
+              # site (including constant forms such as XiaozhiClient.EVT_STATE) completed, fixed a few
+              # names that did not match the code (bt->bt_connection, wifi->wifi_result,
+              # mcp_tool_call->xiaozhi_mcp, xiaozhi_status->xiaozhi_state),
+              # removed sonar_distance (the code has no such event type, it is only a sonar payload
+              # field key, the examples below now use sonar_obstacle) and
+              # xiaozhi_chat (the code never published it, now split into
+              # six independent events xiaozhi_llm/tts/stt/alert/custom/system, all
+              # completed), and added a dozen more events the code has always published but were not listed here.
               - accel
               - action_stop
               - actions_pack
@@ -110,7 +110,7 @@ components:
               - xiaozhi_tts
           data:
             type: object
-            description: 事件負載，依 type 而異
+            description: Event payload, varies by type
           ts:
             type: integer
             format: int64
