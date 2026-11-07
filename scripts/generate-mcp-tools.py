@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-Generate MCP tool definitions from OpenAPI spec + sync table (v2 全自動生成).
+Generate MCP tool definitions from the OpenAPI spec + the sync table (v2 fully automatic generation).
 
-來源:
-  openapi/open-alpha2-openapi.yml (參數約束: type/enum/minimum/maximum/default)
-  openapi/mcp-openapi-sync.yml     (工具清單: description/alias/required/mcp_only)
+Sources:
+  openapi/open-alpha2-openapi.yml (parameter constraints: type/enum/minimum/maximum/default)
+  openapi/mcp-openapi-sync.yml     (tool list: description/alias/required/mcp_only)
 
-輸出:
+Output:
   app/src/main/java/com/open/alpha2/McpToolsGenerated.java
-  - buildTools() 回傳 JSONArray，每個元素 {name, description, inputSchema}
-  - XiaozhiBridge.xiaozhiMcpBridge().listTools() 直接調用，不再手寫 org.json
-  - callTool() 分發邏輯維持手寫（fuzzy match / 硬件直驅無法由 spec 推導）
+  - buildTools() returns a JSONArray, each element {name, description, inputSchema}
+  - XiaozhiBridge.xiaozhiMcpBridge().listTools() calls it directly; no hand-written org.json
+  - the callTool() dispatch logic stays hand-written (the fuzzy match / the hardware direct drive do not derive from the spec)
 
-用法:
-  python scripts/generate-mcp-tools.py           # 寫檔
-  python scripts/generate-mcp-tools.py --check    # CI 用：比對已提交檔，drift 即 exit 1
+Usage:
+  python scripts/generate-mcp-tools.py           # write the file
+  python scripts/generate-mcp-tools.py --check    # CI: compare the committed file; drift is exit 1
 """
 import argparse
 import pathlib
@@ -48,7 +48,7 @@ def resolve_params(params, spec):
 
 
 def java_str(s: str) -> str:
-    # Java 雙引號字串字面值 escaping（檔本身 UTF-8，中文原樣保留）
+    # Java double-quote string literal escaping (the file is UTF-8 itself; Chinese stays as-is)
     return '"' + (
         s.replace("\\", "\\\\")
         .replace('"', '\\"')
@@ -73,11 +73,11 @@ def java_literal(v):
 def load_spec_op(spec, path, method):
     ops = spec.get("paths", {}).get(path)
     if ops is None:
-        raise SystemExit(f"❌ sync 指到不存在的 openapi path: {path}")
+        raise SystemExit(f"❌ sync points to a missing openapi path: {path}")
     op = ops.get(method.lower())
     if op is None:
         avail = [k for k in ops.keys() if isinstance(k, str)]
-        raise SystemExit(f"❌ {path} 無 method {method}（spec 有: {avail}）")
+        raise SystemExit(f"❌ {path} has no method {method} (the spec has: {avail})")
     return op
 
 
@@ -87,20 +87,20 @@ def build_model():
     with open(SYNC, encoding="utf-8") as f:
         sync = yaml12.load(f)
     if str(sync.get("sync_version", "")).split(".")[0] != "2":
-        raise SystemExit(f"❌ mcp-openapi-sync.yml sync_version 須為 2.x（自動生成用），現為 {sync.get('sync_version')}")
+        raise SystemExit(f"❌ the mcp-openapi-sync.yml sync_version must be 2.x (for automatic generation); it is {sync.get('sync_version')}")
     mappings = sync.get("mappings", [])
     seen = set()
     tools = []
     for m in mappings:
         name = m["mcp"]
         if name in seen:
-            raise SystemExit(f"❌ 重複 mcp 名: {name}")
+            raise SystemExit(f"❌ duplicate mcp name: {name}")
         seen.add(name)
         openapi_path = m.get("openapi")
         method = (m.get("method") or "GET").lower()
         desc = (m.get("description") or "").strip()
         if not desc:
-            raise SystemExit(f"❌ {name} 缺 description（LLM-facing 文案須收於 sync 檔）")
+            raise SystemExit(f"❌ {name} has no description (the LLM-facing text must sit in the sync file)")
         props = []  # list of {key,type,desc,enum,minimum,maximum,default,required}
         required = []
         if openapi_path:
@@ -113,20 +113,20 @@ def build_model():
                 o_n = e.get("openapi", mcp_n)
                 wl_openapi_names.add(o_n)
                 if o_n not in spec_params:
-                    raise SystemExit(f"❌ {name}: openapi 參數 '{o_n}' 不在 spec {openapi_path} 內（spec 改名？）")
+                    raise SystemExit(f"❌ {name}: the openapi parameter '{o_n}' is not in the spec {openapi_path} (renamed in the spec?)")
                 sp = spec_params[o_n]
                 schema = sp.get("schema", {}) or {}
                 spec_type = schema.get("type", "string")
-                # type：sync 可覆寫，否則繼承 spec；兩者並存而不同即報錯
+                # type: the sync may override; otherwise it inherits from the spec. Both present and different is an error
                 sync_type = e.get("type")
                 eff_type = sync_type or spec_type
                 if sync_type and sync_type != spec_type:
                     raise SystemExit(
-                        f"❌ {name}.{mcp_n}: sync type {sync_type} ≠ spec type {spec_type}（spec 改型別？先更新 sync）")
+                        f"❌ {name}.{mcp_n}: the sync type {sync_type} != the spec type {spec_type} (the spec changed the type? update the sync first)")
                 if eff_type not in VALID_TYPES:
-                    raise SystemExit(f"❌ {name}.{mcp_n}: 不支援 type {eff_type}")
+                    raise SystemExit(f"❌ {name}.{mcp_n}: unsupported type {eff_type}")
                 eff_desc = e.get("desc", sp.get("description", "") or "")
-                # enum/minimum/maximum/default：sync 覆寫優先，否則繼承 spec
+                # enum/minimum/maximum/default: the sync override wins; otherwise inherit from the spec
                 eff_enum = e.get("enum", schema.get("enum"))
                 eff_min = e.get("minimum", schema.get("minimum"))
                 eff_max = e.get("maximum", schema.get("maximum"))
@@ -140,27 +140,27 @@ def build_model():
                 })
                 if is_req:
                     required.append(mcp_n)
-            # exclude 必須指到 spec 真有、且白名單無的參數（否則 stale）
+            # exclude must name a parameter that the spec truly has and the whitelist does not have (or it is stale)
             for ex in (m.get("exclude") or []):
                 if ex not in spec_params:
-                    raise SystemExit(f"❌ {name}: exclude '{ex}' 不在 spec {openapi_path} 內（已刪除？更新 sync）")
+                    raise SystemExit(f"❌ {name}: the exclude '{ex}' is not in the spec {openapi_path} (deleted? update the sync)")
                 if ex in wl_openapi_names:
-                    raise SystemExit(f"❌ {name}: exclude '{ex}' 同時在 params 白名單內")
-            # spec 有、白名單無、exclude 亦無 = 遺漏，報錯逼表態（加白名單或加 exclude）
+                    raise SystemExit(f"❌ {name}: the exclude '{ex}' is also in the params whitelist")
+            # In the spec, not in the whitelist, and not in exclude = a miss. Error out and force a decision (add to the whitelist or add to exclude)
             uncovered = [k for k in spec_params.keys()
                          if k not in wl_openapi_names and k not in set(m.get("exclude") or [])]
             if uncovered:
                 raise SystemExit(
-                    f"❌ {name}: spec {openapi_path} 新增參數 {uncovered} 未在 sync 表態（加 params 或 exclude）")
+                    f"❌ {name}: the spec {openapi_path} added the parameter {uncovered} and the sync has no decision (add to params or to exclude)")
         else:
-            # openapi:null：params 須全為 mcp_only 式（無 openapi 對應）或空
+            # openapi:null: the params must be all mcp_only style (no openapi counterpart) or empty
             for e in (m.get("params") or []):
                 if "openapi" in e:
-                    raise SystemExit(f"❌ {name}: openapi:null 但 params 列了 openapi 對應 {e}")
+                    raise SystemExit(f"❌ {name}: openapi:null but the params list an openapi counterpart {e}")
                 mcp_n = e["mcp"]
                 eff_type = e.get("type", "string")
                 if eff_type not in VALID_TYPES:
-                    raise SystemExit(f"❌ {name}.{mcp_n}: 不支援 type {eff_type}")
+                    raise SystemExit(f"❌ {name}.{mcp_n}: unsupported type {eff_type}")
                 props.append({
                     "key": mcp_n, "type": eff_type,
                     "desc": str(e.get("desc", "") or ""),
@@ -170,16 +170,16 @@ def build_model():
                 })
                 if bool(e.get("required", False)):
                     required.append(mcp_n)
-        # mcp_only：一律 MCP 獨有
+        # mcp_only: always MCP only
         seen_keys = {p["key"] for p in props}
         for e in (m.get("mcp_only") or []):
             mcp_n = e["mcp"]
             if mcp_n in seen_keys:
-                raise SystemExit(f"❌ {name}: mcp_only '{mcp_n}' 同 params 重名")
+                raise SystemExit(f"❌ {name}: the mcp_only '{mcp_n}' has the same name as a param")
             seen_keys.add(mcp_n)
             eff_type = e.get("type", "string")
             if eff_type not in VALID_TYPES:
-                raise SystemExit(f"❌ {name}.{mcp_n}: 不支援 type {eff_type}")
+                raise SystemExit(f"❌ {name}.{mcp_n}: unsupported type {eff_type}")
             props.append({
                 "key": mcp_n, "type": eff_type,
                 "desc": str(e.get("desc", "") or ""),
@@ -203,20 +203,20 @@ def render_java(tools) -> str:
     L.append("import org.json.JSONObject;")
     L.append("")
     L.append("/**")
-    L.append(" * MCP tool 定義（全部自動生成，切勿手改）。")
+    L.append(" * MCP tool definitions (fully generated; do not edit by hand).")
     L.append(" *")
-    L.append(" * 來源：openapi/open-alpha2-openapi.yml（參數約束）＋")
-    L.append(" * openapi/mcp-openapi-sync.yml（工具清單/description/alias/required）。")
-    L.append(" * 再生：python scripts/generate-mcp-tools.py")
+    L.append(" * Sources: openapi/open-alpha2-openapi.yml (parameter constraints) +")
+    L.append(" * openapi/mcp-openapi-sync.yml (tool list/description/alias/required).")
+    L.append(" * Regenerate: python scripts/generate-mcp-tools.py")
     L.append(" *")
-    L.append(" * 約定：")
-    L.append(" * - inputSchema 參數約束（type/enum/minimum/maximum/default）繼承 spec，")
-    L.append(" *   與 ApiValidator.java 同一套規則；spec 加參數而 sync 未表態會生成失敗")
-    L.append(" *   （見 generator 的 uncovered 檢查），逼兩邊對齊。")
+    L.append(" * Rules:")
+    L.append(" * - The inputSchema parameter constraints (type/enum/minimum/maximum/default) inherit from the spec,")
+    L.append(" *   the same rule set as ApiValidator.java. A spec parameter with no sync decision fails the generation")
+    L.append(" *   (see the generator uncovered check). It forces the two sides to line up.")
     L.append(" * - alias（time_ms→time、enabled→on、distance_cm→distance、speed_ms→speed）")
-    L.append(" *   在此只暴露 MCP 名；callTool() 側讀 MCP 名（見 XiaozhiBridge）。")
-    L.append(" * - LED color/brightness 在 MCP 為 optional（preset=stop 免填，callTool 執行")
-    L.append(" *   required_if），與舊手寫行為一致；spec 側維持必填。")
+    L.append(" *   This side exposes only the MCP name; the callTool() side reads the MCP name (see XiaozhiBridge).")
+    L.append(" * - The LED color/brightness are optional in the MCP (preset=stop needs no fill; callTool runs")
+    L.append(" *   required_if). The same as the old hand-written behaviour. The spec side stays required.")
     L.append(" */")
     L.append("public final class McpToolsGenerated {")
     L.append("    private McpToolsGenerated() {}")
@@ -265,7 +265,7 @@ def render_java(tools) -> str:
         L.append(f"            t.put({java_str('inputSchema')}, s);")
         L.append(f"            tools.put(t);")
         L.append("        }")
-    L.append("        // 2026-09-09：再生漏改 TOOL_COUNT 即靜默錯，runtime 斷言釘死。")
+    L.append("        // 2026-09-09: a regeneration that misses TOOL_COUNT is a silent error; the runtime assertion pins it.")
     L.append("        if (tools.length() != TOOL_COUNT) throw new IllegalStateException(")
     L.append("                \"TOOL_COUNT=\" + TOOL_COUNT + \" but built \" + tools.length());")
     L.append("        return tools;")
@@ -276,23 +276,23 @@ def render_java(tools) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--check", action="store_true", help="只比對，不寫檔（CI 用）")
+    ap.add_argument("--check", action="store_true", help="compare only; do not write the file (CI use)")
     args = ap.parse_args()
     tools = build_model()
     text = render_java(tools)
     if args.check:
         if not OUT.exists():
-            print(f"❌ 缺少生成檔 {OUT.relative_to(ROOT)}，先跑 python scripts/generate-mcp-tools.py")
+            print(f"❌ the generated file {OUT.relative_to(ROOT)} is missing; run python scripts/generate-mcp-tools.py first")
             return 1
         cur = OUT.read_text(encoding="utf-8").replace("\r\n", "\n")
         if cur != text:
             import difflib
-            print("❌ McpToolsGenerated.java drift —— 跑 python scripts/generate-mcp-tools.py 後再 commit：")
+            print("❌ McpToolsGenerated.java drift -- run python scripts/generate-mcp-tools.py and commit again:")
             for line in difflib.unified_diff(cur.splitlines(), text.splitlines(),
                                              "committed", "regenerated", lineterm=""):
                 print(line)
             return 1
-        print(f"✅ MCP tools 一致（{len(tools)} tools 全部由 openapi+sync 生成）")
+        print(f"✅ MCP tools in sync ({len(tools)} tools, all generated from the openapi+sync)")
         return 0
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(text, encoding="utf-8", newline="\n")
