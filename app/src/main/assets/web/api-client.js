@@ -18,246 +18,246 @@ const Alpha2Api = (function() {
 
   // ── action ──────────────────────────────────────────────
   function actionList(params) {
-    // 取回機身內建動作清單 (讀 /sdcard/actions/actionInfo.txt，pure-direct)
+    // Get the robot built-in action list (reads /sdcard/actions/actionInfo.txt, pure-direct)
     return api('action/list', params);
   }
 
   function actionPackCancel(params) {
-    // 取消進行中的動作包下載
+    // Cancel the running action pack download
     return api('action/pack/cancel', params);
   }
 
   function actionPackDownload(params) {
-    // 下載動作包並自動替換 /sdcard/actions（舊改名 actions-backup）
+    // Download the action pack and replace /sdcard/actions (the old one is renamed actions-backup)
     return api('action/pack/download', params);
   }
 
   function actionPackStatus(params) {
-    // 動作包下載進度（state/progress/bytes/total）
+    // Action pack download progress (state/progress/bytes/total)
     return api('action/pack/status', params);
   }
 
   function actionPlay(params) {
-    // 按 fileId/中英文名播內建動作（搶佔式；有同目錄 mp3 會同步播配樂）
+    // Play a built-in action by fileId/Chinese name/English name (preemptive; an mp3 in the same directory plays the music in sync)
     return api('action/play', params);
   }
 
   function actionStop(params) {
-    // 停止當前動作並自動播放回位動作 (STOP_RECOVERY_ACTION_ID)
+    // Stop the current action and auto play the recovery action (STOP_RECOVERY_ACTION_ID)
     return api('action/stop', params);
   }
 
   // ── apk ──────────────────────────────────────────────
   function apkCancel(params) {
-    // 取消進行中的 APK 下載
+    // Cancel the running APK download
     return api('apk/cancel', params);
   }
 
   function apkDownload(params) {
-    // 下載 APK 去 sdcard（Google TTS 指定版本）
+    // Download the APK to sdcard (the pinned Google TTS version)
     return api('apk/download', params);
   }
 
   function apkStatus(params) {
-    // APK 下載進度（state/progress/bytes/total）
+    // APK download progress (state/progress/bytes/total)
     return api('apk/status', params);
   }
 
   // ── audio ──────────────────────────────────────────────
   function audioDiagnose(params) {
-    // AudioTrack 診斷掃描
+    // AudioTrack diagnostic scan
     return api('audio/diagnose', params);
   }
 
   function audioLocalMusicDiscoGet(params) {
-    // 查詢播歌節奏燈開關 (頭 VU 錶眼跟人聲嘴跟大細聲，後端跑)
+    // Query the rhythm-light-while-playing switch (head VU meter eyes follow the voice, mouth follows the loudness, runs on the backend)
     return api('audio/local_music/disco/get', params);
   }
 
   function audioLocalMusicDiscoSet(params) {
-    // 設定播歌節奏燈開關
+    // Set the rhythm-light-while-playing switch
     return api('audio/local_music/disco/set', params);
   }
 
   function audioLocalMusicEqGet(params) {
-    // 查詢共用播放器 EQ 狀態（支援／開關／preset／每 band 頻率＋範圍＋現值）
+    // Query the shared player EQ state (support, switch, preset, per-band frequency, range, and current value)
     return api('audio/local_music/eq/get', params);
   }
 
   function audioLocalMusicEqSet(params) {
-    // 設定共用播放器 EQ（開關／preset／自定每 band mB；播緊即時生效）
+    // Set the shared player EQ (switch, preset, per-band mB custom; live when playing)
     return api('audio/local_music/eq/set', params);
   }
 
   function audioLocalMusicFillerActionGet(params) {
-    // 查詢播歌隨機動作開關
+    // Query the random-action-while-playing switch
     return api('audio/local_music/filler_action/get', params);
   }
 
   function audioLocalMusicFillerActionSet(params) {
-    // 設定播歌隨機動作開關
+    // Set the random-action-while-playing switch
     return api('audio/local_music/filler_action/set', params);
   }
 
   function audioLocalMusicList(params) {
-    // 列出本地音樂檔 (LOCAL_MUSIC_DIR)
+    // List the local music files (LOCAL_MUSIC_DIR)
     return api('audio/local_music/list', params);
   }
 
   function audioLocalMusicPause(params) {
-    // 暫停本地音樂 (可 resume)
+    // Pause the local music (resumable)
     return api('audio/local_music/pause', params);
   }
 
   function audioLocalMusicPlay(params) {
-    // 播放本地音樂檔
+    // Play a local music file
     return api('audio/local_music/play', params);
   }
 
   function audioLocalMusicResume(params) {
-    // 恢復本地音樂播放
+    // Resume the local music playback
     return api('audio/local_music/resume', params);
   }
 
   function audioLocalMusicSeek(params) {
-    // 跳轉本地音樂進度
+    // Jump the local music progress
     return api('audio/local_music/seek', params);
   }
 
   function audioLocalMusicSpectrum(params) {
-    // 取得音樂頻譜 (FFT, MUSIC_SPECTRUM_BANDS 條 0-255)
+    // Get the music spectrum (FFT, MUSIC_SPECTRUM_BANDS bands 0-255)
     return api('audio/local_music/spectrum', params);
   }
 
   function audioLocalMusicStatus(params) {
-    // 查詢本地音樂播放狀態與進度
+    // Query the local music playback state and progress
     return api('audio/local_music/status', params);
   }
 
   function audioLocalMusicStop(params) {
-    // 停止本地音樂
+    // Stop the local music
     return api('audio/local_music/stop', params);
   }
 
   function audioLocalMusicVolume(params) {
     if (params && params.percent != null) assertRange(Number(params.percent), 0, 100, 'percent');
-    // 設定本地音樂音量 (0-100%)
+    // Set the local music volume (0-100%)
     return api('audio/local_music/volume', params);
   }
 
   function audioPlayStart(params) {
-    // 開啟 AudioTrack 播放器
+    // Open the AudioTrack player
     return api('audio/play/start', params);
   }
 
   function audioPlayStop(params) {
-    // 關閉 AudioTrack 播放器
+    // Close the AudioTrack player
     return api('audio/play/stop', params);
   }
 
   function audioRingtonesList(params) {
     if (params && params.type != null) assertEnum(params.type, ['ringtone', 'notification'], 'type');
-    // 列出系統鈴聲/通知聲
+    // List the system ringtones and notification sounds
     return api('audio/ringtones/list', params);
   }
 
   function audioRingtonesPlay(params) {
     if (params && params.type != null) assertEnum(params.type, ['ringtone', 'notification'], 'type');
-    // 按 index 播放系統鈴聲
+    // Play a system ringtone by index
     return api('audio/ringtones/play', params);
   }
 
   function audioRingtonesPlayByTitle(params) {
     if (params && params.type != null) assertEnum(params.type, ['ringtone', 'notification'], 'type');
-    // 按 title 播放系統鈴聲 (跨機穩定)
+    // Play a system ringtone by title (stable across devices)
     return api('audio/ringtones/play_by_title', params);
   }
 
   function audioRingtonesStop(params) {
-    // 停止系統鈴聲播放
+    // Stop the system ringtone playback
     return api('audio/ringtones/stop', params);
   }
 
   function audioTesttone(params) {
-    // 播放測試音 (AudioPlaybackController.playTestTone)
+    // Play a test tone (AudioPlaybackController.playTestTone)
     return api('audio/testtone', params);
   }
 
   function audioVolumeGet(params) {
-    // 取得媒體音量 (STREAM_MUSIC)
+    // Get the media volume (STREAM_MUSIC)
     return api('audio/volume/get', params);
   }
 
   function audioVolumeSet(params) {
-    // 設定媒體音量
+    // Set the media volume
     return api('audio/volume/set', params);
   }
 
   // ── camera ──────────────────────────────────────────────
   function cameraFps(params) {
-    // 查詢相機 FPS 與是否串流中
+    // Query the camera FPS and whether it is streaming
     return api('camera/fps', params);
   }
 
   function cameraInfo(params) {
-    // 查詢當前預覽解像度
+    // Query the current preview resolution
     return api('camera/info', params);
   }
 
   function cameraResolution(params) {
     if (params && params.w != null) assertRange(Number(params.w), 1, 4208, 'w');
     if (params && params.h != null) assertRange(Number(params.h), 1, 3120, 'h');
-    // 設定預覽解像度並重啟相機
+    // Set the preview resolution and restart the camera
     return api('camera/resolution', params);
   }
 
   function cameraShutterSound(params) {
-    // 播放快門提示音 (機器人喇叭)
+    // Play the shutter tone (robot speaker)
     return api('camera/shutter_sound', params);
   }
 
   function cameraSnapshot(params) {
-    // 擷取單幀預覽圖 (base64 JPEG)
+    // Capture a single preview frame (base64 JPEG)
     return api('camera/snapshot', params);
   }
 
   function cameraSnapshotSave(params) {
     if (params && params.w != null) assertRange(Number(params.w), 1, 4208, 'w');
     if (params && params.h != null) assertRange(Number(params.h), 1, 3120, 'h');
-    // 擷取預覽幀並存至 /sdcard/DCIM/Alpha2
+    // Capture the preview frame and save it to /sdcard/DCIM/Alpha2
     return api('camera/snapshot_save', params);
   }
 
   function cameraSupportedSizes(params) {
-    // 列出支援的預覽/拍照尺寸與 FPS 範圍
+    // List the supported preview and photo sizes and the FPS range
     return api('camera/supported_sizes', params);
   }
 
   function cameraTakePhotoSave(params) {
     if (params && params.w != null) assertRange(Number(params.w), 1, 4208, 'w');
     if (params && params.h != null) assertRange(Number(params.h), 1, 3120, 'h');
-    // 完整拍照 (Camera.takePicture, 存檔)
+    // Full photo (Camera.takePicture, saved)
     return api('camera/take_photo_save', params);
   }
 
   function cameraVideoStart(params) {
-    // 開始機端錄影 mp4（有聲優先，搶唔到咪自動轉純畫面）
+    // Start on-device video mp4 (audio first; if it cannot grab the mic, auto switch to video only)
     return api('camera/video/start', params);
   }
 
   function cameraVideoStatus(params) {
-    // 查詢機端錄影狀態（錄緊回經過時間，閒置回上次成品）
+    // Query on-device video state (recording returns the elapsed time, idle returns the last finished file)
     return api('camera/video/status', params);
   }
 
   function cameraVideoStop(params) {
-    // 停止機端錄影（ finalize mp4 並回成品資訊）
+    // Stop on-device video (finalize the mp4 and return the finished info)
     return api('camera/video/stop', params);
   }
 
   function cameraZoom(params) {
     if (params && params.zoom != null) assertRange(Number(params.zoom), 1.0, 5.0, 'zoom');
-    // 設定或查詢相機數位變焦 x1-x5
+    // Set or query the camera digital zoom x1-x5
     return api('camera/zoom', params);
   }
 
@@ -276,7 +276,7 @@ const Alpha2Api = (function() {
     if (params && params.minPixels != null) assertRange(Number(params.minPixels), 10, 22000, 'minPixels');
     if (params && params.turnDb != null) assertRange(Number(params.turnDb), 0, 0.8, 'turnDb');
     if (params && params.closeCoverage != null) assertRange(Number(params.closeCoverage), 0.02, 0.6, 'closeCoverage');
-    // 更新顏色追蹤參數（不啟停；啟動中亦可即時調）
+    // Update the color tracking parameters (no start or stop; they can be tuned live while running)
     return api('color/track/config', params);
   }
 
@@ -295,17 +295,17 @@ const Alpha2Api = (function() {
     if (params && params.minPixels != null) assertRange(Number(params.minPixels), 10, 22000, 'minPixels');
     if (params && params.turnDb != null) assertRange(Number(params.turnDb), 0, 0.8, 'turnDb');
     if (params && params.closeCoverage != null) assertRange(Number(params.closeCoverage), 0.02, 0.6, 'closeCoverage');
-    // 開始純 Java 顏色追蹤（HSV 閾值＋最大 blob＋頭部 19/20 跟色）
+    // Start pure Java color tracking (HSV threshold + largest blob + head 19/20 follow the color)
     return api('color/track/start', params);
   }
 
   function colorTrackStatus(params) {
-    // 查詢顏色追蹤狀態（running／色塊框／頭角度／統計）
+    // Query the color tracking state (running, color blob box, head angles, stats)
     return api('color/track/status', params);
   }
 
   function colorTrackStop(params) {
-    // 停止顏色追蹤（頭停在現位，不自動回中）
+    // Stop the color tracking (the head holds its position, it does not auto return to center)
     return api('color/track/stop', params);
   }
 
@@ -316,12 +316,12 @@ const Alpha2Api = (function() {
     if (params && params.deadband != null) assertRange(Number(params.deadband), 0, 0.5, 'deadband');
     if (params && params.timeMs != null) assertRange(Number(params.timeMs), 20, 2200, 'timeMs');
     if (params && params.maxFaces != null) assertRange(Number(params.maxFaces), 1, 5, 'maxFaces');
-    // 更新人臉追蹤參數（不啟停；啟動中亦可即時調）
+    // Update the face tracking parameters (no start or stop; they can be tuned live while running)
     return api('face/track/config', params);
   }
 
   function faceTrackProbe(params) {
-    // 人臉偵測能力探測（硬件 HAL vs 軟件 FaceDetector）
+    // Face detection capability probe (hardware HAL vs software FaceDetector)
     return api('face/track/probe', params);
   }
 
@@ -332,80 +332,80 @@ const Alpha2Api = (function() {
     if (params && params.deadband != null) assertRange(Number(params.deadband), 0, 0.5, 'deadband');
     if (params && params.timeMs != null) assertRange(Number(params.timeMs), 20, 2200, 'timeMs');
     if (params && params.maxFaces != null) assertRange(Number(params.maxFaces), 1, 5, 'maxFaces');
-    // 開始 Android 內置人臉追蹤（FaceDetector＋頭部 19/20 跟人）
+    // Start the built-in Android face tracking (FaceDetector + head 19/20 follow)
     return api('face/track/start', params);
   }
 
   function faceTrackStatus(params) {
-    // 查詢人臉追蹤狀態（running／人臉框／頭角度／統計）
+    // Query the face tracking state (running, face box, head angles, stats)
     return api('face/track/status', params);
   }
 
   function faceTrackStop(params) {
-    // 停止人臉追蹤（頭停在現位，不自動回中）
+    // Stop the face tracking (the head holds its position, it does not auto return to center)
     return api('face/track/stop', params);
   }
 
   // ── core ──────────────────────────────────────────────
   function batteryStatus(params) {
-    // 查詢電池狀態 (BatteryManager broadcast 緩存)
+    // Query the battery state (BatteryManager broadcast cache)
     return api('battery/status', params);
   }
 
   function btStatus(params) {
-    // 查詢藍牙狀態
+    // Query the Bluetooth state
     return api('bt/status', params);
   }
 
   function chestPage(params) {
     if (params && params.page != null) assertRange(Number(params.page), 0, 2247, 'page');
-    // 讀取指定頁的 128B hex (除錯用)
+    // Read the 128B hex of a given page (for debugging)
     return api('chest/page', params);
   }
 
   function chestUpgrade(params) {
-    // 觸發胸口升級 (讀 /sdcard/AlphaII_CHEST_kernel.bin, 48/49/50 協議)
+    // Start the chest upgrade (reads /sdcard/AlphaII_CHEST_kernel.bin, protocol 48/49/50)
     return api('chest/upgrade', params);
   }
 
   function chestUpgradeAbort(params) {
-    // 中止胸口升級
+    // Abort the chest upgrade
     return api('chest/upgrade/abort', params);
   }
 
   function chestUpgradeResume(params) {
     if (params && params.from != null) assertRange(Number(params.from), 0, 2247, 'from');
-    // 從指定頁恢復升級
+    // Resume the upgrade from a given page
     return api('chest/upgrade/resume', params);
   }
 
   function chestUpgradeStatus(params) {
-    // 查詢胸口升級進度
+    // Query the chest upgrade progress
     return api('chest/upgrade/status', params);
   }
 
   function chestVersion(params) {
-    // 讀胸口 MCU 韌體版本 (sendCommand 51)
+    // Read the chest MCU firmware version (sendCommand 51)
     return api('chest/version', params);
   }
 
   function miscRequestUuid(params) {
-    // 請求機械人 UUID (觸發 broadcast, 結果經 WebSocket robot_uuid)
+    // Request the robot UUID (triggers a broadcast, the result comes via the WebSocket robot_uuid)
     return api('misc/request_uuid', params);
   }
 
   function miscSetUuid(params) {
-    // 修改機械人 UUID (寫 chest EEPROM, cmd 54)
+    // Change the robot UUID (writes the chest EEPROM, cmd 54)
     return api('misc/set_uuid', params);
   }
 
   function status(params) {
-    // 取得 App 與各 Service 綁定狀態
+    // Get the App and each Service binding status
     return api('status', params);
   }
 
   function wifiStatus(params) {
-    // 查詢 WiFi 狀態
+    // Query the WiFi state
     return api('wifi/status', params);
   }
 
@@ -425,24 +425,24 @@ const Alpha2Api = (function() {
 
   function directLedHead(params) {
     if (params && params.color != null) assertRange(Number(params.color), 1, 7, 'color');
-    // 頭燈直驅（color/mode 留空即預設 3/0）
+    // Head light direct drive (color/mode left empty gives the default 3/0)
     return directApi('led/head', params);
   }
 
   function directLedMouth(params) {
     if (params && params.breathe != null) assertRange(Number(params.breathe), 100, 1000, 'breathe');
-    // 嘴燈呼吸直驅（留空預設 500ms）
+    // Mouth light breathe direct drive (left empty gives the default 500ms)
     return directApi('led/mouth', params);
   }
 
   function directLedOff(params) {
-    // 全燈熄直驅
+    // All lights off direct drive
     return directApi('led/off', params);
   }
 
   function directServoAll(params) {
     if (params && params.time != null) assertRange(Number(params.time), 20, 32767, 'time');
-    // 全舵機直驅 (逗號分隔 20 個角度, 預設 time=500)
+    // All servos direct drive (20 comma separated angles, default time=500)
     return directApi('servo/all', params);
   }
 
@@ -450,70 +450,70 @@ const Alpha2Api = (function() {
     if (params && params.id != null) assertRange(Number(params.id), 1, 22, 'id');
     if (params && params.angle != null) assertRange(Number(params.angle), 0, 255, 'angle');
     if (params && params.time != null) assertRange(Number(params.time), 20, 32767, 'time');
-    // 單舵機直驅 (localServices.chestSetSingle, 預設 time=500)
+    // Single servo direct drive (localServices.chestSetSingle, default time=500)
     return directApi('servo/one', params);
   }
 
   function directSonarConfig(params) {
     if (params && params.distance != null) assertRange(Number(params.distance), 0, 100, 'distance');
-    // 胸板聲納配置直發 (subCmd=10)
+    // Chest sonar config direct send (subCmd=10)
     return directApi('sonar/config', params);
   }
 
   function directStatus(params) {
-    // 直驅層狀態 (localServices/chest/head 是否暢通)
+    // Direct drive layer status (whether localServices/chest/head are open)
     return directApi('status', params);
   }
 
   function directUbxList(params) {
-    // 列出 /sdcard/actions 內 .ubx 檔 (name/size)
+    // List the .ubx files in /sdcard/actions (name/size)
     return directApi('ubx/list', params);
   }
 
   function directUbxPlay(params) {
-    // 解析並經 UbxPlayer 直播指定 .ubx (name 或 path 二選一；有同目錄 mp3 會同步播配樂)
+    // Parse and play a given .ubx live via UbxPlayer (name or path, one of the two; an mp3 in the same directory plays the music in sync)
     return directApi('ubx/play', params);
   }
 
   function directUbxSpeed(params) {
     if (params && params.value != null) assertEnumNum(params.value, [0.5, 0.67, 1, 1.5, 2], 'value');
-    // 動作播放變速（舵機+配樂同縮放；黏性，正在播時設會由頭重播即時生效）
+    // Action playback speed (servos + music scale together; sticky, a set while playing restarts from the start at once)
     return directApi('ubx/speed', params);
   }
 
   function directUbxStatus(params) {
-    // UbxPlayer 狀態 (playing/name/sent/total/voice/speed/lastError)
+    // UbxPlayer status (playing/name/sent/total/voice/speed/lastError)
     return directApi('ubx/status', params);
   }
 
   function directUbxStop(params) {
-    // 截停 UbxPlayer (舵機保持末位姿)
+    // Halt UbxPlayer (the servos hold the last pose)
     return directApi('ubx/stop', params);
   }
 
   function ubxList(params) {
-    // 列出 /sdcard/actions 內 .ubx 檔（前端动作 tab 经 /api/alpha2 前缀调用）
+    // List the .ubx files in /sdcard/actions (the front end action tab calls it through the /api/alpha2 prefix)
     return api('ubx/list', params);
   }
 
   function ubxPlay(params) {
-    // 解析並經 UbxPlayer 直播指定 .ubx（搶佔：播新自動停舊；name 或 path 二選一；有同目錄 mp3 會同步播配樂）
+    // Parse and play a given .ubx live via UbxPlayer (preemptive, playing a new one stops the old one; name or path, one of the two; an mp3 in the same directory plays the music in sync)
     return api('ubx/play', params);
   }
 
   function ubxSpeed(params) {
     if (params && params.value != null) assertEnumNum(params.value, [0.5, 0.67, 1, 1.5, 2], 'value');
-    // 動作播放變速（舵機+配樂同縮放；黏性，正在播時設會由頭重播即時生效）
+    // Action playback speed (servos + music scale together; sticky, a set while playing restarts from the start at once)
     return api('ubx/speed', params);
   }
 
   function ubxStatus(params) {
-    // UbxPlayer 狀態 (playing/name/sent/total/voice/speed/lastError)
+    // UbxPlayer status (playing/name/sent/total/voice/speed/lastError)
     return api('ubx/status', params);
   }
 
   function ubxStop(params) {
-    // 截停 UbxPlayer（舵机保持末位姿）
+    // Halt UbxPlayer (the servos hold the last pose)
     return api('ubx/stop', params);
   }
 
@@ -523,86 +523,86 @@ const Alpha2Api = (function() {
     if (params && params.ly != null) assertRange(Number(params.ly), -1, 1, 'ly');
     if (params && params.rx != null) assertRange(Number(params.rx), -1, 1, 'rx');
     if (params && params.ry != null) assertRange(Number(params.ry), -1, 1, 'ry');
-    // 注入搖桿連續量（右搖桿驅頭 19/20）
+    // Inject a stick continuous value (right stick drives head 19/20)
     return api('gamepad/axis', params);
   }
 
   function gamepadBt(params) {
-    // 開／關藍牙（管理 UI 用）
+    // Turn Bluetooth on or off (for the manager UI)
     return api('gamepad/bt', params);
   }
 
   function gamepadConfigGet(params) {
     if (params && params.side != null) assertEnum(params.side, ['pad', 'kb'], 'side');
-    // 查詢按鍵映射（分邊）
+    // Query the key mapping (split by side)
     return api('gamepad/config/get', params);
   }
 
   function gamepadConfigSet(params) {
     if (params && params.side != null) assertEnum(params.side, ['pad', 'kb'], 'side');
     if (params && params.reset != null) assertEnum(params.reset, ['0', '1', 'true', 'false'], 'reset');
-    // 改單鍵映射（或 reset=1 回該邊預設）
+    // Change one key mapping (or reset = 1 to restore that side default)
     return api('gamepad/config/set', params);
   }
 
   function gamepadConnect(params) {
-    // 對已綁定設備發起 HID 連接（bonded 但未連上時用）
+    // Start an HID connect to a bonded device (use it when bonded but not connected)
     return api('gamepad/connect', params);
   }
 
   function gamepadInputGet(params) {
-    // 查詢機身直連輸入開關（分邊）
+    // Query the robot direct input switch (split by side)
     return api('gamepad/input/get', params);
   }
 
   function gamepadInputSet(params) {
     if (params && params.side != null) assertEnum(params.side, ['pad', 'kb'], 'side');
-    // 開／關機身直連輸入（分邊）
+    // Turn the robot direct input on or off (split by side)
     return api('gamepad/input/set', params);
   }
 
   function gamepadKey(params) {
     if (params && params.side != null) assertEnum(params.side, ['pad', 'kb'], 'side');
     if (params && params.action != null) assertEnum(params.action, ['down', 'up'], 'action');
-    // 注入按鍵事件（脚本直調；B 端瀏覽器遙控已移除）
+    // Inject a key event (script direct call; the B-side browser remote is removed)
     return api('gamepad/key', params);
   }
 
   function gamepadPair(params) {
-    // 配對指定 MAC（A 端直連 HID 用）
+    // Pair the given MAC (A-side direct HID use)
     return api('gamepad/pair', params);
   }
 
   function gamepadScan(params) {
-    // 掃描周邊藍牙（A 端配對用，冪等）
+    // Scan the nearby Bluetooth (A-side pairing, idempotent)
     return api('gamepad/scan', params);
   }
 
   function gamepadStatus(params) {
-    // 手柄中心狀態（藍牙＋已接 HID＋映射＋最後事件）
+    // Gamepad center state (Bluetooth + connected HID + mapping + last event)
     return api('gamepad/status', params);
   }
 
   function gamepadUnpair(params) {
-    // 解除綁定（A 端唔要嗰部機時用）
+    // Unbind a device (A-side use, for a device you no longer want)
     return api('gamepad/unpair', params);
   }
 
   // ── led ──────────────────────────────────────────────
   function debugJniLed(params) {
     if (params && params.func != null) assertEnum(params.func, ['off', 'on', 'eye', 'head'], 'func');
-    // 原始 JNI LED 測試 (LedControl.open/ledSetOFF/ledSetOn/ledSetEye/ledSetHead)
+    // Raw JNI LED test (LedControl.open/ledSetOFF/ledSetOn/ledSetEye/ledSetHead)
     return api('debug/jni/led', params);
   }
 
   function debugSerialSend(params) {
     if (params && params.port != null) assertEnum(params.port, ['head', 'chest'], 'port');
-    // 原始序列埠發送測試
+    // Raw serial port send test
     return api('debug/serial/send', params);
   }
 
   function headNoise(params) {
-    // 頭部降噪開關 (HEADER_SEND_NOISE, 0=開 1=關)
+    // Head noise-reduction switch (HEADER_SEND_NOISE, 0 = on, 1 = off)
     return api('head/noise', params);
   }
 
@@ -611,7 +611,7 @@ const Alpha2Api = (function() {
     if (params && params.brightness != null) assertRange(Number(params.brightness), 1, 9, 'brightness');
     if (params && params.p3 != null) assertRange(Number(params.p3), 0, 255, 'p3');
     if (params && params.p4 != null) assertRange(Number(params.p4), 0, 255, 'p4');
-    // 逐粒試燈 - 直接寫眼部 p3/p4 mask (長開)
+    // Per-lamp test - write the eye p3/p4 mask directly (left on)
     return api('led/eye/raw', params);
   }
 
@@ -622,7 +622,7 @@ const Alpha2Api = (function() {
     if (params && params.speed != null) assertRange(Number(params.speed), 50, 500, 'speed');
     if (params && params.p3 != null) assertRange(Number(params.p3), 0, 255, 'p3');
     if (params && params.p4 != null) assertRange(Number(params.p4), 0, 255, 'p4');
-    // 設定眼部 5-mic LED (ledSetEye5Mic)
+    // Set the eye 5-mic LED (ledSetEye5Mic)
     return api('led/eye/set', params);
   }
 
@@ -631,7 +631,7 @@ const Alpha2Api = (function() {
     if (params && params.brightness != null) assertRange(Number(params.brightness), 1, 9, 'brightness');
     if (params && params.p3 != null) assertRange(Number(params.p3), 0, 31, 'p3');
     if (params && params.p4 != null) assertRange(Number(params.p4), 0, 31, 'p4');
-    // 逐粒試燈 - 直接寫頭部 p3/p4 mask (長開)
+    // Per-lamp test - write the head p3/p4 mask directly (left on)
     return api('led/head/raw', params);
   }
 
@@ -642,156 +642,156 @@ const Alpha2Api = (function() {
     if (params && params.speed != null) assertRange(Number(params.speed), 50, 500, 'speed');
     if (params && params.p3 != null) assertRange(Number(params.p3), 0, 31, 'p3');
     if (params && params.p4 != null) assertRange(Number(params.p4), 0, 31, 'p4');
-    // 設定頭部 5-mic LED (ledSetHead5Mic)
+    // Set the head 5-mic LED (ledSetHead5Mic)
     return api('led/head/set', params);
   }
 
   function ledMouthSet(params) {
     if (params && params.preset != null) assertEnum(params.preset, ['breathing', 'off'], 'preset');
     if (params && params.speed != null) assertRange(Number(params.speed), 100, 1000, 'speed');
-    // 設定嘴部 LED (LedControl JNI, 非 AIDL)
+    // Set the mouth LED (LedControl JNI, not AIDL)
     return api('led/mouth/set', params);
   }
 
   function ledMuteSet(params) {
-    // 系統燈試燈 - 胸口 mute 燈開熄 (純點燈，唔掂小智連線；連線/斷線/實體鍵會改寫)
+    // System lamp test - chest mute lamp on and off (pure lamp light, does not touch the Xiaozhi connection; connect, disconnect, or a physical key rewrites it)
     return api('led/mute/set', params);
   }
 
   function ledPadSet(params) {
     if (params && params.key != null) assertEnum(params.key, ['minus', 'plus'], 'key');
-    // 系統燈試燈 - 音量-/+ pad 燈 (14/16) 開熄 (on 唔帶=toggle)
+    // System lamp test - volume minus and plus pad lamp (14/16) on and off (on without a value = toggle)
     return api('led/pad/set', params);
   }
 
   function ledStateGet(params) {
-    // 逐粒試燈 mirror - 讀最後燈態 (硬件 write-only，server 記低最後一轉；未打過=-1，熄咗=0)
+    // Per-lamp test mirror - read the last lamp state (hardware write-only, the server keeps the last write; never written = -1, off = 0)
     return api('led/state/get', params);
   }
 
   function ledWifiSet(params) {
     if (params && params.color != null) assertEnum(params.color, ['red', 'blue', 'off'], 'color');
-    // 系統燈試燈 - wifi 燈紅/藍/熄 (下次 wifi 狀態變會自動校返正)
+    // System lamp test - wifi lamp red or blue or off (auto corrects itself on the next wifi state change)
     return api('led/wifi/set', params);
   }
 
   // ── radio ──────────────────────────────────────────────
   function audioRadioFavoritesAdd(params) {
-    // 收藏電台（已存在即補齊欄位）
+    // Add a favorite radio (if it already exists, fill in the missing fields)
     return api('audio/radio/favorites/add', params);
   }
 
   function audioRadioFavoritesList(params) {
-    // 列出收藏電台（機身持久化）
+    // List the favorite radios (persisted on the device)
     return api('audio/radio/favorites/list', params);
   }
 
   function audioRadioFavoritesRemove(params) {
-    // 取消收藏電台（name 或 stationuuid 任一即可）
+    // Remove a favorite radio (name or stationuuid, either one is enough)
     return api('audio/radio/favorites/remove', params);
   }
 
   function audioRadioPlay(params) {
-    // 按名稱播放電台 (經 resolveRadioStation)
+    // Play a radio by name (via resolveRadioStation)
     return api('audio/radio/play', params);
   }
 
   function audioRadioPlayUrl(params) {
-    // 按直鏈 URL 播放電台 (供瀏覽器 fallback)
+    // Play a radio by direct URL (for the browser fallback)
     return api('audio/radio/play_url', params);
   }
 
   function audioRadioSearch(params) {
-    // 搜尋網絡電台 (Radio Browser API)
+    // Search the internet radio (Radio Browser API)
     return api('audio/radio/search', params);
   }
 
   function audioRadioStatus(params) {
-    // 查詢電台播放狀態（id/name 只在播放時出現）
+    // Query the radio playback state (id and name appear only while playing)
     return api('audio/radio/status', params);
   }
 
   function audioRadioStop(params) {
-    // 停止電台
+    // Stop the radio
     return api('audio/radio/stop', params);
   }
 
   // ── sensor ──────────────────────────────────────────────
   function accelerometerGet(params) {
-    // 查詢加速度計開關與可用性
+    // Query the accelerometer switch and availability
     return api('accelerometer/get', params);
   }
 
   function accelerometerSet(params) {
-    // 開關加速度計串流 (SensorManager)
+    // Toggle the accelerometer stream (SensorManager)
     return api('accelerometer/set', params);
   }
 
   function pirAlertEnabled(params) {
-    // 開關 PIR 警示反應 (紅燈+鈴聲)
+    // Toggle the PIR warning response (red light and bell)
     return api('pir/alert_enabled', params);
   }
 
   function pirGet(params) {
-    // 查詢 PIR 硬件開關＋警示反應開關（面板入頁同步用；硬件讀唔返，係自記態）
+    // Query the PIR hardware switch and warning response switch (used to sync the panel page; the hardware cannot be read back, it is a self-kept state)
     return api('pir/get', params);
   }
 
   function pirSet(params) {
-    // 開關 PIR 人體感應器 (chest cmd 72)
+    // Toggle the PIR human sensor (chest cmd 72)
     return api('pir/set', params);
   }
 
   // ── servo ──────────────────────────────────────────────
   function servoAll(params) {
     if (params && params.time != null) assertRange(Number(params.time), 20, 32767, 'time');
-    // 同時控制全部舵機（20 或 22 顆）
+    // Control all servos at once (20 or 22)
     return api('servo/all', params);
   }
 
   function servoAngle(params) {
     if (params && params.id != null) assertRange(Number(params.id), 1, 22, 'id');
-    // 實際讀取單顆舵機絕對角度（胸 cmd6 live query）
+    // Read one servo absolute angle for real (chest cmd6 live query)
     return api('servo/angle', params);
   }
 
   function servoAngleAll(params) {
-    // 連讀 22 軸絕對角度，每粒即寫回上力（100ms 間隔）
+    // Read all 22 axes of absolute angle in a row, writing each back with torque (100ms apart)
     return api('servo/angle-all', params);
   }
 
   function servoAngleRestore(params) {
     if (params && params.id != null) assertRange(Number(params.id), 1, 22, 'id');
-    // 讀單顆舵機絕對角度並即寫回上力（原子操作）
+    // Read one servo absolute angle and write it back with torque at once (one atomic step)
     return api('servo/angle-restore', params);
   }
 
   function servoBackAngle(params) {
     if (params && params.id != null) assertRange(Number(params.id), 1, 22, 'id');
-    // 實際讀取單顆舵機回讀角度（胸 cmd23/0x17 live query，PC 工具「讀角度 6」同款）
+    // Read one servo read-back angle for real (chest cmd23/0x17 live query, same as the PC tool read angle 6)
     return api('servo/back-angle', params);
   }
 
   function servoBackAngleAll(params) {
-    // 連讀 22 軸回讀角度（cmd23/0x17，無間隔，純讀唔寫回）
+    // Read all 22 axes of read-back angle in a row (cmd23/0x17, no interval, read only and no write back)
     return api('servo/back-angle-all', params);
   }
 
   function servoHardware(params) {
     if (params && params.id != null) assertRange(Number(params.id), 1, 22, 'id');
-    // 讀單顆舵機硬件資訊（胸 cmd33 live query，純讀）
+    // Read one servo hardware info (chest cmd33 live query, read only)
     return api('servo/hardware', params);
   }
 
   function servoHardwareAll(params) {
-    // 一鍵讀全部 22 軸舵機硬件資訊（cmd33，純讀）
+    // Read all 22 axes of servo hardware info in one pass (cmd33, read only)
     return api('servo/hardware-all', params);
   }
 
   function servoModifyId(params) {
     if (params && params.id != null) assertRange(Number(params.id), 1, 22, 'id');
     if (params && params.newId != null) assertRange(Number(params.newId), 1, 22, 'newId');
-    // 修改單顆舵機 ID（胸 cmd10，payload [舊id][新id]，掉電保持）
+    // Change one servo ID (chest cmd10, payload [oldId][newId], kept after a power cut)
     return api('servo/modify-id', params);
   }
 
@@ -800,29 +800,29 @@ const Alpha2Api = (function() {
     if (params && params.angle != null) assertRange(Number(params.angle), 0, 255, 'angle');
     if (params && params.time != null) assertRange(Number(params.time), 20, 32767, 'time');
     if (params && params.trim != null) assertRange(Number(params.trim), -1000, 1000, 'trim');
-    // 控制單顆舵機角度（cmd05 單發；可選連 trim 經 cmd12 寫入 chest EEPROM）
+    // Control one servo angle (cmd05 single send; optional trim write to chest EEPROM via cmd12)
     return api('servo/one', params);
   }
 
   function servoRead(params) {
     if (params && params.id != null) assertRange(Number(params.id), 1, 22, 'id');
-    // 實際讀取單顆舵機 trim（胸 cmd13 live query，官方 tuner 同款）
+    // Read one servo trim for real (chest cmd13 live query, same as the official tuner)
     return api('servo/read', params);
   }
 
   function servoReadAll(params) {
-    // 逐顆實際讀取全部 22 軸 trim（tuner 掃描 offset 用，官方節奏約十幾 ms 一粒）
+    // Read all 22 axes of trim for real, one by one (for the tuner offset scan; the official pace is about ten or so ms per servo)
     return api('servo/read-all', params);
   }
 
   function servoSonar(params) {
     if (params && params.distance != null) assertRange(Number(params.distance), 0, 100, 'distance');
-    // 設定聲納觸發距離閾值 (chest_configureSonar, cmd 4 sub 10)
+    // Set the sonar trigger distance threshold (chest_configureSonar, cmd 4 sub 10)
     return api('servo/sonar', params);
   }
 
   function servoSonarGet(params) {
-    // 查詢聲納觸發距離閾值（0＝關；面板入頁同步開關用）
+    // Query the sonar trigger distance threshold (0 = off; used to sync the switch on the panel page)
     return api('servo/sonar/get', params);
   }
 
@@ -845,28 +845,28 @@ const Alpha2Api = (function() {
 
   function servoUpgrade(params) {
     if (params && params.id != null) assertRange(Number(params.id), 1, 22, 'id');
-    // 燒錄單顆舵機韌體（胸 cmd16/17，上行 134 回報；高危）
+    // Flash one servo firmware (chest cmd16/17, uplink 134 report; high risk)
     return api('servo/upgrade', params);
   }
 
   function servoUpgradeAbort(params) {
-    // 中止舵機韌體升級（只停後續頁，已寫入不回滾）
+    // Abort the servo firmware upgrade (stops only the following pages; written pages are not rolled back)
     return api('servo/upgrade/abort', params);
   }
 
   function servoUpgradeStatus(params) {
-    // 查詢舵機韌體升級進度
+    // Query the servo firmware upgrade progress
     return api('servo/upgrade/status', params);
   }
 
   function servoVersion(params) {
     if (params && params.id != null) assertRange(Number(params.id), 1, 22, 'id');
-    // 讀單顆舵機韌體版本（胸 cmd14 live query，純讀）
+    // Read one servo firmware version (chest cmd14 live query, read only)
     return api('servo/version', params);
   }
 
   function servoVersionAll(params) {
-    // 一鍵讀全部 22 軸舵機韌體版本（cmd14，純讀）
+    // Read all 22 axes of servo firmware version in one pass (cmd14, read only)
     return api('servo/version-all', params);
   }
 
@@ -877,72 +877,72 @@ const Alpha2Api = (function() {
   }
 
   function speechCurTtsEngine(params) {
-    // 查詢當前 Android TTS 引擎
+    // Query the current Android TTS engine
     return api('speech/cur_tts_engine', params);
   }
 
   function speechCurTtsFollowVosk(params) {
-    // 查詢 TTS 自動跟隨 Vosk 開關（手動／自動）
+    // Query the TTS auto-follow Vosk switch (manual or auto)
     return api('speech/cur_tts_follow_vosk', params);
   }
 
   function speechCurTtsLang(params) {
-    // 查詢 TTS 卡語言選擇
+    // Query the TTS card language choice
     return api('speech/cur_tts_lang', params);
   }
 
   function speechCurTtsVoice(params) {
-    // 查詢 TTS 卡聲音選擇
+    // Query the TTS card voice choice
     return api('speech/cur_tts_voice', params);
   }
 
   function speechGetDefaultGrammar(params) {
-    // 取得預設 BNF 文法檔內容 (assets/semantic/default_grammar.bnf；文法本身已無處上載，僅供參考)
+    // Get the default BNF grammar file content (assets/semantic/default_grammar.bnf; the grammar itself has no upload entry now, for reference only)
     return api('speech/get_default_grammar', params);
   }
 
   function speechOfflineAutoSwitch(params) {
-    // 查詢或設定離線自動切換 (依 hasRealInternet() 探測)
+    // Query or set the offline auto switch (probed by hasRealInternet())
     return api('speech/offline_auto_switch', params);
   }
 
   function speechSemanticSimulate(params) {
-    // 本地語意配對模擬（純本地 1000 問法配對，不經任何引擎）
+    // Local semantic match test (pure local 1000-phrase match, no engine involved)
     return api('speech/semantic_simulate', params);
   }
 
   function speechSetMic(params) {
-    // 轉移麥克風擁有權（底層 setWakeState 已無對象，恒回成功；只記 app 側旗標）
+    // Move the microphone ownership (the low level setWakeState has no target now, always returns success; only the app-side flag is kept)
     return api('speech/set_mic', params);
   }
 
   function speechSetMicKeepHeld(params) {
-    // 持續搶佔麥克風開關（底層已無對象；enforcer 空轉，只記旗標）
+    // Keep-holding the microphone switch (the low level has no target now; the enforcer idles, only the flag is kept)
     return api('speech/set_mic_keep_held', params);
   }
 
   function speechSetTtsEngine(params) {
-    // 切換 Android TTS 引擎 (async, 需 poll cur_tts_engine)
+    // Switch the Android TTS engine (async, poll cur_tts_engine)
     return api('speech/set_tts_engine', params);
   }
 
   function speechSetTtsFollowVosk(params) {
-    // 設定 TTS 自動跟隨 Vosk 開關（手動／自動）
+    // Set the TTS auto-follow Vosk switch (manual or auto)
     return api('speech/set_tts_follow_vosk', params);
   }
 
   function speechSetTtsLang(params) {
-    // 設定 TTS 卡語言選擇 (BCP-47，空=沿用引擎目前語言，對話 TTS 即時跟)
+    // Set the TTS card language choice (BCP-47; empty = keep the engine current language, dialogue TTS follows at once)
     return api('speech/set_tts_lang', params);
   }
 
   function speechSetTtsVoice(params) {
-    // 設定 TTS 卡聲音選擇 (空=該語言預設聲，對話 TTS 即時跟；轉引擎/轉語言會清)
+    // Set the TTS card voice choice (empty = the language default voice, dialogue TTS follows at once; switching engine or language clears it)
     return api('speech/set_tts_voice', params);
   }
 
   function speechStop(params) {
-    // 停止所有語音播放（機身 TTS、Android TTS、小智語音）
+    // Stop all speech playback (robot TTS, Android TTS, Xiaozhi voice)
     return api('speech/stop', params);
   }
 
@@ -950,55 +950,55 @@ const Alpha2Api = (function() {
     if (params && params.engine != null) assertEnum(params.engine, ['android'], 'engine');
     if (params && params.pitch != null) assertRange(Number(params.pitch), 0.5, 2.0, 'pitch');
     if (params && params.rate != null) assertRange(Number(params.rate), 0.5, 2.0, 'rate');
-    // 播 TTS（恆用 Android 系統 TTS）
+    // Play TTS (always the Android system TTS)
     return api('speech/tts', params);
   }
 
   function speechTtsEngines(params) {
-    // 列出系統安裝的 Android TTS 引擎包名
+    // List the installed Android TTS engine package names
     return api('speech/tts_engines', params);
   }
 
   function speechTtsLanguages(params) {
     if (params && params.ui_lang != null) assertEnum(params.ui_lang, ['zh', 'en'], 'ui_lang');
-    // 列出 Android TTS 可用語言
+    // List the usable Android TTS languages
     return api('speech/tts_languages', params);
   }
 
   function speechTtsProsodyGet(params) {
-    // 查詢 TTS 音高／語速預設值 (1.0＝正常)
+    // Query the TTS pitch and rate defaults (1.0 = normal)
     return api('speech/tts_prosody/get', params);
   }
 
   function speechTtsProsodySet(params) {
     if (params && params.pitch != null) assertRange(Number(params.pitch), 0.5, 2.0, 'pitch');
     if (params && params.rate != null) assertRange(Number(params.rate), 0.5, 2.0, 'rate');
-    // 設定 TTS 音高／語速預設值 (持久化；speech/tts 無帶 pitch/rate 時用，對話 TTS 亦跟)
+    // Set the TTS pitch and rate defaults (persisted; used when speech/tts carries no pitch or rate, dialogue TTS follows too)
     return api('speech/tts_prosody/set', params);
   }
 
   function speechTtsVoices(params) {
-    // 列出某語言的可用聲音 (Google TTS 每個語言多把聲)
+    // List the usable voices of a language (Google TTS has many voices per language)
     return api('speech/tts_voices', params);
   }
 
   function voskCatalog(params) {
-    // 全部可下載 Vosk 模型（含已下載旗，實驗 tab 下載卡用）
+    // All downloadable Vosk models (with the downloaded flag, for the experiment tab download card)
     return api('vosk/catalog', params);
   }
 
   function voskDownload(params) {
-    // 下載 Vosk 模型並自動 unzip 到 sdcard（完了自動 load）
+    // Download the Vosk model and unzip it to sdcard (auto load when done)
     return api('vosk/download', params);
   }
 
   function voskDownloadCancel(params) {
-    // 取消進行中的 Vosk 模型下載
+    // Cancel the running Vosk model download
     return api('vosk/download_cancel', params);
   }
 
   function voskDownloadStatus(params) {
-    // Vosk 模型下載進度（state/lang/model/progress/bytes/total）
+    // Vosk model download progress (state, lang, model, progress, bytes, total)
     return api('vosk/download_status', params);
   }
 
@@ -1008,32 +1008,32 @@ const Alpha2Api = (function() {
   }
 
   function voskLoad(params) {
-    // 載入指定 Vosk model (背景幾秒，一次一粒)
+    // Load the given Vosk model (background, a few seconds, one at a time)
     return api('vosk/load', params);
   }
 
   function voskModels(params) {
-    // 列出 sdcard 掃描到的 Vosk model (標準 am/final.mdl 或官方扁平包頂層 final.mdl 都算)
+    // List the Vosk models found on sdcard (a standard am/final.mdl or the official flat package top-level final.mdl both count)
     return api('vosk/models', params);
   }
 
   function voskStart(params) {
-    // 開始 Vosk 聆聽 (16kHz mic，成句經 asr_result event)
+    // Start Vosk listening (16kHz mic, sentences via the asr_result event)
     return api('vosk/start', params);
   }
 
   function voskStatus(params) {
-    // Vosk 狀態 (state/model/lang/listening)
+    // Vosk state (state, model, lang, listening)
     return api('vosk/status', params);
   }
 
   function voskStop(params) {
-    // 停止 Vosk 聆聽 (model 繼續駐留)
+    // Stop Vosk listening (the model stays loaded)
     return api('vosk/stop', params);
   }
 
   function voskUnload(params) {
-    // 卸載 Vosk model (釋放記憶體)
+    // Unload the Vosk model (frees memory)
     return api('vosk/unload', params);
   }
 
@@ -1057,68 +1057,68 @@ const Alpha2Api = (function() {
   // ── stream ──────────────────────────────────────────────
   // ── system ──────────────────────────────────────────────
   function systemAuthClear(params) {
-    // 清除面板 token（停用認證；已啟用要舊值證明）
+    // Clear the panel token (disable auth; enabled, prove the old value)
     return sysApi('auth/clear', params);
   }
 
   function systemAuthSet(params) {
-    // 設定／更改面板 token（未啟用直接設；已啟用要舊值證明）
+    // Set or change the panel token (not enabled, set it directly; enabled, prove the old value)
     return sysApi('auth/set', params);
   }
 
   function systemAuthStatus(params) {
-    // 面板 token 是否已啟用（實驗 tab 認證；永遠開放）
+    // Whether the panel token is enabled (experiment tab auth; always open)
     return sysApi('auth/status', params);
   }
 
   function systemAuthVerify(params) {
-    // 校驗候選 token（前端解鎖按鈕用；永遠回 200，結果在 valid）
+    // Check a candidate token (for the front end unlock button; always returns 200, the result is in valid)
     return sysApi('auth/verify', params);
   }
 
   function systemDiscover(params) {
-    // 一次搜齊機器資料（app/胸固件/UUID/電量/聲納/PIR/位姿；慢 query 各 1.5s 上限）
+    // Search all the machine data at once (app, chest firmware, UUID, battery, sonar, PIR, pose; each slow query capped at 1.5s)
     return sysApi('discover', params);
   }
 
   function systemMusicList(params) {
-    // (system) 列出 /sdcard/Music 音樂清單 (MusicController)
+    // (system) List the /sdcard/Music music list (MusicController)
     return sysApi('music/list', params);
   }
 
   function systemMusicPause(params) {
-    // (system) 暫停音樂
+    // (system) Pause the music
     return sysApi('music/pause', params);
   }
 
   function systemMusicPlay(params) {
-    // (system) 播放指定路徑音樂
+    // (system) Play music at a given path
     return sysApi('music/play', params);
   }
 
   function systemMusicResume(params) {
-    // (system) 恢復音樂
+    // (system) Resume the music
     return sysApi('music/resume', params);
   }
 
   function systemMusicSeek(params) {
-    // (system) 跳轉進度
+    // (system) Jump the progress
     return sysApi('music/seek', params);
   }
 
   function systemMusicStatus(params) {
-    // (system) 查詢播放狀態
+    // (system) Query the playback state
     return sysApi('music/status', params);
   }
 
   function systemMusicStop(params) {
-    // (system) 停止音樂
+    // (system) Stop the music
     return sysApi('music/stop', params);
   }
 
   function systemMusicVolume(params) {
     if (params && params.percent != null) assertRange(Number(params.percent), 0, 100, 'percent');
-    // (system) 設定音量 0-100%
+    // (system) Set the volume 0-100%
     return sysApi('music/volume', params);
   }
 
@@ -1126,104 +1126,114 @@ const Alpha2Api = (function() {
   // ── websocket ──────────────────────────────────────────────
   // ── xiaozhi ──────────────────────────────────────────────
   function xiaozhiActivationStatus(params) {
-    // 查詢配對/啟用流程狀態 (輪詢)
+    // Query the pairing and activation flow state (polling)
     return xiaozhiApi('activation_status', params);
   }
 
   function xiaozhiAutoMode(params) {
-    // 一鍵全自動 (連線+常開麥克風)
+    // One-click fully automatic (connection + always-open mic)
     return xiaozhiApi('auto_mode', params);
   }
 
   function xiaozhiBootVoiceGet(params) {
-    // 讀取開機語音模式三選一（off/xiaozhi/vosk，下次開app生效）
+    // Read the boot voice mode, one of three (off, xiaozhi, vosk, effective the next app open)
     return xiaozhiApi('boot_voice/get', params);
   }
 
   function xiaozhiBootVoiceSet(params) {
     if (params && params.mode != null) assertEnum(params.mode, ['off', 'xiaozhi', 'vosk'], 'mode');
-    // 設定開機語音模式三選一（下次開app生效）
+    // Set the boot voice mode, one of three (effective the next app open)
     return xiaozhiApi('boot_voice/set', params);
   }
 
   function xiaozhiConnect(params) {
-    // 啟動 OTA 啟用與 WebSocket 連線 (背景線程，需輪詢 activation_status)
+    // Start OTA activation and the WebSocket connect (background thread, poll activation_status)
     return xiaozhiApi('connect', params);
   }
 
   function xiaozhiDisconnect(params) {
-    // 斷開小智連線並釋放 mic
+    // Disconnect the Xiaozhi connection and release the mic
     return xiaozhiApi('disconnect', params);
   }
 
   function xiaozhiFillerActionGet(params) {
-    // 查詢小智講嘢時隨機動作開關 (filler gesture at TTS start, default true)
+    // Query the random-action-when-Xiaozhi-speaks switch (a filler gesture at TTS start, default true)
     return xiaozhiApi('filler_action/get', params);
   }
 
   function xiaozhiFillerActionSet(params) {
-    // 設定小智講嘢時隨機動作開關 (filler gesture at TTS start, persistent)
+    // Set the random-action-when-Xiaozhi-speaks switch (a filler gesture at TTS start, persistent)
     return xiaozhiApi('filler_action/set', params);
   }
 
   function xiaozhiMcpConfigGet(params) {
-    // 取得 MCP disabled 清單（總開關已移除，mcpEnabled 恆為 true）
+    // Get the MCP disabled list (the master switch is removed, mcpEnabled is always true)
     return xiaozhiApi('mcp_config/get', params);
   }
 
   function xiaozhiMcpConfigSet(params) {
-    // 設定單一工具開關（總開關已移除：不帶 tool 的寫入會存但無實效）
+    // Set one tool switch (the master switch is removed, a write without tool is stored but has no effect)
     return xiaozhiApi('mcp_config/set', params);
   }
 
   function xiaozhiMcpToolsList(params) {
-    // 列出全部 MCP 工具含 enabled 狀態
+    // List all MCP tools with the enabled state
     return xiaozhiApi('mcp_tools/list', params);
   }
 
   function xiaozhiMicStart(params) {
-    // 開啟小智麥克風採集與 Opus 上行 + 播放下行
+    // Open the Xiaozhi mic capture with Opus uplink and playback downlink
     return xiaozhiApi('mic/start', params);
   }
 
   function xiaozhiMicStop(params) {
-    // 關閉小智麥克風並交還給 wake-word 引擎
+    // Close the Xiaozhi mic and return it to the wake-word engine
     return xiaozhiApi('mic/stop', params);
   }
 
   function xiaozhiOtaConfigGet(params) {
-    // 取得 OTA / 自架 Server 配置
+    // Get the OTA or self-hosted Server config
     return xiaozhiApi('ota_config/get', params);
   }
 
   function xiaozhiOtaConfigSet(params) {
-    // 設定自架 Server (需先 disconnect)
+    // Set the self-hosted Server (disconnect first)
     return xiaozhiApi('ota_config/set', params);
   }
 
+  function xiaozhiPttGet(params) {
+    // Query the push-to-talk switch (default off)
+    return xiaozhiApi('ptt/get', params);
+  }
+
+  function xiaozhiPttSet(params) {
+    // Set the push-to-talk switch (off = legacy mute key, on = push-to-talk turns)
+    return xiaozhiApi('ptt/set', params);
+  }
+
   function xiaozhiSendText(params) {
-    // 發送文字對話 (不經麥克風，source=text + session_id)
+    // Send a text message (no mic, source=text + session_id)
     return xiaozhiApi('send_text', params);
   }
 
   function xiaozhiStatus(params) {
-    // 查詢小智連線狀態
+    // Query the Xiaozhi connection state
     return xiaozhiApi('status', params);
   }
 
   function xiaozhiSupported(params) {
-    // 查詢小智語音支援 (sdkInt / audioSupported)
+    // Query the Xiaozhi voice support (sdkInt / audioSupported)
     return xiaozhiApi('supported', params);
   }
 
   function xiaozhiTtsConfigGet(params) {
-    // 取得小智 TTS 引擎選擇（只剩 xiaozhi/android；iflytek/nuance 已移除）
+    // Get the Xiaozhi TTS engine choice (only xiaozhi and android remain; iflytek and nuance are removed)
     return xiaozhiApi('tts_config/get', params);
   }
 
   function xiaozhiTtsConfigSet(params) {
     if (params && params.engine != null) assertEnum(params.engine, ['xiaozhi', 'android'], 'engine');
-    // 設定小智 TTS 引擎（只收 xiaozhi/android；舊值直接拒收）
+    // Set the Xiaozhi TTS engine (only xiaozhi and android are accepted; an old value is refused at once)
     return xiaozhiApi('tts_config/set', params);
   }
 
@@ -1439,6 +1449,8 @@ const Alpha2Api = (function() {
     xiaozhiMicStop,
     xiaozhiOtaConfigGet,
     xiaozhiOtaConfigSet,
+    xiaozhiPttGet,
+    xiaozhiPttSet,
     xiaozhiSendText,
     xiaozhiStatus,
     xiaozhiSupported,
