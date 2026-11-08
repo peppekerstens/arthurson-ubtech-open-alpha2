@@ -1,7 +1,7 @@
 {
   "version": 2,
   "lang": "fr",
-  "_comment": "v2 grouped格式, 同中英西版同一個schema (見 SemanticMatcherBase.load)。85 ACTION（通用法文答案5句，同西版同op/actionId）＋160 CHAT（電影對白/歌詞/名人名言/潮語各40組，每組日常問法＋5個原生法文答案，800句來自france800.txt；id: fr.mov/fr.son/fr.cit/fr.arg）。",
+  "_comment": "v2 grouped format, same schema as the zh/en/es versions (see SemanticMatcherBase.load). 85 ACTION (5 generic French answers, same op/actionId as the Spanish version) + 160 CHAT (40 groups each of movie lines/lyrics/famous quotes/slang, everyday questions + 5 native French answers per group, 800 lines from france800.txt; ids: fr.mov/fr.son/fr.cit/fr.arg).",
   "intents": [
     {
       "a": [

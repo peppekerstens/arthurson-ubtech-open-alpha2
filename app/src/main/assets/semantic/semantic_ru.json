@@ -1,7 +1,7 @@
 {
   "version": 2,
   "lang": "ru",
-  "_comment": "85 ACTION（id/op/slot/actionId全同英文版；每组俄文5问法＋5答案）＋200 日常CHAT（ru.daily.001-200，每组5问法＋5答案，动作全__RANDOM__）。fallback后加。",
+  "_comment": "85 ACTION (id/op/slot/actionId same as the English version; 5 Russian questions + 5 answers per group) + 200 daily CHAT (ru.daily.001-200, 5 questions + 5 answers per group, all actions __RANDOM__). Added after the fallback.",
   "intents": [
     {
       "id": "ru.action.applaud",
