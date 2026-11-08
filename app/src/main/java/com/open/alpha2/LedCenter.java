@@ -23,6 +23,10 @@ import java.util.Map;
 public final class LedCenter {
     private static final String TAG = "LedCenter";
 
+    // alpha2-brain#93: default brightness, the middle of the 1-9 range.
+    // Used by the LED MCP tools when a call gives a color but no brightness.
+    private static final int LED_DEFAULT_BRIGHTNESS = 5;
+
     private final Context appContext;
     private final Handler mainHandler;
     private final RingtoneCenter ringtoneCenter;
@@ -1253,11 +1257,11 @@ public final class LedCenter {
         if ("stop".equals(preset)) {
             code = MainActivity.directCode(DirectLedController.stopHead5Mic());
         } else {
-            if (!arguments.has("color") || !arguments.has("brightness")) {
-                return SonarCenter.McpResult.err("color and brightness are required unless preset=stop");
+            if (!arguments.has("color")) {
+                return SonarCenter.McpResult.err("color is required unless preset=stop");
             }
             int color = arguments.optInt("color");
-            int brightness = arguments.optInt("brightness");
+            int brightness = arguments.optInt("brightness", LED_DEFAULT_BRIGHTNESS);
             if (color < ApiValidator.LED_COLOR_MIN || color > ApiValidator.LED_COLOR_MAX) {
                 return SonarCenter.McpResult.err("color must be between "
                         + ApiValidator.LED_COLOR_MIN + " and " + ApiValidator.LED_COLOR_MAX
@@ -1300,11 +1304,11 @@ public final class LedCenter {
         if ("stop".equals(preset)) {
             code = MainActivity.directCode(DirectLedController.stopEye5Mic());
         } else {
-            if (!arguments.has("color") || !arguments.has("brightness")) {
-                return SonarCenter.McpResult.err("color and brightness are required unless preset=stop");
+            if (!arguments.has("color")) {
+                return SonarCenter.McpResult.err("color is required unless preset=stop");
             }
             int color = arguments.optInt("color");
-            int brightness = arguments.optInt("brightness");
+            int brightness = arguments.optInt("brightness", LED_DEFAULT_BRIGHTNESS);
             if (color < ApiValidator.LED_COLOR_MIN || color > ApiValidator.LED_COLOR_MAX) {
                 return SonarCenter.McpResult.err("color must be between "
                         + ApiValidator.LED_COLOR_MIN + " and " + ApiValidator.LED_COLOR_MAX

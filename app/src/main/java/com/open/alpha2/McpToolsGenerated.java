@@ -159,7 +159,7 @@ public final class McpToolsGenerated {
         {
             JSONObject t = new JSONObject();
             t.put("name", "self.robot.led_set_head");
-            t.put("description", "Set the head LED ring. color 1=red 2=green 3=blue 4=yellow 5=purple 6=cyan 7=white; brightness 1-9; preset long/flash/breathe/chase/dual, or \"stop\" (off; color/brightness ignored).");
+            t.put("description", "Set the head LED ring. color 1=red 2=green 3=blue 4=yellow 5=purple 6=cyan 7=white; brightness 1-9 (default 5); preset long/flash/breathe/chase/dual, or \"stop\" (off; color/brightness ignored).");
             JSONObject s = new JSONObject();
             s.put("type", "object");
             JSONObject props = new JSONObject();
@@ -182,7 +182,7 @@ public final class McpToolsGenerated {
             {
                 JSONObject p = new JSONObject();
                 p.put("type", "integer");
-                p.put("description", "1-9, required unless preset=stop.");
+                p.put("description", "1-9, optional; default 5.");
                 p.put("minimum", 1);
                 p.put("maximum", 9);
                 props.put("brightness", p);
@@ -219,7 +219,7 @@ public final class McpToolsGenerated {
             {
                 JSONObject p = new JSONObject();
                 p.put("type", "integer");
-                p.put("description", "1-9, required unless preset=stop.");
+                p.put("description", "1-9, optional; default 5.");
                 p.put("minimum", 1);
                 p.put("maximum", 9);
                 props.put("brightness", p);
