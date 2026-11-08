@@ -182,7 +182,13 @@ public final class WakeController {
 
     /** en (default, owner decision 2026-10-31: Vosk only for the wake word and the fixed
      *  English list) or nl. Selects the Vosk model and its list. */
-    private String language() { return "nl".equals(prefs().getString("language", "en")) ? "nl" : "en"; }
+    private String language() {
+        return VoiceLanguages.effective(prefs().getString("language", "en"), languages());
+    }
+
+    /** The languages that are on (alpha2-brain#88, owner decision D-62): en only by default.
+     *  Put nl in the list ("en,nl") to switch the Dutch model and the Dutch words on again. */
+    private String languages() { return prefs().getString("languages", VoiceLanguages.DEFAULT); }
 
     private String modelId() { return "en".equals(language()) ? MODEL_EN : MODEL_NL; }
 
@@ -241,9 +247,21 @@ public final class WakeController {
         SharedPreferences.Editor ed = prefs().edit();
         try {
             if (q.containsKey("words")) ed.putString("words", q.get("words"));
+            String newLanguages = languages();
+            if (q.containsKey("languages")) {
+                newLanguages = q.get("languages");
+                String err = VoiceLanguages.check(newLanguages);
+                if (err != null) return err;
+                ed.putString("languages", newLanguages);
+            }
             if (q.containsKey("language")) {
                 String l = q.get("language");
                 if (!"nl".equals(l) && !"en".equals(l)) return "language must be nl or en";
+                String off = VoiceLanguages.refuse(l, newLanguages);
+                if (off != null) {
+                    Log.w(TAG, "language " + l + " refused: " + off);
+                    return off;
+                }
                 ed.putString("language", l);
             }
             if (q.containsKey("command_window_ms")) {
@@ -320,6 +338,7 @@ public final class WakeController {
             o.put("enabled", prefs().getBoolean("enabled", false));
             o.put("mode", mode.name().toLowerCase(Locale.US));
             o.put("language", language());
+            o.put("languages", new JSONArray(VoiceLanguages.allowed(languages())));
             o.put("model", modelId());
             o.put("command_window_ms", commandWindowMs());
             o.put("words", new JSONArray(wakeWords()));
@@ -344,6 +363,10 @@ public final class WakeController {
 
     private synchronized String start() {
         if (mode != Mode.OFF) return null;
+        String stored = prefs().getString("language", "en");
+        if (!stored.equals(language())) {
+            Log.w(TAG, "language " + stored + " is off (languages: " + languages() + "), use " + language());
+        }
         String model = modelId();
         if (!model.equals(vosk.getModelId())) {
             String err = vosk.loadModel(model);
