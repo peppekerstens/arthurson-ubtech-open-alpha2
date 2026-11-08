@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""驗 action list：列出 open- 新項，確認 14xxxx 已清。"""
+"""Check the action list: list the new open- items and confirm the 14xxxx items are cleared."""
 import re
 import urllib.request
 
