@@ -10,7 +10,7 @@
 // does not need its init call renamed as well).
 let currentTtsEngine = "android";
 
-// ---------------- Speech / chat UI (copies the "小智" tab approach exactly) ----------------
+// ---------------- Speech / chat UI (copies the "XiaoZhi" tab approach exactly) ----------------
 //
 // Compare xiaozhiAppendChatLine()/xiaozhiSendText() in app-xiaozhi.js -
 // this is only the display layer. It renders the two data flows, asr_result (recognised text) and
@@ -414,7 +414,7 @@ function speakTts() {
       params.voice = currentAndroidTtsVoice;
     }
   }
-  // Chat UI: when the robot "speaks", append an assistant bubble at once - the difference from "小智" is that
+  // Chat UI: when the robot "speaks", append an assistant bubble at once - the difference from "XiaoZhi" is that
   // the TTS request itself has no async event that sends the spoken text back (unlike asr_result),
   // so append the text from the moment of sending directly, with no wait for a server response.
   appendSpeechChatLine("xiaozhi-msg-assistant", text);

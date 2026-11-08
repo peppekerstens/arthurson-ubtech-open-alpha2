@@ -13,21 +13,21 @@ let musicTracks = [];            // the list fetched by the last musicRefreshLis
 let musicCurrentName = null;     // file name of the track currently selected/playing
 let musicStatusPollTimer = null;
 let musicSeekDragging = false;   // true while the user drags the progress bar; do not let the poll overwrite the position
-let musicPlayAllMode = false;    // 「▶ 全部」mode - after one track ends, auto-continue to the next (see
+let musicPlayAllMode = false;    // "▶ Play all" mode - after one track ends, auto-continue to the next (see
                                  // the hasTrack=false branch of musicPollStatusLoop())
-let musicRandomMode = false;     // 「🔀 隨機」mode - after one track ends, auto-pick another at random.
-                                 // Mutually exclusive with「▶ 全部」(pressing the other side switches the mode)
+let musicRandomMode = false;     // "🔀 Shuffle" mode - after one track ends, auto-pick another at random.
+                                 // Mutually exclusive with "▶ Play all" (pressing the other side switches the mode)
 let musicModeStopSeq = null;     // the server stopSeq snapshot when the mode started (null = adopt it on the
                                  // next poll). Later, if a poll sees a different value, someone outside explicitly
                                  // pressed stop (pad 94 / stop API / MCP), so turn the mode off and
                                  // do not queue the next track. A natural finish does not move the generation counter, so the queue keeps going.
 let musicLastPlayedName = null;  // the last played track name - stop clears musicCurrentName,
-                                 // but pressing「▶」afterwards should replay that track, not
+                                 // but pressing "▶" afterwards should replay that track, not
                                  // do nothing
 let musicHasLoadedTrack = false; // does the server-side currentMusicPlayer still hold a loaded track? -
                                  // true even while paused; only stop-all/track-finished sets it false.
-                                 // musicTogglePlayPause() uses it to pick「resume」vs
-                                 // 「play from the start」
+                                 // musicTogglePlayPause() uses it to pick "resume" vs
+                                 // "play from the start"
 let musicSpectrumTimer = null;   // spectrum poll timer (setTimeout chain)
 let musicSpectrumAnimTimer = null; // smooth animation timer (~33ms redraw)
 let musicSpectrumTargets = [];   // target values last fetched from the server
@@ -262,14 +262,14 @@ function musicPlayNext() {
 function musicPlayRandom() {
   if (isRadioActive() && typeof radioPlayRandom === "function") { radioPlayRandom(); return; }
   if (musicTracks.length === 0) return;
-  // Shuffle mode: after a track ends, pick another at random (see the poll loop). Mutually exclusive with「▶ 全部」
+  // Shuffle mode: after a track ends, pick another at random (see the poll loop). Mutually exclusive with "▶ Play all"
   musicRandomMode = true;
   musicPlayAllMode = false;
   musicModeStopSeq = null; // entering mode: the next poll adopts the newest generation counter as baseline
   musicAdvanceRandom();
 }
 
-/** Pick the next track under「🔀 隨機」mode - avoid the current one (impossible to avoid when only one track exists). */
+/** Pick the next track under "🔀 Shuffle" mode - avoid the current one (impossible to avoid when only one track exists). */
 function musicAdvanceRandom() {
   if (!musicRandomMode || musicTracks.length === 0) return;
   let idx = Math.floor(Math.random() * musicTracks.length);
@@ -295,7 +295,7 @@ function musicPlayAll() {
   }
 }
 
-/** Find the next track under「▶ 全部」mode - start from the current one and go back; wrap to the front at the end. */
+/** Find the next track under "▶ Play all" mode - start from the current one and go back; wrap to the front at the end. */
 function musicAdvancePlayAll() {
   if (!musicPlayAllMode || musicTracks.length === 0) return;
   const idx = musicCurrentIndex();
@@ -339,10 +339,10 @@ function musicTogglePlayPause() {
 }
 
 /**
- * Music tab「⏹ 全部停止」- matches the Speech tab stop-all key
+ * Music tab "⏹ Stop all" - matches the Speech tab stop-all key
  * (xiaozhiStopAll(), see app-xiaozhi.js): action/stop + speech/stop +
  * audio/local_music/stop + audio/radio/stop, all four at once, plus this tab's own
- *「▶ 全部」auto-continue mode. Reuse xiaozhiStopAll() directly instead of writing a second copy, so both
+ * "▶ Play all" auto-continue mode. Reuse xiaozhiStopAll() directly instead of writing a second copy, so both
  * sides always behave the same; its Promise.all already keeps one failed endpoint from affecting the rest.
  */
 function musicStopAll() {
@@ -936,7 +936,7 @@ function musicEqMarkPresetSelected(preset) {
 }
 
 // zh/en switch: relabel each dynamically built preset blue button one by one (no rebuild; slider positions stay).
-// Also convert the random-move / rhythm-LED state words (開/On) that moved into the「播放中」row
+// Also convert the random-move / rhythm-LED state words (on) that moved into the "Playing" row
 // (before, those two only called t() at press time, so a language switch left stale words).
 function musicEqApplyUiLanguage() {
   try {
