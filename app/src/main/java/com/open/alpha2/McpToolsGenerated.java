@@ -263,7 +263,7 @@ public final class McpToolsGenerated {
         {
             JSONObject t = new JSONObject();
             t.put("name", "self.sensors.get_pir");
-            t.put("description", "Read the last known PIR motion state (most recent event, not a live poll; \"unknown\" if disabled or nothing received yet).");
+            t.put("description", "Read the last known PIR motion state (most recent event, not a live poll). \"since\" is the ISO time of the last state. A \"clear\" state with a \"note\" means no motion seen since the app start (no event arrived yet).");
             JSONObject s = new JSONObject();
             s.put("type", "object");
             JSONObject props = new JSONObject();
