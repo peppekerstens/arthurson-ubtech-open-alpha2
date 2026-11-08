@@ -222,10 +222,12 @@ public final class SonarCenter {
         static McpResult missingArg(String name) { return err("missing required argument: " + name); }
     }
 
-    /** self.sensors.get_pir 本體 (XiaozhiBridge 轉調)。純讀，不碰硬件。
-     *  alpha2-brain#103: 開機後若沒收過 PIR 事件, state 是 -1。舊 code 回 "unknown",
-     *  voice LLM 無法答 yes/no。現改：無事件 → "clear" + 開機時間 + note；
-     *  有事件 → 舊答案加 "since" (最後事件時間)。 */
+    /** Body of the self.sensors.get_pir tool (XiaozhiBridge calls it).
+     *  Read-only. It does not touch the hardware.
+     *  alpha2-brain#103: before this change, no PIR event since the app start
+     *  gave "unknown", which the voice LLM cannot use. Now: no event means
+     *  "clear" with the start time and a note. With an event, the old answer
+     *  plus "since" (the last event time). */
     public McpResult mcpGetPir() {
         int state = getPirTriggeredState();
         if (state < 0) {
@@ -239,10 +241,11 @@ public final class SonarCenter {
         return McpResult.ok("{\"state\":\"" + stateStr + "\",\"since\":\"" + isoTime(lastPirEventMillis) + "\"}");
     }
 
-    /** epoch millis → ISO 8601 with the local offset (minSdk 19, so no java.time). */
+    /** epoch millis → ISO 8601 with the local offset (minSdk 19, so no java.time).
+     *  The pattern ends in Z, not X: X needs Android API 24, this app runs on API 19. */
     private static String isoTime(long millis) {
         java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat(
-                "yyyy-MM-dd'T'HH:mm:ssXXX", java.util.Locale.US);
+                "yyyy-MM-dd'T'HH:mm:ssZ", java.util.Locale.US);
         fmt.setTimeZone(java.util.TimeZone.getDefault());
         return fmt.format(new java.util.Date(millis));
     }
