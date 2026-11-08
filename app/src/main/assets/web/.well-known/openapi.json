@@ -11923,7 +11923,16 @@
                 "en"
               ]
             },
-            "description": "en (default) or nl. Selects the Vosk model and its command list together"
+            "description": "en (default) or nl. Selects the Vosk model and its command list together. nl needs nl in languages (English only by default)"
+          },
+          {
+            "name": "languages",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The languages that the robot understands, a comma list of en and nl (default en: English only, owner decision D-62). The Dutch Vosk model and the Dutch command words stay in the app and are off until nl is in this list"
           },
           {
             "name": "command_window_ms",
