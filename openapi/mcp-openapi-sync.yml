@@ -120,7 +120,7 @@ mappings:
     method: GET
     description: >-
       Set the head LED ring. color 1=red 2=green 3=blue 4=yellow 5=purple 6=cyan
-      7=white; brightness 1-9; preset long/flash/breathe/chase/dual, or "stop"
+      7=white; brightness 1-9 (default 5); preset long/flash/breathe/chase/dual, or "stop"
       (off; color/brightness ignored).
     params:
       - mcp: preset
@@ -134,7 +134,7 @@ mappings:
       - mcp: brightness
         openapi: brightness
         required: false
-        desc: 1-9, required unless preset=stop.
+        desc: 1-9, optional; default 5.
     note: in the spec color/brightness is required, MCP relaxes it to optional (no need to fill when preset=stop, enforced by callTool required_if)
     exclude: [panel_token, speed, p3, p4]
 
@@ -156,7 +156,7 @@ mappings:
       - mcp: brightness
         openapi: brightness
         required: false
-        desc: 1-9, required unless preset=stop.
+        desc: 1-9, optional; default 5.
     exclude: [panel_token, speed, p3, p4]
 
   - mcp: self.robot.led_set_mouth
