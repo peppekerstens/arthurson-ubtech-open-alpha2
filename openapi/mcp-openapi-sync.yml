@@ -181,8 +181,9 @@ mappings:
   - mcp: self.sensors.get_pir
     openapi: null
     description: >-
-      Read the last known PIR motion state (most recent event, not a live poll;
-      "unknown" if disabled or nothing received yet).
+      Read the last known PIR motion state (most recent event, not a live poll).
+      "since" is the ISO time of the last state. A "clear" state with a "note"
+      means no motion seen since the app start (no event arrived yet).
     params: []
     note: corresponds to the broadcast query, no HTTP GET, only the WebSocket pir_state
 

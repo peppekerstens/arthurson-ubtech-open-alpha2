@@ -54,6 +54,13 @@ public final class SonarCenter {
     // 的是 EXIT (沒人), 1 = 上次收到的是 ENTER (有人) - 用 int 不用 boolean 來
     // 保留「未有數據」這個第三種狀態, 和 lastSonarDistanceCm 用 -1 的原因一樣。
     private volatile int lastPirTriggeredState = -1;
+    // alpha2-brain#103: the app only learns the PIR state from events. After a robot
+    // restart no event has arrived yet, so lastPirTriggeredState is -1 and the old code
+    // answered "unknown" to the voice LLM. A robot restart must not give "unknown".
+    // Keep the start time and the time of the last event instead.
+    private final long startMillis = System.currentTimeMillis();
+    // Time of the last PIR event received (0 = no event since start).
+    private volatile long lastPirEventMillis = 0;
 
     /** XiaozhiBridge.HostState／static 縫轉交用：讀 threshold。 */
     public int getSonarThreshold() { return sonarThresholdCm; }
@@ -99,6 +106,7 @@ public final class SonarCenter {
      *  最輕的 field 寫入, 任何要送 WebSocket 訊息的耗時邏輯都必須包多一層獨立
      *  thread 才可以做 (見下面 new Thread(...).start())。 */
     public void onPirStateReceived(final boolean triggered) {
+        lastPirEventMillis = System.currentTimeMillis(); // every broadcast counts; plain field write, no blocking
         int newState = triggered ? 1 : 0;
         if (newState == lastPirTriggeredState) {
             return; // 狀態沒變, 不重複推播 (和 sonar 的 dedup pattern 一致)
@@ -214,11 +222,32 @@ public final class SonarCenter {
         static McpResult missingArg(String name) { return err("missing required argument: " + name); }
     }
 
-    /** self.sensors.get_pir 本體 (XiaozhiBridge 轉調)。純讀，不碰硬件。 */
+    /** Body of the self.sensors.get_pir tool (XiaozhiBridge calls it).
+     *  Read-only. It does not touch the hardware.
+     *  alpha2-brain#103: before this change, no PIR event since the app start
+     *  gave "unknown", which the voice LLM cannot use. Now: no event means
+     *  "clear" with the start time and a note. With an event, the old answer
+     *  plus "since" (the last event time). */
     public McpResult mcpGetPir() {
         int state = getPirTriggeredState();
-        String stateStr = state < 0 ? "unknown" : (state == 1 ? "triggered" : "clear");
-        return McpResult.ok("{\"state\":\"" + stateStr + "\"}");
+        if (state < 0) {
+            // No PIR event since the app start (e.g. right after a robot restart).
+            // A robot restart must not give "unknown" to the voice LLM: no data is
+            // "clear" since the start time, with a note that says so.
+            return McpResult.ok("{\"state\":\"clear\",\"since\":\"" + isoTime(startMillis)
+                    + "\",\"note\":\"No motion seen since the app start.\"}");
+        }
+        String stateStr = state == 1 ? "triggered" : "clear";
+        return McpResult.ok("{\"state\":\"" + stateStr + "\",\"since\":\"" + isoTime(lastPirEventMillis) + "\"}");
+    }
+
+    /** epoch millis → ISO 8601 with the local offset (minSdk 19, so no java.time).
+     *  The pattern ends in Z, not X: X needs Android API 24, this app runs on API 19. */
+    private static String isoTime(long millis) {
+        java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat(
+                "yyyy-MM-dd'T'HH:mm:ssZ", java.util.Locale.US);
+        fmt.setTimeZone(java.util.TimeZone.getDefault());
+        return fmt.format(new java.util.Date(millis));
     }
 
     /** self.sensors.set_pir_enabled 本體 (XiaozhiBridge 轉調)。
