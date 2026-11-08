@@ -37,7 +37,7 @@
 //   - TTS voice names (xiaofeng / xiaoyan and more): names and IDs, not UI text.
 
 (function () {
-  let uiLang = localStorage.getItem('ui_lang') || 'zh';
+  let uiLang = localStorage.getItem('ui_lang') || 'en';
 
   function msgTableFor(lang) {
     return lang === 'en' ? window.__ALPHA_BLOCKLY_MSG_EN : window.__ALPHA_BLOCKLY_MSG_ZH;
