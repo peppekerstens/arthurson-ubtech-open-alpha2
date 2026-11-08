@@ -22,7 +22,7 @@ const XIAOZHI_CONSOLE_URL = "https://xiaozhi.me/";
 // elements, AND which language action names display as (chips in the Actions tab -
 // see displayNameOf() below). There's only ever one language switch
 // in the whole app - see README.
-let uiLang = localStorage.getItem("ui_lang") || "zh";
+let uiLang = localStorage.getItem("ui_lang") || "en";
 
 // key -> {zh, en}. Applied to any element carrying data-i18n="key" via textContent,
 // except elements also carrying data-i18n-attr (see applyUiLanguage) which are
