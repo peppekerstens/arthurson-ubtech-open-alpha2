@@ -1851,10 +1851,10 @@ public final class XiaozhiBridge {
             if (i > 0) spoken.append(' ');
             spoken.append(c);
         }
-        String text = "配對碼是 " + spoken + "。請去 xiaozhi 點 me 輸入這個碼。再說一次，配對碼是 " + spoken + "。";
+        String text = "The pairing code is " + spoken + ". Please enter this code in xiaozhi, under me. I say it again. The pairing code is " + spoken + ".";
         awaitTtsGap();
         LedCenter.startMouthLedForTts();
-        if (!ttsCenter.speakAndroidTts(text, java.util.Locale.SIMPLIFIED_CHINESE)) {
+        if (!ttsCenter.speakAndroidTts(text, java.util.Locale.ENGLISH)) {
             LedCenter.stopMouthLedForTts();
             Log.w(TAG, "Failed to speak XiaoZhi activation code via Android TTS");
         }
@@ -2028,7 +2028,7 @@ public final class XiaozhiBridge {
         if (question == null || question.isEmpty()) {
             // LLM 成日空參數 call (take_photo({}))，噉會跌入 uuid 兩步模式；
             // 補一句等同 8 月嗰次 "眼前有啲咩？"，直接攞描述。
-            question = "請詳細描述眼前影像。";
+            question = "Describe the image in front of you in detail.";
         }
         byte[] jpeg;
         String visionText;

@@ -118,8 +118,8 @@ public final class SonarCenter {
                     return;
                 }
                 String text = triggered
-                        ? "[系統事件] PIR 人體感應器偵測到有人在附近。"
-                        : "[系統事件] PIR 人體感應器偵測不到人在附近了。";
+                        ? "[System event] The PIR sensor detects a person nearby."
+                        : "[System event] The PIR sensor no longer detects a person nearby.";
                 String err = up.sendDetectText(text);
                 if (err != null) {
                     android.util.Log.w("XiaozhiPir", "failed to push PIR event to XiaoZhi: " + err);
