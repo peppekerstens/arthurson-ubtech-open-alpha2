@@ -50,6 +50,6 @@ public final class VoiceLanguages {
         List<String> on = allowed(csv);
         String r = requested == null ? "" : requested.trim().toLowerCase(Locale.US);
         if (on.contains(r)) return null;
-        return "language " + r + " is off (languages: " + String.join(",", on) + ")";
+        return "language " + r + " is off (languages: " + android.text.TextUtils.join(",", on) + ")";
     }
 }
