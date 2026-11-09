@@ -1851,7 +1851,9 @@ public final class XiaozhiBridge {
             if (i > 0) spoken.append(' ');
             spoken.append(c);
         }
-        String text = "The pairing code is " + spoken + ". Please enter this code in xiaozhi, under me. I say it again. The pairing code is " + spoken + ".";
+        // Spoken once, must be followable: the code, where to type it, then the
+        // code again. No "under me" (unclear where that is in the app).
+        String text = "The pairing code is " + spoken + ". Type this code in the xiaozhi app. Again: the pairing code is " + spoken + ".";
         awaitTtsGap();
         LedCenter.startMouthLedForTts();
         if (!ttsCenter.speakAndroidTts(text, java.util.Locale.ENGLISH)) {
