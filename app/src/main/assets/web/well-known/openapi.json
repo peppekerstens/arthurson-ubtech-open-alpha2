@@ -12210,6 +12210,111 @@
         "operationId": "xiaozhiPtt_set"
       }
     },
+    "/api/xiaozhi/key_feedback/get": {
+      "get": {
+        "tags": [
+          "xiaozhi"
+        ],
+        "summary": "Query the early key feedback switch (default off)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Panel token missing or wrong (only when enabled)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Enabled state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "operationId": "xiaozhiKeyFeedback_get"
+      }
+    },
+    "/api/xiaozhi/key_feedback/set": {
+      "get": {
+        "tags": [
+          "xiaozhi"
+        ],
+        "summary": "Set the early key feedback switch (off = legacy order, on = tick before the volume call)",
+        "description": "Off = legacy behavior, the head key tick plays after the volume binder call. On = the tick plays before the volume binder call, so the key answers at once (alpha2-brain#53). With the panel token enabled, carry panel_token (401 means not unlocked), see PanelAuth.",
+        "parameters": [
+          {
+            "name": "enabled",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Panel token missing or wrong (only when enabled)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "operationId": "xiaozhiKeyFeedback_set"
+      }
+    },
     "/api/xiaozhi/boot_voice/get": {
       "get": {
         "tags": [

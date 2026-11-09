@@ -240,7 +240,8 @@ tab; boot auto-connect is the Experiment tab's boot-voice mode.
   `check-spec-copies.py` (see HTTP API above).
 - Unit-test runners (zero-dependency, compile + run via `javac`/`java`):
   `test-apivalidator.py` (`ApiValidator` + colour-track + EQ suites),
-  `test-serialcodec.py` (`SerialFrameCodec` suite).
+  `test-serialcodec.py` (`SerialFrameCodec` suite). The host test
+  `host-test/com/open/alpha2/VolumeStepSequenceTest.java` is not in CI yet: run the command in its header by hand. A CI step needs a token with the `workflow` scope (open-alpha2#13 review round 2).
 - Offline `.ubx` analysis tools: `ubx_scan.py` (keyframe/track scan),
   `ubx_anatomy.py` (which servos move), `ubx_phase.py` (per-joint gait
   phase), `ubx_gaitdiff.py` / `ubx_armcheck.py` / `ubx_tail.py` (version
