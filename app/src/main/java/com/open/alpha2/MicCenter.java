@@ -142,49 +142,55 @@ public final class MicCenter {
         ledCenter.setHeadEyeLedLong(2, 9); // 綠燈長開 - 正在聽機器人說話, 一定要在上面那行之後才呼叫,
                                  // 見 releaseMicForAudioIo() javadoc 解釋為何順序很重要
 
-        AudioController.StartResult started = audioController.start(5000);
-        java.io.OutputStream out = socket.getOutputStream();
-        if (started.error != null) {
-            byte[] msg = ("Mic unavailable: " + started.error).getBytes(StandardCharsets.UTF_8);
-            out.write(("HTTP/1.1 503 Service Unavailable\r\nContent-Length: " + msg.length
-                    + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.ISO_8859_1));
-            out.write(msg);
-            out.flush();
-            // 早退唔經下面 finally——呢度補熄頭先著嘅綠燈，唔係會長著唔熄。
-            DirectLedController.stopHead5Mic();
-            DirectLedController.stopEye5Mic();
-            return;
-        }
-
-        out.write(("HTTP/1.1 200 OK\r\n"
-                + "Content-Type: multipart/mixed; boundary=" + MIC_BOUNDARY + "\r\n"
-                + "Cache-Control: no-store, no-cache, must-revalidate, max-age=0\r\n"
-                + "Access-Control-Allow-Origin: *\r\n"
-                + "Connection: close\r\n"
-                + "\r\n").getBytes(StandardCharsets.ISO_8859_1));
-        out.flush();
-
-        // Capacity 2 rather than camera's 1: audio chunks must all be delivered in
-        // order (dropping one produces an audible gap/glitch, unlike a skipped video
-        // frame which is imperceptible), so this queue absorbs a little jitter instead
-        // of discarding outright. Kept deliberately short (~1s at CHUNK_MS=500) since
-        // this is meant to feel like a live walkie-talkie - a large buffer would trade
-        // away responsiveness for smoothness, and if the client falls this far behind
-        // something is already wrong (dead connection, GC pause) where further
-        // buffering would just add latency without fixing the underlying stall.
-        final java.util.concurrent.ArrayBlockingQueue<AudioController.Chunk> queue =
-                new java.util.concurrent.ArrayBlockingQueue<>(2);
-        AudioController.ChunkListener listener = new AudioController.ChunkListener() {
-            @Override
-            public void onChunk(AudioController.Chunk chunk) {
-                if (!queue.offer(chunk)) {
-                    queue.poll(); // drop the oldest to make room, keep chunks in order
-                    queue.offer(chunk);
-                }
-            }
-        };
-        audioController.subscribe(listener);
+        // 綠燈在 try 之前就點亮（順序要求，見上面），所以整段 stream 邏輯包入同一個
+        // try/finally：無論正常結束、503 早退、還是 start/getOutputStream/subscribe 途中
+        // 拋錯或斷線，finally 都會補熄綠燈，唔會留低長著唔熄。streaming 記低「呢條
+        // stream 有冇真係 subscribe 到 listener」——冇 subscribe 到（早退）就唔使
+        // unsubscribe／還 mic，只照樣熄燈。
+        AudioController.ChunkListener listener = null;
+        boolean streaming = false;
         try {
+            AudioController.StartResult started = audioController.start(5000);
+            java.io.OutputStream out = socket.getOutputStream();
+            if (started.error != null) {
+                byte[] msg = ("Mic unavailable: " + started.error).getBytes(StandardCharsets.UTF_8);
+                out.write(("HTTP/1.1 503 Service Unavailable\r\nContent-Length: " + msg.length
+                        + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.ISO_8859_1));
+                out.write(msg);
+                out.flush();
+                // 早退——綠燈由下面 finally 補熄（唔係會長著唔熄）。
+                return;
+            }
+
+            out.write(("HTTP/1.1 200 OK\r\n"
+                    + "Content-Type: multipart/mixed; boundary=" + MIC_BOUNDARY + "\r\n"
+                    + "Cache-Control: no-store, no-cache, must-revalidate, max-age=0\r\n"
+                    + "Access-Control-Allow-Origin: *\r\n"
+                    + "Connection: close\r\n"
+                    + "\r\n").getBytes(StandardCharsets.ISO_8859_1));
+            out.flush();
+
+            // Capacity 2 rather than camera's 1: audio chunks must all be delivered in
+            // order (dropping one produces an audible gap/glitch, unlike a skipped video
+            // frame which is imperceptible), so this queue absorbs a little jitter instead
+            // of discarding outright. Kept deliberately short (~1s at CHUNK_MS=500) since
+            // this is meant to feel like a live walkie-talkie - a large buffer would trade
+            // away responsiveness for smoothness, and if the client falls this far behind
+            // something is already wrong (dead connection, GC pause) where further
+            // buffering would just add latency without fixing the underlying stall.
+            final java.util.concurrent.ArrayBlockingQueue<AudioController.Chunk> queue =
+                    new java.util.concurrent.ArrayBlockingQueue<>(2);
+            listener = new AudioController.ChunkListener() {
+                @Override
+                public void onChunk(AudioController.Chunk chunk) {
+                    if (!queue.offer(chunk)) {
+                        queue.poll(); // drop the oldest to make room, keep chunks in order
+                        queue.offer(chunk);
+                    }
+                }
+            };
+            audioController.subscribe(listener);
+            streaming = true;
             while (true) {
                 AudioController.Chunk chunk;
                 try {
@@ -214,7 +220,14 @@ public final class MicCenter {
                 out.flush();
             }
         } finally {
-            audioController.unsubscribe(listener);
+            if (streaming) {
+                audioController.unsubscribe(listener);
+            }
+            // 呢條 stream 結束後（正常／503／拋錯／斷線）都喺呢度統一處理：
+            // 如果已無其他 listener（wasLastListener），就將 mic 還返（除非用戶
+            // 主動長期持有）並補熄綠燈；如果有其他 listener 還係聽緊，就唔熄
+            // （綠燈代表「有 mic stream 聽緊」，唔應該因呢條 stream 結束就熄走
+            // 其他 stream 嗰粒燈）。
             boolean wasLastListener = audioController.hasNoListeners();
             audioController.stopIfIdle();
             if (wasLastListener) {
@@ -229,15 +242,19 @@ public final class MicCenter {
                 // 就代表他想長期由 app 持有 mic - 這個 stream 斷開 (背景化分頁/
                 // 網路短暫中斷都會觸發這個 finally) 不應該把 mic 悄悄還給機器人,
                 // 否則個「釋放」狀態就會被這裡無聲覆蓋, 要用家自己再按一次先頂得住。
-                if (!micHeldByApp) {
+                // 只喺真係 streaming（subscribe 到 listener）先還 mic：503／早退
+                // 嗰條 stream 從來沒真係拿 mic 串流，唔使重複還（保持舊行為）。
+                if (streaming && !micHeldByApp) {
                     robot.speech_SetMIC(false);
                 }
-                // Safety net: turn the green "listening" LED back off here too, not
-                // just relying on the browser's stopMicListen() sending preset=stop -
-                // if this stream connection just drops (backgrounded tab, network
-                // blip, browser closed) rather than being stopped via the button, the
-                // browser-side call never happens and the LED would otherwise stay
-                // stuck on indefinitely. pure-direct: 经 JNI 直关。
+                // Safety net: turn the green "listening" LED back off on every end
+                // path (normal end, 503 early return, or a thrown error / disconnect
+                // before or during the stream), not just relying on the browser's
+                // stopMicListen() sending preset=stop - if this stream connection
+                // just drops (backgrounded tab, network blip, browser closed) rather
+                // than being stopped via the button, the browser-side call never
+                // happens and the LED would otherwise stay stuck on indefinitely.
+                // pure-direct: 经 JNI 直关。
                 DirectLedController.stopHead5Mic();
                 DirectLedController.stopEye5Mic();
             }
