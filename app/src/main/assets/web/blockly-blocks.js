@@ -679,7 +679,7 @@
   // 2026-08 update: the device-info category (battery level/charging/WiFi IP/Bluetooth/UUID query/
   // system status) and the camera/audio category (snapshot/resolution/test tone/speaker streaming) were removed completely,
   // including both the block definitions and the interpreter cases (see the matching notes in blockly-run.js).
-  // / blockly-toolbox.js)。
+  // / blockly-toolbox.js.
   // ---------------------------------------------------------------------
 
 

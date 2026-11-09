@@ -25,7 +25,7 @@
 // identifiers directly at top level (outside functions) in this file, you must move <script src="app-log.js">
 // ahead of this file, otherwise you get a ReferenceError.
 
-// api()/hwApi() are alpha2/lynx specific (they add the "alpha2/"/"lynx/" prefix). The 小智
+// api()/hwApi() are alpha2/lynx specific (they add the "alpha2/"/"lynx/" prefix). The XiaoZhi
 // namespace on the server is backend-agnostic ("/api/xiaozhi/...", see
 // MainActivity#handleXiaozhiApi), so this file defines its own helper and does not follow the
 // backend prefix logic of api()/hwApi().
@@ -403,7 +403,7 @@ function xiaozhiAppendChatLine(roleClass, text) {
   log.scrollTop = log.scrollHeight;
 }
 
-/** MCP tool-call card - follows the xiaozhi.me console "歷史對話" style: an expandable "🔧 工具呼叫"
+/** MCP tool-call card - follows the xiaozhi.me console "conversation history" style: an expandable "🔧 tool call"
  *  card that shows the tool and its arguments. Elapsed time is not tracked: request/response are separate events with no shared id
  *  (see EVT_MCP), so timing would need extra matching, and the value does not justify the cost. */
 function xiaozhiAppendMcpToolCallCard(toolName, argsObj) {
@@ -508,7 +508,7 @@ function xiaozhiHandleEvent(type, data) {
     case "xiaozhi_alert":
       xiaozhiAppendChatLine("xiaozhi-msg-system", "⚠ " + data.status + ": " + data.message);
       break;
-    // Select only the direction:"in" payload with method:"tools/call" (the moment the server asks to run a tool; not initialize/tools/list noise, and not the response), then insert the「工具呼叫」card.
+    // Select only the direction:"in" payload with method:"tools/call" (the moment the server asks to run a tool; not initialize/tools/list noise, and not the response), then insert the "tool call" card.
     case "xiaozhi_mcp": {
       const payload = data.payload;
       if (data.direction === "in" && payload && payload.method === "tools/call"
@@ -634,7 +634,7 @@ function xiaozhiLoadOtaConfig() {
   });
 }
 
-/** Toggle switch - on shows the input box and waits for the user to fill the URL (nothing saves yet; press「儲存」to take effect,
+/** Toggle switch - on shows the input box and waits for the user to fill the URL (nothing saves yet; press "Save" to take effect,
  *  see xiaozhiSaveOtaCustom()); off saves at once (follow the official xiaozhi.me; do not make the user
  *  press anything extra) and hides the input box. */
 function xiaozhiToggleOtaCustom() {
@@ -650,11 +650,11 @@ function xiaozhiToggleOtaCustom() {
     });
   }
   // When wantOn=true this only shows the input box; it does not save yet. The send waits until the user really fills a
-  // url and presses「儲存」. This stops a lone toggle press (url still empty) from triggering ota_config/set
+  // url and presses "Save". This stops a lone toggle press (url still empty) from triggering ota_config/set
   // and leaving the next connect without a url.
 }
 
-/** The「儲存」button - sends the OTA URL plus three optional overrides (WebSocket address/MAC/Token;
+/** The "Save" button - sends the OTA URL plus three optional overrides (WebSocket address/MAC/Token;
  *  all left empty = follow the automatic flow; see the comment on the MainActivity "ota_config/set"
  *  endpoint) with enabled=true. That endpoint itself rejects changes while connected and validates the
  *  format, so the error handling here mainly reports the validation the server already did, instead of
@@ -685,7 +685,7 @@ function xiaozhiSaveOtaCustom() {
     });
 }
 
-/** Built-in MCP tool list card - one「展開」toggle at the top (same
+/** Built-in MCP tool list card - one "Expand" toggle at the top (same
  *  toggle-switch style as the custom server card). On = expand the whole tool list (with per-item enable/disable
  *  buttons shown too); off = collapse the whole box, nothing visible. List content reads/writes go through MainActivity's
  *  "mcp_config/set"/"mcp_tools/list" (mcp_tools/list returns the full list with per-item enabled

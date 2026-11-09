@@ -375,7 +375,7 @@ function buildAdvTuner() {
   const statusEl = document.getElementById("advTunerStatus");
   if (statusEl) statusEl.textContent = t("servo_tuner_ready", { v: "0906l" });
 }
-// The 校准 button (same as the official 校准 one): write the 22 cells' valid trims in order into the chest EEPROM (kept across power loss). Cells with no value/uns scanned are skipped and reported; each write carries its own angle (time=100, so one already in place does not move).
+// The Calibration button (same as the official calibration one): write the 22 cells' valid trims in order into the chest EEPROM (kept across power loss). Cells with no value/uns scanned are skipped and reported; each write carries its own angle (time=100, so one already in place does not move).
 function advCalibrateAll() {
   const statusEl = document.getElementById("advTunerStatus");
   const jobs = [];
@@ -483,7 +483,7 @@ function advNudgeOff(id, deltaAngle) {
   el.textContent = advFmtOff(cur + deltaAngle * 3) + t("servo_tuner_live_suffix");
 }
 function advTunerSend(id, timeMs) {
-  // Step buttons/Enter in cells only send the angle via cmd05 (Enter 500ms, step 100ms). Trims write as a group only through the 校准 button; EEPROM is not touched here.
+  // Step buttons/Enter in cells only send the angle via cmd05 (Enter 500ms, step 100ms). Trims write as a group only through the Calibration button; EEPROM is not touched here.
   if (timeMs === undefined || timeMs === null) timeMs = advServoTime();
   const inp = document.getElementById("advServoVal_" + id);
   let v = parseInt(inp.value, 10);
