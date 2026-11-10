@@ -19,6 +19,7 @@ HeadKeyClickTest (head key click codes 0x3c01/0x3d01) and WakeCommandMatchTest (
 command after the wake word), robot session 2026-11-01.
 StopEchoGuardTest (alpha2-brain#52): the stop echo guard time windows.
 VoiceLanguagesTest (alpha2-brain#88): English only by default, one setting for Dutch.
+MotionGateTest (alpha2-brain#113): the motion gate of the direct servo routes.
 
 Usage: python scripts/test-apivalidator.py
 """
@@ -220,6 +221,8 @@ def main() -> int:
          [src / "WakeCommandMatch.java", testdir / "WakeCommandMatchTest.java"]),
         ("com.open.alpha2.StopEchoGuardTest",
          [src / "StopEchoGuard.java", src / "StopWordMatcher.java", testdir / "StopEchoGuardTest.java"]),
+        ("com.open.alpha2.MotionGateTest",
+         [src / "MotionGate.java", testdir / "MotionGateTest.java"]),
         ("com.open.alpha2.VoiceLanguagesTest",
          [src / "VoiceLanguages.java", testdir / "VoiceLanguagesTest.java"]),
         ("com.ubtechinc.alpha.hardware.DirectChestControllerTest",

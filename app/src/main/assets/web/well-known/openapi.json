@@ -11743,6 +11743,108 @@
         "operationId": "xiaozhiMicStart_get"
       }
     },
+    "/api/motion/status": {
+      "get": {
+        "tags": [
+          "servo"
+        ],
+        "summary": "Motion gate - state of the two switches",
+        "description": "Both switches are off by default and after each restart of the app. They live in memory only (alpha2-brain#113).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The state of the switches",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Panel token missing or wrong (only when enabled)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "motionStatus_get"
+      }
+    },
+    "/api/motion/set": {
+      "get": {
+        "tags": [
+          "servo"
+        ],
+        "summary": "Motion gate - turn the switches on or off",
+        "description": "The direct servo moves (servo/one and servo/all, also under /api/direct/) give HTTP 403 while the gate is off. motion_enabled=true allows all servos. head_only_enabled=true allows servo 19 (the head) only. Both switches are off by default, live in memory only and are off again after a restart of the app (alpha2-brain#113, hub D-82).",
+        "parameters": [
+          {
+            "name": "motion_enabled",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "true allows the move of all servos, false stops it"
+          },
+          {
+            "name": "head_only_enabled",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "true allows the move of servo 19 (the head) only, false stops it"
+          },
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The new state of the switches",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A value is not true or false",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Panel token missing or wrong (only when enabled)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "motionSet_get"
+      }
+    },
     "/api/wake/status": {
       "get": {
         "tags": [

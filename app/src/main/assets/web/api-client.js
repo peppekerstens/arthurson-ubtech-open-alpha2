@@ -743,6 +743,16 @@ const Alpha2Api = (function() {
   }
 
   // ── servo ──────────────────────────────────────────────
+  function motionSet(params) {
+    // Motion gate - turn the switches on or off
+    return api('motion/set', params);
+  }
+
+  function motionStatus(params) {
+    // Motion gate - state of the two switches
+    return api('motion/status', params);
+  }
+
   function servoAll(params) {
     if (params && params.time != null) assertRange(Number(params.time), 20, 32767, 'time');
     // Control all servos at once (20 or 22)
@@ -1374,6 +1384,8 @@ const Alpha2Api = (function() {
     pirAlertEnabled,
     pirGet,
     pirSet,
+    motionSet,
+    motionStatus,
     servoAll,
     servoAngle,
     servoAngleAll,
