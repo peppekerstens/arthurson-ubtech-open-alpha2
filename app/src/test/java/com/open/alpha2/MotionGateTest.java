@@ -157,7 +157,7 @@ public final class MotionGateTest {
 
         // 6. Whole-body routes (alpha2-brain#121): each one is refused with the gate off,
         //    and refused with only the head switch on. Each one passes with the gate on.
-        String[] routes = {"ubx/play", "ubx/play (direct)", "servo/angle-restore", "servo/angle-all",
+        String[] routes = {"ubx/play", "ubx/play (direct)", "action/play", "playActionDirect(chat, semantic, gamepad, MCP)", "servo/angle-restore", "servo/angle-all",
                 "the voice command stand_up", "the voice command squat",
                 "the voice command rest", "the voice command sleep"};
         for (int i = 0; i < routes.length; i++) {

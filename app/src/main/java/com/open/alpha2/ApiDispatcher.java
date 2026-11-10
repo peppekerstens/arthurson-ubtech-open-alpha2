@@ -92,6 +92,7 @@ public final class ApiDispatcher {
         this.sensorState = sensorState;
         this.actionDirect = actionDirect;
         this.ubxApi = ubxApi;
+        actionDirect.setMotionGate(motionGate); // the same gate for each path that plays an action (alpha2-brain#121)
         this.chestQuery = chestQuery;
         this.chestUpgrade = chestUpgrade;
         this.servoUpgrade = servoUpgrade;
@@ -201,7 +202,9 @@ public final class ApiDispatcher {
             case "action/list":
                 return actionDirect.actionListDirect();
             case "action/play":
-                return actionDirect.actionPlayDirect(ApiValidator.require(query, "name"));
+                return motionGate.guardWholeBody("action/play",
+                        () -> actionDirect.actionPlayDirect(ApiValidator.require(query, "name")),
+                        ApiDispatcher::motionRefused);
             case "action/stop": {
                 // 用戶要求「停止」要連帶做「蹲下站起」回位動作：与手势总停/MCP 共用
                 // stopActionWithRecovery()，回位播不播到不影響停止本身回 true。

@@ -410,7 +410,28 @@ public final class ActionDirect {
         }
     }
 
-    public HttpServer.ApiResponse actionPlayDirect(String name) {        java.io.File f = resolveActionFile(name);
+    /** The motion gate of the app (alpha2-brain#121). ApiDispatcher sets it. Without a gate
+     *  every play call is refused: no gate means no approval. */
+    private volatile MotionGate motionGate;
+
+    public void setMotionGate(MotionGate gate) {
+        motionGate = gate;
+    }
+
+    /** The refusal text, or null when the gate allows a whole action. Logs a refusal. */
+    private String playRefusal(String what) {
+        MotionGate g = motionGate;
+        String why = (g == null)
+                ? "Motion is refused: " + what + " has no motion gate."
+                : g.refusalForWholeBody(what);
+        if (why != null) Log.w("MotionGate", "refused: " + why);
+        return why;
+    }
+
+    public HttpServer.ApiResponse actionPlayDirect(String name) {
+        String why = playRefusal("action/play");
+        if (why != null) return new HttpServer.ApiResponse(403, "application/json; charset=utf-8", JsonUtil.okFalse(why));
+        java.io.File f = resolveActionFile(name);
         if (f == null) return HttpServer.ApiResponse.error("unknown action: " + name);
         HardwareDirectManager dm = HardwareDirectManager.get(appContext);
         if (!dm.chest().isAvailable()) return HttpServer.ApiResponse.error("chest not available");
@@ -435,6 +456,11 @@ public final class ActionDirect {
      * 语义动作、随机 filler 共用，HTTP action/play 另有「正在播先報錯」守卫故不经此。
      */
     public UbxErrorCode.API_ERROR_CODE playActionDirect(String nameOrId) {
+        // Motion gate (alpha2-brain#121): this call is the path of the voice chat, the semantic
+        // actions, the gamepad, the colour track, the MCP tools and the stop recovery.
+        if (playRefusal("playActionDirect(" + nameOrId + ")") != null) {
+            return UbxErrorCode.API_ERROR_CODE.API_ERROR_FAILED;
+        }
         java.io.File f = resolveActionFile(nameOrId);
         if (f == null) return UbxErrorCode.API_ERROR_CODE.API_ERROR_FAILED;
         HardwareDirectManager dm = HardwareDirectManager.get(appContext);
