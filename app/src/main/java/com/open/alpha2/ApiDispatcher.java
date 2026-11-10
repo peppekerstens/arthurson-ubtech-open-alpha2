@@ -62,6 +62,14 @@ public final class ApiDispatcher {
     private final ActionsPackController actionsPackController;
     private final ApkDownloadController apkDownloadController;
     private final GamepadCenter gamepadCenter;
+    // Motion gate (alpha2-brain#113): off by default, in memory only. A new dispatcher
+    // (a restart of the app) starts with both switches off. Never store it.
+    private final MotionGate motionGate = new MotionGate();
+
+    /** 403 for a servo move that the motion gate refuses. */
+    private static HttpServer.ApiResponse motionRefused(int status, String text) {
+        return new HttpServer.ApiResponse(status, "application/json; charset=utf-8", JsonUtil.okFalse(text));
+    }
 
     public ApiDispatcher(Context context, Host host, XiaozhiBridge.HostState sensorState,
             ActionDirect actionDirect, UbxApi ubxApi, ChestQuery chestQuery,
@@ -390,10 +398,19 @@ public final class ApiDispatcher {
             case "mic/multi/status":
                 return HttpServer.ApiResponse.ok(MultiMicController.get().statusJson());
             // -- Servos -----------------------------------------------------------------
-            case "servo/one":
-                return ubxApi.servoOneResponse(query);
+            // Motion gate (alpha2-brain#113): state and switches. Both are off by default
+            // and in memory only. Query: motion_enabled=true|false, head_only_enabled=true|false.
+            case "motion/status":
+                return HttpServer.ApiResponse.ok(motionGate.statusJson());
+            case "motion/set":
+                motionGate.applyQuery(query);
+                return HttpServer.ApiResponse.ok(motionGate.statusJson());
+            case "servo/one": {
+                int gid = ApiValidator.requireIntRange(query, "id", ApiValidator.SERVO_ID_MIN, ApiValidator.SERVO_ID_MAX);
+                return motionGate.guardServo(gid, () -> ubxApi.servoOneResponse(query), ApiDispatcher::motionRefused);
+            }
             case "servo/all":
-                return ubxApi.servoAllResponse(query);
+                return motionGate.guardAll(() -> ubxApi.servoAllResponse(query), ApiDispatcher::motionRefused);
             // threshold state 經 sonarCenter 直調。
             case "servo/sonar":
                 return sonarCenter.servoSonarResponse(query);
@@ -873,16 +890,18 @@ public final class ApiDispatcher {
                 int angle = ApiValidator.requireIntRange(query, "angle", ApiValidator.SERVO_ANGLE_MIN, ApiValidator.SERVO_ANGLE_MAX);
                 int time = ApiValidator.optionalIntRange(query, "time", ApiValidator.SERVO_TIME_MIN_MS, ApiValidator.SERVO_TIME_MAX_MS, 500);
                 // cmd05 單發（官方 tuner 實測本機可動），見 servoSendOneCode。
-                return ubxApi.servoSendOne(id, angle, time);
+                return motionGate.guardServo(id, () -> ubxApi.servoSendOne(id, angle, time), ApiDispatcher::motionRefused);
             }
             case "servo/all": {
                 int[] arr = ApiValidator.requireAngles20(query);
                 int time = ApiValidator.optionalIntRange(query, "time", ApiValidator.SERVO_TIME_MIN_MS, ApiValidator.SERVO_TIME_MAX_MS, 500);
-                // setAllServos 内部已转 cmd03（cmd52 有 ACK 无动作）。
-                boolean sent = HardwareDirectManager.get(appContext).chest().setAllServos(arr, (short) time);
-                if (!sent) return HttpServer.ApiResponse.error("direct not ready");
-                ubxPlayer.notePose(arr);
-                return HttpServer.ApiResponse.okTrue();
+                return motionGate.guardAll(() -> {
+                    // setAllServos 内部已转 cmd03（cmd52 有 ACK 无动作）。
+                    boolean sent = HardwareDirectManager.get(appContext).chest().setAllServos(arr, (short) time);
+                    if (!sent) return HttpServer.ApiResponse.error("direct not ready");
+                    ubxPlayer.notePose(arr);
+                    return HttpServer.ApiResponse.okTrue();
+                }, ApiDispatcher::motionRefused);
             }
             case "sonar/config": {
                 int cm = ApiValidator.requireIntRange(query, "distance", 0, 100);
