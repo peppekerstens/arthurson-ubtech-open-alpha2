@@ -68,7 +68,13 @@ public final class ApiDispatcher {
 
     /** 403 for a servo move that the motion gate refuses. */
     private static HttpServer.ApiResponse motionRefused(int status, String text) {
+        android.util.Log.w("MotionGate", "refused (" + status + "): " + text);
         return new HttpServer.ApiResponse(status, "application/json; charset=utf-8", JsonUtil.okFalse(text));
+    }
+
+    /** The motion gate. WakeController asks it before a voice command moves the body (alpha2-brain#121). */
+    public MotionGate motionGate() {
+        return motionGate;
     }
 
     public ApiDispatcher(Context context, Host host, XiaozhiBridge.HostState sensorState,
@@ -86,6 +92,7 @@ public final class ApiDispatcher {
         this.sensorState = sensorState;
         this.actionDirect = actionDirect;
         this.ubxApi = ubxApi;
+        actionDirect.setMotionGate(motionGate); // the same gate for each path that plays an action (alpha2-brain#121)
         this.chestQuery = chestQuery;
         this.chestUpgrade = chestUpgrade;
         this.servoUpgrade = servoUpgrade;
@@ -195,7 +202,9 @@ public final class ApiDispatcher {
             case "action/list":
                 return actionDirect.actionListDirect();
             case "action/play":
-                return actionDirect.actionPlayDirect(ApiValidator.require(query, "name"));
+                return motionGate.guardWholeBody("action/play",
+                        () -> actionDirect.actionPlayDirect(ApiValidator.require(query, "name")),
+                        ApiDispatcher::motionRefused);
             case "action/stop": {
                 // 用戶要求「停止」要連帶做「蹲下站起」回位動作：与手势总停/MCP 共用
                 // stopActionWithRecovery()，回位播不播到不影響停止本身回 true。
@@ -272,8 +281,8 @@ public final class ApiDispatcher {
             case "ubx/list":
                 return ubxApi.ubxListResponse();
             case "ubx/play":
-                return ubxApi.ubxPlayResponse(ApiValidator.optionalNullable(query, "name"),
-                        ApiValidator.optionalNullable(query, "path"));
+                return motionGate.guardWholeBody("ubx/play", () -> ubxApi.ubxPlayResponse(ApiValidator.optionalNullable(query, "name"),
+                        ApiValidator.optionalNullable(query, "path")), ApiDispatcher::motionRefused);
             case "ubx/stop":
                 return ubxApi.ubxStopResponse();
             case "ubx/status":
@@ -424,9 +433,11 @@ public final class ApiDispatcher {
             case "servo/angle":
                 return ubxApi.servoAngleResponse(query);
             case "servo/angle-restore":
-                return ubxApi.servoAngleRestoreResponse(query);
+                return motionGate.guardWholeBody("servo/angle-restore", () -> ubxApi.servoAngleRestoreResponse(query),
+                        ApiDispatcher::motionRefused);
             case "servo/angle-all":
-                return ubxApi.servoAngleAllResponse();
+                return motionGate.guardWholeBody("servo/angle-all", () -> ubxApi.servoAngleAllResponse(),
+                        ApiDispatcher::motionRefused);
             // 回讀角度實際讀取 (cmd 23 / 0x17，PC 工具「讀角度 6」同款；純讀唔寫回，實測中)。
             case "servo/back-angle":
                 return ubxApi.servoBackAngleResponse(query);
@@ -947,8 +958,8 @@ public final class ApiDispatcher {
             case "ubx/list":
                 return ubxApi.ubxListResponse();
             case "ubx/play":
-                return ubxApi.ubxPlayResponse(ApiValidator.optionalNullable(query, "name"),
-                        ApiValidator.optionalNullable(query, "path"));
+                return motionGate.guardWholeBody("ubx/play", () -> ubxApi.ubxPlayResponse(ApiValidator.optionalNullable(query, "name"),
+                        ApiValidator.optionalNullable(query, "path")), ApiDispatcher::motionRefused);
             case "ubx/speed":
                 return ubxApi.ubxSpeedResponse(ApiValidator.require(query, "value"));
             case "ubx/stop":

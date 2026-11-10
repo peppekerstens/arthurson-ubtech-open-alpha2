@@ -805,6 +805,15 @@ public final class WakeController {
                         return;
                     }
                 }
+                if (isMotion(command)) {
+                    // Motion gate (alpha2-brain#121): both switches are off by default.
+                    String why = api.motionGate().refusalForWholeBody("the voice command " + command);
+                    if (why != null) {
+                        Log.w(TAG, "motion refused: " + why);
+                        clip("motion-off", "Motion is off.");
+                        return;
+                    }
+                }
                 commandRunning = true;
                 try {
                     switch (command) {

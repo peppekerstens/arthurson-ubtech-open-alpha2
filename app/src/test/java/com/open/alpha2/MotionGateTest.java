@@ -69,6 +69,18 @@ public final class MotionGateTest {
         }, REFUSED);
     }
 
+    /** A route that moves the whole body: ubx/play (both route sets), servo/angle-restore,
+     *  servo/angle-all and the voice commands. The fake sender records the call by name. */
+    private static Reply routeWholeBody(final MotionGate gate, final FakeSender s, final String what) {
+        return gate.guardWholeBody(what, new MotionGate.Allowed<Reply>() {
+            @Override
+            public Reply run() {
+                s.sent.add(what);
+                return new Reply(200, "sent");
+            }
+        }, REFUSED);
+    }
+
     private static Map<String, String> q(String... kv) {
         Map<String, String> m = new HashMap<String, String>();
         for (int i = 0; i + 1 < kv.length; i += 2) m.put(kv[i], kv[i + 1]);
@@ -142,6 +154,34 @@ public final class MotionGateTest {
             threw = true;
         }
         check(threw && gate.isMotionEnabled(), "a bad value throws and changes nothing");
+
+        // 6. Whole-body routes (alpha2-brain#121): each one is refused with the gate off,
+        //    and refused with only the head switch on. Each one passes with the gate on.
+        String[] routes = {"ubx/play", "ubx/play (direct)", "action/play", "playActionDirect(chat, semantic, gamepad, MCP)", "servo/angle-restore", "servo/angle-all",
+                "the voice command stand_up", "the voice command squat",
+                "the voice command rest", "the voice command sleep"};
+        for (int i = 0; i < routes.length; i++) {
+            String route = routes[i];
+            gate = new MotionGate();
+            s = new FakeSender();
+            Reply rr = routeWholeBody(gate, s, route);
+            refused(rr, s, "gate off, " + route);
+            check(rr.body.contains(route), "gate off, " + route + ": the text names the call");
+            gate.setHeadOnlyEnabled(true);
+            rr = routeWholeBody(gate, s, route);
+            refused(rr, s, "head only, " + route);
+            check(rr.body.contains("head_only_enabled"), "head only, " + route + ": the text names the head switch");
+            gate.setMotionEnabled(true);
+            rr = routeWholeBody(gate, s, route);
+            check(rr.status == 200 && s.sent.size() == 1 && s.sent.get(0).equals(route), "gate on, " + route + " passes");
+            check(new MotionGate().refusalForWholeBody(route) != null, "restart, " + route + ": refused");
+        }
+        // Even servo 19 (angle-restore on the head) needs the full switch.
+        gate = new MotionGate();
+        gate.setHeadOnlyEnabled(true);
+        check(gate.refusalForServo(19) == null && gate.refusalForWholeBody("servo/angle-restore") != null,
+                "head only: servo/one 19 passes, servo/angle-restore does not");
+        check(gate.refusalForWholeBody("x") != null && !gate.isMotionEnabled(), "refusal does not change a switch");
 
         System.out.println("MotionGateTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
