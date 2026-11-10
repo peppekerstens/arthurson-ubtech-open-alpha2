@@ -79,6 +79,27 @@ public final class MotionGate {
                 + SETTING_HEAD_ONLY + " allows servo " + HEAD_SERVO_ID + " only.";
     }
 
+    /**
+     * The refusal text for a call that plays a whole action, writes servo angles back or runs
+     * a local voice command that moves the body (alpha2-brain#121). The head-only switch does
+     * not allow these calls: they move more than the head. Or null when the call can go on.
+     *
+     * @param what a short name of the call for the text, for example "ubx/play"
+     */
+    public String refusalForWholeBody(String what) {
+        if (motionEnabled) return null;
+        return "Motion is refused: " + what + " moves more than the head, and the setting "
+                + SETTING_MOTION + " is off. The setting " + SETTING_HEAD_ONLY
+                + " does not allow it. Both motion settings are off by default and after each restart.";
+    }
+
+    /** Run a call that moves the whole body only when the gate allows it. A refusal gives status 403. */
+    public <T> T guardWholeBody(String what, Allowed<T> allowed, Refused<T> refused) {
+        String why = refusalForWholeBody(what);
+        if (why != null) return refused.refuse(403, why);
+        return allowed.run();
+    }
+
     /** Run a move of one servo only when the gate allows it. A refusal gives status 403. */
     public <T> T guardServo(int servoId, Allowed<T> allowed, Refused<T> refused) {
         String why = refusalForServo(servoId);
