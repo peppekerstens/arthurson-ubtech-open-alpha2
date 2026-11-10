@@ -22,6 +22,7 @@ against m1 in samples (sub-sample, parabolic fit) and in microseconds.
 Sound moves 343 mm/ms, so 1 sample at 16 kHz = 21.4 mm path difference.
 Needs numpy.
 """
+import argparse
 import os
 import sys
 import urllib.request
@@ -95,19 +96,22 @@ def record(base, out, seconds=3):
 
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
-    url_arg = rec = None
-    files = []
-    while args:
-        a = args.pop(0)
-        if a == "--url" and args:
-            url_arg = args.pop(0)
-        elif a == "--record" and args:
-            rec = args.pop(0)
-        else:
-            files.append(a)
-    if rec:
-        record(robot_url(url_arg), rec)
-        files.append(rec)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("files", nargs="*", metavar="FILE",
+                        help="WAV file(s) to analyse")
+    parser.add_argument("--record", metavar="FILE",
+                        help="record a WAV, then analyse it")
+    parser.add_argument("--url", metavar="URL",
+                        help="robot base URL")
+    args = parser.parse_args()
+    files = list(args.files)
+    if args.record:
+        record(robot_url(args.url), args.record)
+        files.append(args.record)
+    if not files:
+        parser.print_usage()
+        sys.exit(2)
     for p in files:
         main(p)
