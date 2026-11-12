@@ -20,6 +20,7 @@ command after the wake word), robot session 2026-11-01.
 StopEchoGuardTest (alpha2-brain#52): the stop echo guard time windows.
 VoiceLanguagesTest (alpha2-brain#88): English only by default, one setting for Dutch.
 MotionGateTest (alpha2-brain#113): the motion gate of the direct servo routes.
+alpha2-brain#130 adds the chest move commands of debug/serial/send (MotionGate + ChestSafety).
 
 Usage: python scripts/test-apivalidator.py
 """
@@ -222,7 +223,7 @@ def main() -> int:
         ("com.open.alpha2.StopEchoGuardTest",
          [src / "StopEchoGuard.java", src / "StopWordMatcher.java", testdir / "StopEchoGuardTest.java"]),
         ("com.open.alpha2.MotionGateTest",
-         [src / "MotionGate.java", testdir / "MotionGateTest.java"]),
+         [src / "MotionGate.java", hw / "ChestSafety.java", testdir / "MotionGateTest.java"]),
         ("com.open.alpha2.VoiceLanguagesTest",
          [src / "VoiceLanguages.java", testdir / "VoiceLanguagesTest.java"]),
         ("com.ubtechinc.alpha.hardware.DirectChestControllerTest",
