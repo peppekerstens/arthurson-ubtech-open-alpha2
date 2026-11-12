@@ -1,5 +1,7 @@
 package com.open.alpha2;
 
+import com.ubtechinc.alpha.hardware.ChestSafety;
+
 import java.util.Map;
 
 /**
@@ -91,6 +93,32 @@ public final class MotionGate {
         return "Motion is refused: " + what + " moves more than the head, and the setting "
                 + SETTING_MOTION + " is off. The setting " + SETTING_HEAD_ONLY
                 + " does not allow it. Both motion settings are off by default and after each restart.";
+    }
+
+    /**
+     * The refusal text for a chest move command of debug/serial/send (alpha2-brain#130):
+     * cmd 0x03 (move one), 0x05 (move all) or 0x06 (read with release). The chest servos
+     * are body servos, so the head-only switch does not allow the call. Or null when the
+     * call can go on.
+     */
+    public String refusalForChestMove() {
+        if (motionEnabled) return null;
+        return "Motion is refused: the chest move command in debug/serial/send moves the body, and the setting "
+                + SETTING_MOTION + " is off. The setting " + SETTING_HEAD_ONLY
+                + " does not allow it. Both motion settings are off by default and after each restart.";
+    }
+
+    /**
+     * The refusal text for the debug/serial/send route (alpha2-brain#130): on port=chest,
+     * a chest move command (cmd 0x03 move one, 0x05 move all, 0x06 read with release)
+     * needs the gate to allow a body move. Read commands (for example 0x17, 0x39, 0x0E)
+     * are not gated, and frames for port=head are not checked at all. Or null when the
+     * call can go on.
+     */
+    public String refusalForSerialSend(String port, byte[] data) {
+        if (!"chest".equals(port)) return null;
+        if (ChestSafety.findChestMoveCommand(data) < 0) return null;
+        return refusalForChestMove();
     }
 
     /** Run a call that moves the whole body only when the gate allows it. A refusal gives status 403. */
