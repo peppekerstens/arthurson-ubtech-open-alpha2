@@ -93,6 +93,7 @@ public final class ApiDispatcher {
         this.actionDirect = actionDirect;
         this.ubxApi = ubxApi;
         actionDirect.setMotionGate(motionGate); // the same gate for each path that plays an action (alpha2-brain#121)
+        ledCenter.setMotionGate(motionGate); // chest move commands in debug/serial/send need the gate (alpha2-brain#130)
         this.chestQuery = chestQuery;
         this.chestUpgrade = chestUpgrade;
         this.servoUpgrade = servoUpgrade;
