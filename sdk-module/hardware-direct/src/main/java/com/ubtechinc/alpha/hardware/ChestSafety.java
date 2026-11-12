@@ -42,6 +42,12 @@ package com.ubtechinc.alpha.hardware;
 public final class ChestSafety {
     public static final int CMD_SERVO_POWER = 0x19; // RobotWire.CHEST_SERVO_POWER
     public static final int CMD_POWER_SAVE = 0x40;  // RobotWire.CHEST_POWER_SAVE
+    // Chest move commands (alpha2-brain#130): 0x03 moves one servo, 0x05 moves all
+    // servos, 0x06 reads the angle and releases the servo. A read without release
+    // (for example 0x17) is no move.
+    public static final int CMD_MOVE_ONE = 0x03;
+    public static final int CMD_MOVE_ALL = 0x05;
+    public static final int CMD_READ_RELEASE = 0x06;
 
     public static final String SIT_DOWN_19 = "cmd 0x19 [00] is not a servo power off."
             + " It starts the 'Sit down' move of the chest (firmware V142 and V352,"
@@ -86,6 +92,31 @@ public final class ChestSafety {
         }
         // 2. Whole frames only (alpha2-brain#25).
         return checkWholeFrames(data);
+    }
+
+    /**
+     * The first chest move command in the raw frames (alpha2-brain#130): cmd 0x03
+     * (move one), 0x05 (move all) or 0x06 (read with release). Returns the command
+     * byte, or -1 when no move command is present. Read commands (for example 0x17,
+     * 0x39, 0x0E) are not move commands. A frame with a bad checksum, length or tail
+     * is not a complete frame, so the scan skips it (checkChestFrames refuses it).
+     */
+    public static int findChestMoveCommand(byte[] data) {
+        if (data == null) return -1;
+        int n = data.length;
+        for (int i = 0; i + 1 < n; i++) {
+            if ((data[i] & 0xFF) != HEAD0 || (data[i + 1] & 0xFF) != HEAD1) continue;
+            int cmd = -1;
+            int total = longLength(data, i);
+            if (total >= 0) {
+                cmd = data[i + 5] & 0xFF;
+            } else {
+                total = shortLength(data, i);
+                if (total >= 0) cmd = data[i + 3] & 0xFF;
+            }
+            if (cmd == CMD_MOVE_ONE || cmd == CMD_MOVE_ALL || cmd == CMD_READ_RELEASE) return cmd;
+        }
+        return -1;
     }
 
     /**
