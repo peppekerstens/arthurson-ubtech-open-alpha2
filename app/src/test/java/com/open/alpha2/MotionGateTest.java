@@ -81,6 +81,21 @@ public final class MotionGateTest {
         }, REFUSED);
     }
 
+    /** A long-form chest frame: F8 8F LEN 05 00 CMD PAYLOAD CHK ED (same layout as
+     *  ApiValidatorTest.frame). */
+    private static byte[] chestFrame(int cmd, int... payload) {
+        int len = 7 + payload.length;
+        byte[] out = new byte[len + 1];
+        out[0] = (byte) 0xF8; out[1] = (byte) 0x8F; out[2] = (byte) len; out[3] = 0x05; out[4] = 0x00;
+        out[5] = (byte) cmd;
+        for (int i = 0; i < payload.length; i++) out[6 + i] = (byte) payload[i];
+        int sum = 0;
+        for (int i = 2; i < len - 1; i++) sum += out[i] & 0xFF;
+        out[len - 1] = (byte) sum;
+        out[len] = (byte) 0xED;
+        return out;
+    }
+
     private static Map<String, String> q(String... kv) {
         Map<String, String> m = new HashMap<String, String>();
         for (int i = 0; i + 1 < kv.length; i += 2) m.put(kv[i], kv[i + 1]);
@@ -182,6 +197,50 @@ public final class MotionGateTest {
         check(gate.refusalForServo(19) == null && gate.refusalForWholeBody("servo/angle-restore") != null,
                 "head only: servo/one 19 passes, servo/angle-restore does not");
         check(gate.refusalForWholeBody("x") != null && !gate.isMotionEnabled(), "refusal does not change a switch");
+
+        // 7. Chest move commands in debug/serial/send (alpha2-brain#130): cmd 0x03 (move
+        //    one), 0x05 (move all) and 0x06 (read with release) need the gate. Read
+        //    commands (for example 0x17, 0x39, 0x0E) are not gated, and head frames are
+        //    not checked at all.
+        final byte[] fMoveOne = chestFrame(0x03, 0x03);
+        final byte[] fMoveAll = chestFrame(0x05, 0x01, 0x2C);
+        final byte[] fReadRel = chestFrame(0x06, 0x03);
+        final byte[] fRead = chestFrame(0x17, 0x03);
+        gate = new MotionGate();
+        String why = gate.refusalForSerialSend("chest", fMoveAll);
+        check(why != null && why.contains("motion_enabled"), "gate off, chest cmd 0x05 refused, text names the setting");
+        why = gate.refusalForSerialSend("chest", fMoveOne);
+        check(why != null && why.contains("motion_enabled"), "gate off, chest cmd 0x03 refused");
+        why = gate.refusalForSerialSend("chest", fReadRel);
+        check(why != null && why.contains("motion_enabled"), "gate off, chest cmd 0x06 refused");
+        gate.setHeadOnlyEnabled(true);
+        why = gate.refusalForSerialSend("chest", fMoveAll);
+        check(why != null && why.contains("head_only_enabled"), "head only, chest cmd 0x05 refused, text names the head switch");
+        gate.setMotionEnabled(true);
+        check(gate.refusalForSerialSend("chest", fMoveAll) == null, "gate on, chest cmd 0x05 allowed");
+        check(gate.refusalForSerialSend("chest", fMoveOne) == null, "gate on, chest cmd 0x03 allowed");
+        check(gate.refusalForSerialSend("chest", fReadRel) == null, "gate on, chest cmd 0x06 allowed");
+        gate = new MotionGate();
+        check(gate.refusalForSerialSend("chest", fRead) == null, "gate off, chest cmd 0x17 (read) allowed");
+        check(gate.refusalForSerialSend("chest", chestFrame(0x39, 0x00)) == null, "gate off, chest cmd 0x39 (read) allowed");
+        check(gate.refusalForSerialSend("chest", chestFrame(0x0E, 0x00)) == null, "gate off, chest cmd 0x0E (read) allowed");
+        check(gate.refusalForSerialSend("head", fMoveAll) == null, "gate off, head frame not checked");
+        check(gate.refusalForSerialSend("chest", new byte[0]) == null, "gate off, empty data allowed");
+        // A move command inside a batch of frames is still refused.
+        final byte[] batch = new byte[fRead.length + fMoveAll.length];
+        System.arraycopy(fRead, 0, batch, 0, fRead.length);
+        System.arraycopy(fMoveAll, 0, batch, fRead.length, fMoveAll.length);
+        check(gate.refusalForSerialSend("chest", batch) != null, "gate off, a move command inside a batch refused");
+        // The sit-down check is unchanged (alpha2-brain#24): cmd 0x19 [00] and cmd 0x40 [01]
+        // still need allow_sit_down=true; the motion gate does not replace it.
+        check(com.ubtechinc.alpha.hardware.ChestSafety.checkChestFrames(chestFrame(0x19, 0x00), false)
+                == com.ubtechinc.alpha.hardware.ChestSafety.SIT_DOWN_19, "sit-down: cmd 0x19 [00] still refused");
+        check(com.ubtechinc.alpha.hardware.ChestSafety.checkChestFrames(chestFrame(0x40, 0x01), false)
+                == com.ubtechinc.alpha.hardware.ChestSafety.SIT_DOWN_40, "sit-down: cmd 0x40 [01] still refused");
+        check(com.ubtechinc.alpha.hardware.ChestSafety.checkChestFrames(chestFrame(0x19, 0x00), true) == null,
+                "sit-down: cmd 0x19 [00] allowed with allow_sit_down");
+        check(com.ubtechinc.alpha.hardware.ChestSafety.checkChestFrames(chestFrame(0x40, 0x01), true) == null,
+                "sit-down: cmd 0x40 [01] allowed with allow_sit_down");
 
         System.out.println("MotionGateTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
