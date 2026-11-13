@@ -7,7 +7,8 @@ import android.util.Log;
 import java.util.Map;
 
 /**
- * 系統鈴聲層：RingtoneManager 查表 + STREAM_MUSIC MediaPlayer 播放。
+ * System ringtone layer: RingtoneManager lookup + MediaPlayer playback on
+ * STREAM_MUSIC.
  */
 public final class RingtoneCenter {
     private static final String TAG = "RingtoneCenter";
@@ -25,11 +26,12 @@ public final class RingtoneCenter {
     private android.net.Uri shutterCueUri;
     private boolean shutterCueLookupDone = false;
 
-    // PIR alert cue - "Heaven" 是 Android 內建系統鈴聲標題, 和 STOP_CUE/SHUTTER_CUE
-    // 一樣做法 (lazy lookup by title, cache 住那個 content:// Uri)。播放時機見
-    // MainActivity.registerAlpha2PirAlertListener() - alpha2_pir_state broadcast
-    // (RobotEventReceiver.java) 一到 triggered=true 就立刻播, triggered=false 立刻停
-    // (跟 sonar 的 purple LED 一樣, 不等整首歌播完)。
+    // PIR alert cue - "Heaven" is a built-in Android system ringtone title, same
+    // approach as STOP_CUE/SHUTTER_CUE (lazy lookup by title, cache the content://
+    // Uri). Playback timing: see MainActivity.registerAlpha2PirAlertListener() - the
+    // alpha2_pir_state broadcast (RobotEventReceiver.java) plays the cue as soon as
+    // triggered=true and stops it as soon as triggered=false (like the sonar purple
+    // LED, do not wait for the whole track to finish).
     private static final String PIR_ALERT_RINGTONE_TITLE = "Heaven";
     private android.net.Uri pirAlertUri;
     private boolean pirAlertLookupDone = false;
@@ -98,7 +100,8 @@ public final class RingtoneCenter {
         playRingtoneUri(pirAlertUri);
     }
 
-    // 共用播放器：記住「目前正在播放的那個」MediaPlayer, 每次開新的之前先停掉舊的。
+    // Shared player: keep the MediaPlayer that is playing now. Stop the old one
+    // before starting a new one.
     private android.media.MediaPlayer currentRingtonePlayer;
 
     /** Shared playback: STREAM_MUSIC (see playStopCue()'s javadoc for why not a plain
@@ -144,8 +147,8 @@ public final class RingtoneCenter {
         stopRingtonePlaybackLocked();
     }
 
-    /** GamepadCenter ring toggle 共用：而家有無鈴聲播緊（player 在即係；
-     * 播完／出错 listener 會清掉）。 */
+    /** Shared by the GamepadCenter ring toggle: is a ringtone playing now (the
+     *  player exists; the completion and error listeners clear it). */
     public synchronized boolean isRingtonePlaying() {
         try {
             return currentRingtonePlayer != null;
@@ -159,8 +162,10 @@ public final class RingtoneCenter {
         currentRingtonePlayer = null;
     }
 
-    /** OnCompletion/OnError 共用：release 播完／出錯那部 player，是 current 先清掉
-     *  （之前兩個 listener 內逐字一樣；裸 release——completed/errored state 不合 stop）。 */
+    /** Shared by OnCompletion/OnError: release the player that finished or errored,
+     *  and clear the current reference (the two listeners were identical word for
+     *  word before; a bare release - a completed or errored player does not allow
+     *  stop()). */
     private void releaseDonePlayerLocked(android.media.MediaPlayer mp) {
         mp.release();
         if (currentRingtonePlayer == mp) {
@@ -168,16 +173,18 @@ public final class RingtoneCenter {
         }
     }
 
-    // RingtoneManager.getCursor() 每次取得的是*同一個*底層 cursor, 不應該由
-    // 使用者自己 close() —— 它的生命週期本身是跟著 RingtoneManager instance
-    // 走的, 如果沒有用 RingtoneManager(Activity) 這個會自動與 activity 生命週期綁定
-    // 的 constructor (這裡用的是 RingtoneManager(Context), 沒有自動綁定), 就要自己
-    // 保住這個 RingtoneManager instance, 不要用完即丟, 否則底層的 cursor 沒人釋放,
-    // 一直洩漏 (實測 logcat 看到 CursorWindowAllocationException, # Open Cursors
-    // 累積到 991 個, 就是這個 bug 導致的)。修法: 用 rmType (TYPE_RINGTONE /
-    // TYPE_NOTIFICATION) 做 key, 快取住那兩個 RingtoneManager instance,
-    // 整個 app 生命週期裡只 new 一次, 之後所有呼叫都取快取的那個來重用
-    // (RingtoneManager.getCursor() 內部自己會 requery(), 不需要我們手動 refresh)。
+    // RingtoneManager.getCursor() returns the *same* underlying cursor on every
+    // call. Do not close() it yourself - its lifetime follows the RingtoneManager
+    // instance. The RingtoneManager(Activity) constructor binds to the activity
+    // lifecycle automatically (this code uses RingtoneManager(Context), which does
+    // not). Keep the RingtoneManager instance and do not discard it after use.
+    // Otherwise nobody releases the underlying cursor and it leaks (observed in
+    // logcat: CursorWindowAllocationException, Open Cursors grew to 991 - this bug
+    // caused it). Fix: key by rmType (TYPE_RINGTONE / TYPE_NOTIFICATION), cache
+    // those two RingtoneManager instances, create each once for the whole app
+    // lifetime, and reuse the cached instance on every later call
+    // (RingtoneManager.getCursor() requeries itself internally; no manual refresh
+    // needed).
     private final java.util.Map<Integer, android.media.RingtoneManager> ringtoneManagerCache = new java.util.HashMap<>();
 
     private synchronized android.media.RingtoneManager getCachedRingtoneManager(int rmType) {
@@ -221,7 +228,8 @@ public final class RingtoneCenter {
         return null;
     }
 
-    // -- HTTP endpoints (handleApi 轉調，參數校驗照舊經 ApiValidator) ----------
+    // -- HTTP endpoints (called from handleApi; parameter validation still goes
+    // through ApiValidator) ----------
 
     // -- System ringtones/notification sounds: exposes every ringtone Android
     // knows about (via RingtoneManager, same mechanism findRingtoneByTitle()
@@ -236,7 +244,7 @@ public final class RingtoneCenter {
         int rmType = "notification".equals(type)
                 ? android.media.RingtoneManager.TYPE_NOTIFICATION
                 : android.media.RingtoneManager.TYPE_RINGTONE;
-        // 改用 getCachedRingtoneManager()（防 cursor 洩漏）。
+        // Use getCachedRingtoneManager() (prevents cursor leaks).
         android.media.RingtoneManager manager = getCachedRingtoneManager(rmType);
         android.database.Cursor cursor = manager.getCursor();
         StringBuilder sb = new StringBuilder("{\"ok\":true,\"type\":\"" + MainActivity.jsonSafe(type) + "\",\"sounds\":[");
@@ -260,7 +268,7 @@ public final class RingtoneCenter {
         int rmType = "notification".equals(type)
                 ? android.media.RingtoneManager.TYPE_NOTIFICATION
                 : android.media.RingtoneManager.TYPE_RINGTONE;
-        // 同上, 改用 cached manager。
+        // Same as above: use the cached manager.
         android.media.RingtoneManager manager = getCachedRingtoneManager(rmType);
         android.net.Uri uri;
         try {
@@ -275,12 +283,13 @@ public final class RingtoneCenter {
         return HttpServer.ApiResponse.okTrue();
     }
 
-    // 用 title 查找鈴聲, 不再用 audio/ringtones/list 的 numbered
-    // index (cursor position 不保證跨機一致)。Blockly 頁面內嵌靜態 title 清單,
-    // (由實機 adb content query 執行一次抓回來, 見 blockly-actions-data.js
-    // 旁邊的 blockly-ringtone-data.js), 選了 title 直接送這個 API, 沿用
-    // findRingtoneByTitle() 這個已經被 playStopCue()/playShutterCue() 使用、
-    // 驗證過穩健的「查 title 轉 Uri」機制, 完全不用理會 index 排序這個問題。
+    // Look up the ringtone by title, not by the numbered index from
+    // audio/ringtones/list (cursor position is not consistent across devices).
+    // The Blockly page embeds a static title list (captured once on the device
+    // with adb content query; see blockly-ringtone-data.js next to
+    // blockly-actions-data.js). The chosen title goes straight to this API,
+    // reusing the proven title-to-Uri lookup in findRingtoneByTitle(), already
+    // used by playStopCue()/playShutterCue(). Index ordering is a non-issue.
     public HttpServer.ApiResponse ringtonesPlayByTitle(Map<String, String> query) {
         String type = ApiValidator.optionalRingtoneType(query);
         String title = ApiValidator.require(query, "title");
@@ -295,21 +304,24 @@ public final class RingtoneCenter {
         return HttpServer.ApiResponse.okTrue();
     }
 
-    // 停止目前正在播放的系統鈴聲/通知聲 (play / play_by_title 兩個
-    // endpoint 播放的那個), 對應 Blockly「範例 5」的「停止播放」按鈕。
+    // Stop the system ringtone or notification sound that is playing now (the one
+    // started by the play / play_by_title endpoints), for the "Stop playback"
+    // button in Blockly "Example 5".
     public HttpServer.ApiResponse ringtonesStop() {
         stopRingtonePlayback();
         return HttpServer.ApiResponse.okTrue();
     }
 
-    /** GamepadCenter 映射共用：按 title 播系統鈴聲（同 play_by_title 同一路
-     *  title→Uri＋STREAM_MUSIC；搵唔到回 false）。任意線程可調。 */
+    /** Shared by GamepadCenter mapping: play a system ringtone by title (same path
+     *  as play_by_title: title to Uri, STREAM_MUSIC; returns false when not
+     *  found). Safe to call from any thread. */
     public synchronized boolean playRingtoneTitleNow(String title) {
         return playRingtoneNow(null, title);
     }
 
-    /** GamepadCenter 分表鈴聲共用：type phone／notification 分表搵，
-     *  null／其他即全表搵（舊式 ring: 相容）。搵唔到回 false。任意線程可調。 */
+    /** Shared by GamepadCenter split-table ringtones: type phone or notification
+     *  searches that table only; null or other searches all tables (legacy ring:
+     *  compatible). Returns false when not found. Safe to call from any thread. */
     public synchronized boolean playRingtoneNow(String type, String title) {
         if (title == null || title.trim().isEmpty()) return false;
         int rmType;
@@ -332,8 +344,9 @@ public final class RingtoneCenter {
         return true;
     }
 
-    /** GamepadCenter 映射共用：播系統預設電話鈴聲（TYPE_RINGTONE default；
-     *  無即 false）。任意線程可調。 */
+    /** Shared by GamepadCenter mapping: play the default system phone ringtone
+     *  (TYPE_RINGTONE default; returns false when none). Safe to call from any
+     *  thread. */
     public synchronized boolean playDefaultPhoneRingtoneNow() {
         try {
             android.net.Uri uri = android.media.RingtoneManager.getDefaultUri(
@@ -347,8 +360,9 @@ public final class RingtoneCenter {
         }
     }
 
-    /** GamepadCenter ring_random 共用：隨機播一首系統鈴聲（TYPE_RINGTONE 表；
-     *  無聲回 false）。任意線程可調。 */
+    /** Shared by GamepadCenter ring_random: play a random system ringtone
+     *  (TYPE_RINGTONE table; returns false when there is no sound). Safe to call
+     *  from any thread. */
     public synchronized boolean playRandomRingtoneNow() {
         try {
             android.media.RingtoneManager manager =

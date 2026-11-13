@@ -32,14 +32,15 @@ public class RobotEventReceiver extends BroadcastReceiver {
         if (action == null) {
             return;
         }
-        // 總入口 log, 記下這個 receiver 實際收到了
-        // 哪個 action。
+        // Log at the main entry point, recording which action this receiver
+        // actually received.
         Log.i(TAG, "onReceive action=" + action);
         try {
             switch (action) {
                 case "com.ubtechinc.key": {
-                    // 這個 action 在這個韌體版本實際上是死 code, 永遠不會觸發, 只是保留做向後
-                    // 相容 (以防其他韌體/舊機用回這個 action)。
+                    // This action is dead code in this firmware version; it never
+                    // fires. Kept only for backward compatibility (in case other
+                    // firmware or older devices use this action again).
                     // Extra "key" is a Byte, not an int - see gotchas-and-naming.md.
                     Object key = readAny(intent, "key");
                     EventBus.get().publish("head_key", "{\"keyId\":" + jsonValue(key) + "}");
@@ -48,8 +49,8 @@ public class RobotEventReceiver extends BroadcastReceiver {
                 case "com.ubtechinc.robot.tts_hint_wakeup": {
                     Object hint = readAny(intent, "hint_event");
                     EventBus.get().publish("wakeup", "{\"hintEvent\":" + jsonValue(hint) + "}");
-                    // 用戶開口那一刻立刻探測一次雲端連通性
-                    // (見 MainActivity.triggerWakeupProbe() 的 comment)。
+                    // Probe cloud connectivity once the moment the user starts
+                    // speaking (see the comment on MainActivity.triggerWakeupProbe()).
                     MainActivity.triggerWakeupProbe();
                     break;
                 }
@@ -62,17 +63,21 @@ public class RobotEventReceiver extends BroadcastReceiver {
                 }
                 case "com.ubtechinc.robot_uuid.info": {
                     Object uuid = readAny(intent, "robot_uuid");
-                    // 直接 String.valueOf(uuid) 有兩個 bug 導致
-                    // 「無法讀取 uuid」:
-                    // 1) uuid == null 時 String.valueOf() 回傳字串 "null", 經白名單
-                    //    過濾後仍然是 "null", 前端會把 "null" 當成真 ID 顯示;
-                    // 2) firmware 經 broadcast 送回來的 SN 很大機會是 byte[] (EEPROM
-                    //    ASCII + padding), 而 String.valueOf(byte[]) 只會回傳
-                    //    "[B@<hashcode>" 這種 Object.toString, 經白名單後變成一段
-                    //    "Bxxxxxxx" 垃圾, 永遠不是真 SN。
-                    // 修正: byte[] 用 US-ASCII 解碼 (和 MainActivity.parseRobotUuidFrame
-                    // 同一套語義), null 則 fallback 掃描全部 extras 找 plausible 值,
-                    // 找不到就 publish {"uuid":null} 讓前端顯示錯誤而不是卡在「查詢中」。
+                    // A direct String.valueOf(uuid) has two bugs that cause
+                    // "cannot read uuid":
+                    // 1) When uuid == null, String.valueOf() returns the string "null",
+                    //    which is still "null" after whitelist filtering, so the
+                    //    frontend shows "null" as a real ID;
+                    // 2) The SN that firmware sends back over the broadcast is very
+                    //    likely a byte[] (EEPROM ASCII + padding), and
+                    //    String.valueOf(byte[]) only returns an Object.toString like
+                    //    "[B@<hashcode>", which the whitelist turns into a "Bxxxxxxx"
+                    //    garbage chunk, never a real SN.
+                    // Fix: decode byte[] as US-ASCII (same semantics as
+                    // MainActivity.parseRobotUuidFrame); when null, fall back to
+                    // scanning all extras for a plausible value; when none is found,
+                    // publish {"uuid":null} so the frontend shows an error instead of
+                    // hanging on "querying".
                     String s = decodeUuidExtra(uuid);
                     if ((s == null || s.isEmpty()) && intent.getExtras() != null) {
                         Bundle all = intent.getExtras();
@@ -114,45 +119,55 @@ public class RobotEventReceiver extends BroadcastReceiver {
                     break;
                 }
                 case "com.ubtechinc.services.Action.ACTION_STOP": {
-                    // 機身側動作播放被外部打斷停止 —— 和
-                    // IActionResultListener.onStopActionResult() 不同, 這個是全域廣播,
-                    // 不限於自己 call 著那個 playAction() session。
+                    // Action playback on the robot side was interrupted and stopped
+                    // from outside - unlike
+                    // IActionResultListener.onStopActionResult(), this is a global
+                    // broadcast, not limited to the playAction() session you called.
                     EventBus.get().publish("action_stop", "{}");
                     break;
                 }
                 case "com.ubtechinc.services.Action.ROBOT_INTERRUPTED": {
-                    // 代表機械人整體被打斷 (通常和 TTS/action 一起停)。
+                    // Means the robot as a whole was interrupted (usually stops TTS
+                    // and actions together).
                     EventBus.get().publish("robot_interrupted", "{}");
                     break;
                 }
                 case RobotWire.CHEST_ACTION: {
-                    // sonar 讀數不經這裡，經下面獨立的
-                    // RobotWire.SONAR_DISTANCE_ACTION case；這裡只做輔助
-                    // debug (可以看到機身內部 raw command byte 的時序)。
+                    // Sonar readings do not go through here; they go through the
+                    // separate RobotWire.SONAR_DISTANCE_ACTION case below. This case
+                    // only does auxiliary debug (you can see the timing of the raw
+                    // command bytes inside the robot body).
                     //
-                    // CHEST_ACTION broadcast 未必每次都轉發給第三方 app（實測收不齊），
-                    // 這裡直接印每一次收到的完整 raw value，方便對比官方收到多少次 -109。
+                    // The CHEST_ACTION broadcast is not always forwarded to
+                    // third-party apps (observed: not every one arrives). This prints
+                    // the full raw value on every receipt, so you can compare how many
+                    // times the official app received -109.
                     Log.i(TAG, "CHEST_ACTION received, raw value=" + bundleToJson(intent.getExtras()));
                     EventBus.get().publish("chest_broadcast_debug",
                             "{\"action\":\"" + action + "\",\"extras\":" + bundleToJson(intent.getExtras()) + "}");
 
-                    // 心口 mute 鍵經同一個 CHEST_ACTION broadcast 送出, extra "value" (byte[]) 裡面
-                    // 會有 -111 (0x91)。wire frame f8 8f 08 00 00 91 01 9a ed /
-                    // f8 8f 08 00 00 91 00 99 ed。
+                    // The chest mute key is sent over the same CHEST_ACTION
+                    // broadcast; extra "value" (byte[]) contains -111 (0x91). Wire
+                    // frame f8 8f 08 00 00 91 01 9a ed /
+                    // f8 8f 08 00 00 91 00 99 ed.
                     //
-                    // 不假設 -111 在固定 index，掃描整個陣列；已知樣本 (cmd -115/-111/-109/-128
-                    // checksum 分別 0x97/0x9a,0x99/0x9c/0x8c) 不會同 0x91 撞值，不會誤觸發。
+                    // Do not assume -111 sits at a fixed index; scan the whole array.
+                    // Known samples (cmd -115/-111/-109/-128 with checksums
+                    // 0x97/0x9a, 0x99/0x9c/0x8c) do not collide with 0x91, so there is
+                    // no false trigger.
                     Object rawValue = readAny(intent, "value");
                     if (rawValue instanceof byte[]) {
                         byte[] arr = (byte[]) rawValue;
 
-                        // 心口 mute 鍵分「按下(01)/放開(00)」-
-                        // raw wire frame 實測是 f8 8f 08 00 00 91 01 9a ed /
-                        // f8 8f 08 00 00 91 00 99 ed, 和 PIR (-109) 一樣 cmd 後面
-                        // 那個 byte 就是 sub-value。MainActivity 那邊用這個旗標做
-                        // mute LED toggle (cmd=68 [01]=亮/[00]=熄, 真機掃描確認)。
-                        // 找到 -111 的 index, 如果不是最後一個 byte 就取下一個 byte
-                        // 做 pressed 判斷; 只有 cmd 沒 param 的話保守當 pressed。
+                        // The chest mute key splits into "pressed(01) / released(00)"
+                        // - the observed raw wire frames are f8 8f 08 00 00 91 01 9a ed /
+                        // f8 8f 08 00 00 91 00 99 ed. As with PIR (-109), the byte
+                        // after cmd is the sub-value. MainActivity uses this flag to
+                        // toggle the mute LED (cmd=68, [01]=on / [00]=off, confirmed
+                        // by on-device scan). Find the index of -111; if it is not the
+                        // last byte, take the next byte for the pressed decision; when
+                        // only cmd is present with no param, conservatively treat it as
+                        // pressed.
                         for (int i = 0; i < arr.length; i++) {
                             if (arr[i] == (byte) -111) {
                                 boolean mutePressed = true;
@@ -166,19 +181,22 @@ public class RobotEventReceiver extends BroadcastReceiver {
                             }
                         }
 
-                        // PIR sensor raw 觸發事件 (cmd=-109 / 0x93, "PIR HUMON DETECT
-                        // (1: ENTER)  (0: EXIT)")。
+                        // PIR sensor raw trigger event (cmd=-109 / 0x93, "PIR HUMON
+                        // DETECT (1: ENTER)  (0: EXIT)").
                         //
-                        // 1.1.7.3 官方 code 對 -109/-111/-108 無支援，只 log "ches cmd = -109"，
-                        // 不會轉發 pirStatus broadcast；自己 app 直接讀這個廣播的
-                        // raw "value" byte[] 照樣讀得到。
+                        // The official 1.1.7.3 code does not support -109/-111/-108;
+                        // it only logs "ches cmd = -109" and does not forward the
+                        // pirStatus broadcast. This app can still read the raw
+                        // "value" byte[] of this broadcast directly.
                         //
-                        // Sub-value (ENTER=1/EXIT=0) 在 cmd byte 之後那一個 byte。SDK 傳過來的
-                        // "value" 陣列可能是完整 wire frame (例如
-                        // f8 8f 08 00 00 93 01 9c ed) 或者已拆剩 param (例如 {01})，做法是: 找到 -109
-                        // 的 index, 如果它不是陣列最後一個, 就取它下一個 byte 做
-                        // ENTER/EXIT 判斷; 如果剛好是最後一個 byte, 就沒有 sub-value 可取,
-                        // triggered 保守當 true。
+                        // The sub-value (ENTER=1/EXIT=0) is the byte right after the
+                        // cmd byte. The "value" array the SDK passes may be a full
+                        // wire frame (e.g. f8 8f 08 00 00 93 01 9c ed) or already
+                        // reduced to just the param (e.g. {01}). The approach: find
+                        // the index of -109; if it is not the last element of the
+                        // array, take its next byte for the ENTER/EXIT decision; if it
+                        // is exactly the last byte, there is no sub-value to take, so
+                        // conservatively treat triggered as true.
                         for (int i = 0; i < arr.length; i++) {
                             if (arr[i] == (byte) -109) {
                                 boolean pirTriggered = true;
@@ -195,29 +213,33 @@ public class RobotEventReceiver extends BroadcastReceiver {
                     break;
                 }
                 case "com.ubtech.securityCamera.pirStatus": {
-                    // 未經真機驗證 (1.1.7.3 理論上不會送出)。保留這個 case 是為了
-                    // 將來換了支援的 firmware 版本，兩條路都
-                    // 餵去同一個 "alpha2_pir_state" event, 前端不用理背後走哪條路。
-                    // extra
-                    // "pirStatus" 是 byte, 1=有人進入, 0=無人離開 - 和 Lynx 的
-                    // "com.ubtechinc.services.Action.PIR_STATE" (extra "pirState",
-                    // boolean) 是完全不同的 action/extra 名, 不要兩者混淆。用獨立
-                    // 的 "alpha2_pir_state" event 名 (不用回 Lynx 那個 "pir_state"),
-                    // 讓前端可以分開兩個 backend 各自的 indicator, 不會互相覆蓋。
+                    // Not verified on a real device (1.1.7.3 should not send this).
+                    // This case is kept so that when a supported firmware version
+                    // appears later, both paths feed the same "alpha2_pir_state"
+                    // event and the frontend does not care which path ran behind the
+                    // scenes. Extra "pirStatus" is a byte, 1=person entered,
+                    // 0=person left - the action/extra names are completely different
+                    // from Lynx's "com.ubtechinc.services.Action.PIR_STATE" (extra
+                    // "pirState", boolean). Do not confuse the two. Use the separate
+                    // "alpha2_pir_state" event name (not Lynx's "pir_state") so the
+                    // frontend can keep the two backends' indicators apart without
+                    // overwriting each other.
                     Object pirStatus = readAny(intent, "pirStatus");
                     boolean triggered = toUnsignedByteInt(pirStatus) == 1;
                     EventBus.get().publish("alpha2_pir_state", "{\"triggered\":" + triggered + "}");
                     break;
                 }
                 case RobotWire.SONAR_DISTANCE_ACTION: {
-                    // sonar 讀數經這個獨立 broadcast 送出, extra
-                    // 已經是 firmware parse 好的 int (SONAR_DISTANCE_EXTRA =
-                    // "sonar_distance"), 不用自己再解 raw wire frame。Demo 自己的
-                    // UI (ActionMainActivity$7) 用 intent.getIntExtra(key, 0) 讀,
-                    // 0 或負數當「沒讀數/超出範圍」顯示成 "INF" - 這裡跟回同一個假設。
-                    // 這個值究竟是不是已經是 cm 未經 100% 證實 (demo 只是直接印出來,
-                    // 沒做任何換算), 但 enableSonar() 送出去的 config 第二個 param
-                    // byte (40) 看起來像是 cm 門檻, 兩者單位一致的可能性高。
+                    // Sonar readings arrive on this separate broadcast. The extra is
+                    // already an int parsed by the firmware (SONAR_DISTANCE_EXTRA =
+                    // "sonar_distance"), so no raw wire frame decoding is needed here.
+                    // The demo's own UI (ActionMainActivity$7) reads it with
+                    // intent.getIntExtra(key, 0) and shows 0 or a negative value as
+                    // "no reading / out of range" rendered as "INF" - we follow the
+                    // same assumption here. It is not 100% confirmed that this value
+                    // is already in cm (the demo just prints it, with no conversion),
+                    // but the second config param byte (40) sent by enableSonar()
+                    // looks like a cm threshold, so both are likely the same unit.
                     int distanceCm = intent.getIntExtra(RobotWire.SONAR_DISTANCE_EXTRA, -1);
                     boolean triggered = distanceCm > 0 && distanceCm <= MainActivity.getSonarThresholdCm();
                     EventBus.get().publish("sonar_obstacle",
@@ -227,17 +249,21 @@ public class RobotEventReceiver extends BroadcastReceiver {
                     MainActivity.onSonarDistanceReceived(distanceCm, triggered);
                     break;
                 }
-                // 用來查 speech_SetMIC()/setWakeState()
-                // 拿回 mic 這一刻機身有沒有發任何 broadcast 通知這個問題。
-                // 這 6 個 action 名字/extras 看起來和 TTS、ASR、mic 相關
-                // 事件有關, 但實際哪個會不會在 setWakeState() 那一刻觸發、payload
-                // 實際裝了什麼, 純粹反編譯 bytecode 看不出來 (bytecode 只能看到那個
-                // action 字串和 putExtra() 的 key 名/型別, 看不到什麼時候會走到那段
-                // code) —— 所以這裡刻意不立刻假設哪個 extra 代表 mic 狀態、不立刻
-                // 拿出來做獨立 UI event, 只用同一個 mic_broadcast_debug event
-                // 將整個 intent (action + 全部 extras, 用 bundleToJson() 不理型別
-                // 全部原樣轉送) 送去 WebSocket log, 等收集到實機觸發的實際 payload
-                // 之後, 才選哪幾個真的和 mic ownership 有關、要拆成獨立 event。
+                // Used to answer whether the robot body emits any broadcast
+                // notification at the moment speech_SetMIC()/setWakeState() takes
+                // the mic back.
+                // These 6 action names/extras look related to TTS, ASR and mic
+                // events, but which of them actually fires at the setWakeState()
+                // moment, and what the payload really contains, cannot be seen by
+                // decompiling the bytecode alone (the bytecode only shows the action
+                // string and the putExtra() key names/types, not when that code is
+                // reached). So here we deliberately do not yet assume which extra
+                // means mic state, and do not split them into standalone UI events.
+                // Instead we use one shared mic_broadcast_debug event to send the
+                // whole intent (action + all extras, via bundleToJson(), types
+                // untouched) to the WebSocket log. Once we collect the real
+                // on-device payloads, we pick the ones that truly relate to mic
+                // ownership and split those into standalone events.
                 case "com.ubtechinc.services.ABOUT_TTS":
                 case "com.ubtechinc.services.ALPHA_SOCKET_ASR_OK":
                 case "com.ubtechinc.services.SPEECH_ANGLE_5MIC":
@@ -273,11 +299,12 @@ public class RobotEventReceiver extends BroadcastReceiver {
     }
 
     /**
-     * 把 robot_uuid extra 解成乾淨 SN 字串 (和
-     * MainActivity.parseRobotUuidFrame 同一套語義: ASCII 解碼 -> 切掉第一個 \0
-     * 之後的 padding -> 白名單只留英數/-/_)。byte[] 走 ASCII 解碼, String 走
-     * 同一條清洗路徑, null/空回 null。其他型別 (Integer 等) 用 String.valueOf
-     * 再清洗, 避免 "[B@hash" 類垃圾。
+     * Decode the robot_uuid extra into a clean SN string (same semantics as
+     * MainActivity.parseRobotUuidFrame: ASCII decode - drop the padding after the
+     * first \0 - whitelist keeps only alphanumerics, - and _). byte[] goes through
+     * ASCII decoding, String goes through the same cleaning path, null/empty
+     * returns null. Other types (Integer, etc.) go through String.valueOf and then
+     * the same cleaning, to avoid "[B@hash"-style garbage.
      */
     private static String decodeUuidExtra(Object value) {
         if (value == null) {
@@ -297,8 +324,10 @@ public class RobotEventReceiver extends BroadcastReceiver {
                 return null;
             }
         }
-        // byte[] 開頭可能有 flag 0x00 (見 MainActivity.parseRobotUuidFrame
-        // 的真幀), 要先跳過開頭非法字元再切 \0, 否則 indexOf('\0')=0 會切出空字串。
+        // The byte[] may start with a flag 0x00 (see the real frame in
+        // MainActivity.parseRobotUuidFrame). Skip the leading invalid characters
+        // first, then cut at \0. Otherwise indexOf('\0')=0 cuts out an empty
+        // string.
         int start = 0;
         while (start < s.length()) {
             char c = s.charAt(start);
@@ -314,8 +343,9 @@ public class RobotEventReceiver extends BroadcastReceiver {
         }
         s = s.replaceAll("[^A-Za-z0-9\\-_]", "").trim();
         if (s.isEmpty()) return null;
-        // 斬尾 (EEPROM 非零殘留, 見 ChestQuery.truncateUuidTail)。
-        // broadcast 路徑無 SharedPreferences 寫入長度可用, 傳 -1 行 pattern/大小寫規則。
+        // Cut the tail (non-zero EEPROM residue; see ChestQuery.truncateUuidTail).
+        // The broadcast path has no SharedPreferences-stored length to use, so pass
+        // -1 to apply the pattern/case rules.
         return ChestQuery.truncateUuidTail(s, -1);
     }
 
@@ -343,14 +373,15 @@ public class RobotEventReceiver extends BroadcastReceiver {
                 || value instanceof Float) {
             return String.valueOf(value);
         }
-        // byte[] (CHEST_ACTION 的 "value" extra 就是這種) 沒在
-        // 上面覆蓋到, fallback 到 String.valueOf(value) 會取 Object.toString()
-        // 的預設結果, 也就是 "[B@<hashcode>" 這種完全看不到內容的字串 - 這就是
-        // 之前在 Event Log 頁見到 "value":"[B@276adcef" 的原因, 那個陣列內容一直
-        // 沒印出過, 讓我們一直靠猜心口 mute 鍵 (-111) 究竟排在陣列哪個 index。
-        // 這裡改成印出每個 byte 的 signed decimal 值 (和 logcat "ches cmd = -111"
-        // 那種格式一致, 方便直接對比), 用逗號分隔包在 [] 裡面, 不再是普通 JSON
-        // 字串。
+        // byte[] (the CHEST_ACTION "value" extra is exactly this) is not covered
+        // above. Falling back to String.valueOf(value) takes the default
+        // Object.toString() result, a "[B@<hashcode>" string that shows none of the
+        // content - that is why the Event Log page previously showed
+        // "value":"[B@276adcef". The array content was never printed, so we kept
+        // guessing which index the chest mute key (-111) sat at. Here we print each
+        // byte as a signed decimal value (matching the logcat "ches cmd = -111"
+        // format for direct comparison), comma-separated and wrapped in [], not a
+        // plain JSON string.
         if (value instanceof byte[]) {
             byte[] arr = (byte[]) value;
             StringBuilder sb = new StringBuilder("[");
