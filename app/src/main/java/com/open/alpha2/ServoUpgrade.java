@@ -12,39 +12,54 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 舵機韌體升級：胸板命令 16 開始／17 資料頁，結果由上行 134 回報。
+ * Servo firmware upgrade: chest command 16 start / 17 data page, result
+ * reported by uplink 134.
  *
- * RE 依據：
- * - 官方 upgrade APK（2.003）反彙編：ChestCmds 數值（16／17／134 齊，同命令表一致）；
- *   embedded 升級引擎通用形（START＝[4B BE 長度]、PAGE 逐頁 ACK＋error≠0 即停、
- *   電量 ≥50 閘、per-page 重試）。但該 APK 無舵機升級任務，cmd16／17 逐 byte
- *   未有官方實現可對。
- * - 白牌 mega8 舵機 bootloader 反彙編：bus 層 FD DF … ED 幀、64-byte flash 頁、
- *   112 頁＝7168B app 區、命令 1＝寫頁／2＝查詢、67-byte 加總校驗。
+ * RE basis:
+ * - Official upgrade APK (2.003) disassembly: ChestCmds values (16 / 17
+ *   / 134 all present, matches the command table); generic shape of the
+ *   embedded upgrade engine (START = [4B BE length], PAGE per-page ACK +
+ *   stop on error != 0, battery >= 50 gate, per-page retries). But that
+ *   APK has no servo upgrade task, so cmd16 / 17 have no official
+ *   implementation to compare byte by byte.
+ * - White-label mega8 servo bootloader disassembly: bus layer FD DF ...
+ *   ED frames, 64-byte flash pages, 112 pages = 7168B app area, command
+ *   1 = write page / 2 = query, 67-byte sum check.
  *
- * Chest 層格式（推斷，命令表信心「中」，真機未驗證——START 接受即逐步證實）：
- *   16 START [id][len BE32]，回覆 status 0＝接受（胸板 cmd48 同款＋id 行頭）。
- *   17 PAGE [id][0x01][seqHi][seqLo][64B]，回覆 status 0＝繼續（每頁 3 次重試）。
- *   上行 134 [status][id]，status 0＝成功（等 20 秒）。
+ * Chest layer format (inferred, command table confidence "medium", not
+ * verified on the real robot - a START acceptance proves it step by
+ * step):
+ *   16 START [id][len BE32], reply status 0 = accepted (same style as
+ *   chest cmd48 plus id line header).
+ *   17 PAGE [id][0x01][seqHi][seqLo][64B], reply status 0 = continue
+ *   (3 retries per page).
+ *   Uplink 134 [status][id], status 0 = success (wait 20 seconds).
  *
- * 硬閘（絕不妥協）：
- * - 固件檔必須恰好 7168 bytes（112×64）；其他大小一律拒（防半燒變磚）。
- * - 電量未知放行、已知需 ≥50（同官方 ConditionUtil.checkCondition(true, 50, -1)）。
- * - 一次只燒一粒；燒緊唔開得第二轉；可 abort（abort 唔保證舵機回復，只停後續頁）。
+ * Hard gates (never compromised):
+ * - The firmware file must be exactly 7168 bytes (112x64); any other
+ *   size is rejected (prevents a half-burn brick).
+ * - Unknown battery passes, a known battery needs >= 50 (same as the
+ *   official ConditionUtil.checkCondition(true, 50, -1)).
+ * - One servo at a time; no second run while burning; can abort (abort
+ *   does not guarantee the servo recovers, it only stops the remaining
+ *   pages).
  *
- * 進度經 EventBus servo_upgrade_progress／servo_upgrade_done 發布，
- * 前端輪詢 servo/upgrade/status。檔案上載見 handleServoFwUpload。
+ * Progress is published over EventBus servo_upgrade_progress /
+ * servo_upgrade_done; the frontend polls servo/upgrade/status. File
+ * upload is in handleServoFwUpload.
  */
 public final class ServoUpgrade {
     private static final String TAG = "ServoUpgrade";
 
-    /** 升級用固件檔（上載／燒錄同一路徑，見 handleServoFwUpload／startServoUpgrade）。 */
+    /** Firmware file for the upgrade (same path for upload / burn, see
+     *  handleServoFwUpload / startServoUpgrade). */
     public static final String FIRMWARE_PATH = "/sdcard/AlphaII_SERVO_fw.bin";
-    /** 唯一接受嘅固件大小：112 頁 × 64B（mega8 app 區實證）。 */
+    /** The only accepted firmware size: 112 pages x 64B (proven by the
+     *  mega8 app area). */
     public static final int FIRMWARE_SIZE = 7168;
-    /** 每頁 64B（舵機 bootloader flash 頁實證）。 */
+    /** 64B per page (proven by the servo bootloader flash page). */
     public static final int PAGE_SIZE = 64;
-    /** 總頁數 112（7168／64）。 */
+    /** Total page count 112 (7168 / 64). */
     public static final int TOTAL_PAGES = 112;
 
     private final Context appContext;
@@ -61,11 +76,12 @@ public final class ServoUpgrade {
     private volatile String upgradeStatus = "idle";
     private volatile Thread upgradeThread;
 
-    // 16/17 逐命令 ACK latch（同 ChestQuery 嗰套 cmd latch 一致：payload[0]==cmd）。
+    // Per-command ACK latch for 16/17 (same cmd latch scheme as
+    // ChestQuery: payload[0]==cmd).
     private volatile CountDownLatch ackLatch;
     private volatile int ackExpectedCmd = -1;
     private volatile int ackStatus = -1;
-    // 134 結果 latch。
+    // Result latch for 134.
     private volatile CountDownLatch resultLatch;
     private volatile int resultStatus = -1;
     private volatile int resultId = -1;
@@ -82,9 +98,11 @@ public final class ServoUpgrade {
     }
 
     /**
-     * 認領 16／17 ACK 幀同 134 結果幀，由 MainActivity.onDirectChestFrame
-     * 喺升級 ACK 之後、ChestQuery 之前調用（134 唔認領會跌入版本 fallback 誤食）。
-     * @return true = 已認領／已消耗。
+     * Claims the 16/17 ACK frames and the 134 result frame. Called from
+     * MainActivity.onDirectChestFrame after the upgrade ACK and before
+     * ChestQuery (an unclaimed 134 falls into the version fallback and
+     * is eaten by mistake).
+     * @return true = claimed / consumed.
      */
     public boolean onFrame(byte[] frame, byte[] payload, int plen) {
         CountDownLatch latch = ackLatch;
@@ -165,7 +183,9 @@ public final class ServoUpgrade {
         } catch (Exception ignored) {}
     }
 
-    /** 中止升級（servo/upgrade/abort）：停後續頁＋清狀態。注意：已寫入舵機 flash 嘅頁唔會回滾。 */
+    /** Abort the upgrade (servo/upgrade/abort): stop the remaining
+     *  pages + clear state. Note: pages already written to the servo
+     *  flash are not rolled back. */
     public synchronized void abort() {
         CountDownLatch latch = ackLatch;
         ackLatch = null;
@@ -182,7 +202,8 @@ public final class ServoUpgrade {
         upgradeStatus = "aborted";
     }
 
-    /** 真正升級線程：16([id][len BE32])->17*112([id][01][seq][64B])->等 134。 */
+    /** The actual upgrade thread: 16([id][len BE32]) -> 17*112
+     *  ([id][01][seq][64B]) -> wait for 134. */
     private void doServoUpgradeFrom(final int servoId, final java.io.File file) {
         final int fileLen = (int) file.length();
         upgradeServoId = servoId;
@@ -197,7 +218,8 @@ public final class ServoUpgrade {
         try { Thread.sleep(400); } catch (InterruptedException ignored) {}
         try {
             if (!chestReady()) { throw new Exception("chest not ready (pure-direct)"); }
-            // 16 START（推斷格式 [id][len BE32]；拒收即停，乜都未燒）。
+            // 16 START (inferred format [id][len BE32]; a rejection
+            // stops here, nothing is burned yet).
             upgradeStatus = "sending start";
             boolean startOk = false;
             for (int retry = 0; retry < 3; retry++) {
@@ -209,7 +231,8 @@ public final class ServoUpgrade {
             if (!startOk) throw new Exception("start rejected or ack timeout (cmd16 format unverified - see logcat)");
             Thread.sleep(150);
             upgradeStatus = "sending pages";
-            // 17 PAGES — 112 頁 × 64B，每頁 3 次重試，頁間 30ms。
+            // 17 PAGES - 112 pages x 64B, 3 retries per page, 30ms
+            // between pages.
             byte[] fileBytes = new byte[fileLen];
             try (java.io.FileInputStream in = new java.io.FileInputStream(file)) {
                 int off = 0;
@@ -243,7 +266,7 @@ public final class ServoUpgrade {
                 if (upgradeCurrentPage % 20 == 0) Log.i(TAG, "servo page " + upgradeCurrentPage + "/" + TOTAL_PAGES);
                 Thread.sleep(30);
             }
-            // 等上行 134 結果。
+            // Wait for the uplink 134 result.
             upgradeStatus = "waiting result";
             if (!waitForResult(20000)) {
                 throw new Exception("no uplink 134 result within 20s (pages all ACKed; verify with version read)");
@@ -277,7 +300,8 @@ public final class ServoUpgrade {
         }
         java.io.File f = new java.io.File(FIRMWARE_PATH);
         if (!f.isFile()) return "file not found: " + FIRMWARE_PATH + " (upload first)";
-        // 硬閘：恰好 7168 bytes 先收（112×64；其他即半燒變磚，直接拒）。
+        // Hard gate: accept only exactly 7168 bytes (112x64; any other
+        // size is a half-burn brick, reject it directly).
         if (f.length() != FIRMWARE_SIZE) {
             return "bad firmware size " + f.length() + " bytes, must be exactly " + FIRMWARE_SIZE + " (112x64)";
         }
@@ -328,7 +352,8 @@ public final class ServoUpgrade {
         return HttpServer.ApiResponse.ok("{\"ok\":true," + getServoUpgradeStatusJson().substring(1));
     }
 
-    /** 舵機固件上載 — 只收恰好 7168 bytes app 鏡像（無 bootloader），寫入 /sdcard/AlphaII_SERVO_fw.bin。 */
+    /** Servo firmware upload - accepts only an exactly 7168-byte app
+     *  image (no bootloader), written to /sdcard/AlphaII_SERVO_fw.bin. */
     public HttpServer.ApiResponse handleServoFwUpload(Map<String, String> query, byte[] body) {
         if (body == null || body.length == 0) {
             return HttpServer.ApiResponse.badRequest("empty file body");
@@ -349,7 +374,8 @@ public final class ServoUpgrade {
         }
     }
 
-    /** 電量閘（同 ChestUpgrade 規則：未知放行，已知需 ≥50）。 */
+    /** Battery gate (same rule as ChestUpgrade: unknown passes, known
+     *  needs >= 50). */
     private boolean isPowerEnoughForUpgrade() {
         try {
             android.content.IntentFilter f = new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED);
