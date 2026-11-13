@@ -18,7 +18,7 @@ import com.ubtechinc.alpha.jni.LedControl;
 import java.util.Map;
 
 /**
- * LED 層：5-mic 頭/眼、嘴部、底層 JNI/serial 除錯端點。
+ * LED layer: 5-mic head/eye, mouth, and low-level JNI/serial debug endpoints.
  */
 public final class LedCenter {
     private static final String TAG = "LedCenter";
@@ -45,7 +45,7 @@ public final class LedCenter {
         registerVolumeChangeReceiver();
     }
 
-    /** onDestroy 共用：停 pad LED worker＋meter worker＋反註冊音量廣播。 */
+    /** Shared by onDestroy: stop the pad LED worker, the meter worker, and unregister the volume broadcast. */
     public void shutdown() {
         padLedExecutor.shutdownNow();
         volumeMeterExecutor.shutdownNow();
@@ -58,8 +58,9 @@ public final class LedCenter {
         volumeChangeReceiver = null;
     }
 
-    // 任何路改系統音量（實體 V+/V-、HTML 音量 slider、Android 設定）都會出呢個
-    // 廣播——呢度聽住，條綠燈 bar 乜路改都跟到，唔使逐個 call 位勾。
+    // Any path that changes the system volume (physical V+/V-, the HTML volume slider,
+    // Android settings) emits this broadcast. Listen here: the green bar follows a
+    // volume change from any path, with no call-site changes needed.
     private BroadcastReceiver volumeChangeReceiver = null;
 
     private void registerVolumeChangeReceiver() {
@@ -69,17 +70,19 @@ public final class LedCenter {
                 public void onReceive(Context context, Intent intent) {
                     try {
                         if (intent == null) return;
-                        // 常數逐字寫：呢個 SDK 冇 AudioManager.EXTRA_VOLUME_STREAM_TYPE
+                        // Write the constant verbatim: this SDK has no AudioManager.EXTRA_VOLUME_STREAM_TYPE
                         int stream = intent.getIntExtra(
                                 "android.media.EXTRA_VOLUME_STREAM_TYPE", -1);
                         if (stream != android.media.AudioManager.STREAM_MUSIC) return;
                         showVolumeMeter();
-                        // 反向同步：乜路改音量（HTML slider／頭頂 +/- 鍵／語音大細聲）
-                        // 都會出呢個 broadcast，順手 publish 個 volume_changed 上 WS，
-                        // 等 HTML 兩邊 slider 即時跟返（正向 HTML→機械人係經
-                        // /api/audio/volume/set 回包即時同步；見 app-log.js
-                        // appendLog＋app-servo.js onVolumeChangedEvent）。
-                        // 純讀 AudioManager＋組 string，無阻塞，onReceive 時限內搞掂。
+                        // Reverse sync: any path that changes the volume (the HTML slider,
+                        // the physical +/- keys, voice up/down) emits this broadcast.
+                        // Publish volume_changed to WS so both HTML sliders follow at once.
+                        // (Forward HTML->robot already syncs through the /api/audio/volume/set
+                        // reply; see appendLog in app-log.js and onVolumeChangedEvent in
+                        // app-servo.js.)
+                        // Read AudioManager and build a string only; no blocking; fits the
+                        // onReceive time limit.
                         try {
                             android.media.AudioManager am = (android.media.AudioManager)
                                     appContext.getSystemService(Context.AUDIO_SERVICE);
@@ -105,25 +108,29 @@ public final class LedCenter {
         }
     }
 
-    // -- Pad (+/-) 實體鍵指示燈 -----------------------------------------------
-    // 真機掃描確認: ledSetOn(14) = volume- 燈, ledSetOn(16) = volume+ 燈。
-    // firmware 不會自亮，按住期間由 app 連發補燈，放手補 OFF；
-    // wifi 燈 (12/13) firmware 不會自己著，繼續手動（三態：熄/紅/藍）。
+    // -- Pad (+/-) physical key indicator lights -----------------------------------------------
+    // Confirmed on real hardware: ledSetOn(14) = volume- light, ledSetOn(16) = volume+ light.
+    // The firmware does not light them on its own. While a key is held, the app keeps
+    // sending the lights. On release, the app sends OFF.
+    // The wifi light (12/13) does not light on its own either; keep it manual
+    // (three states: off/red/blue).
     private static final int PAD_LED_INDEX_MINUS = 14;
     private static final int PAD_LED_INDEX_PLUS = 16;
     private static final long PAD_LED_INTERVAL_MS = 80;
-    // alpha2services 已移除，無人再搶 /dev/led_eye，重試只防偶發打不開。
+    // alpha2services is removed. No one else races /dev/led_eye. Retry only guards a rare open failure.
     private static final int PAD_LED_OPEN_ATTEMPTS = 3;
     private final java.util.concurrent.ExecutorService padLedExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor();
-    // 音量計專用單線程：唔可以同上面 padLedExecutor 共用——pad worker 喺㩒住
-    // 期間 loop 唔放（80ms 一轉），共用嗰陣 meter update 會排隊等到放手先郁
-    // （實機驗明：長撳連減嗰陣頭綠燈唔跟，放手先一次過變）。分開之後兩邊經
-    // DirectLedController 全局鎖排先後，唔會打架。
+    // Dedicated single thread for the volume meter. It must not share padLedExecutor:
+    // while a key is held, the pad worker loops without yielding (one turn every 80 ms).
+    // If shared, the meter update would queue until release (confirmed on real hardware:
+    // a long volume- hold left the green head light stale; it jumped all at once on
+    // release). With separate threads, both sides order through the
+    // DirectLedController global lock, so they never conflict.
     private final java.util.concurrent.ExecutorService volumeMeterExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor();
 
-    /** meter 更新專用 post（同 postPadLed 一樣吞 RejectedExecutionException）。 */
+    /** Post for meter updates (swallows RejectedExecutionException like postPadLed). */
     public void postVolumeMeter(Runnable r) {
         try {
             volumeMeterExecutor.execute(r);
@@ -131,11 +138,13 @@ public final class LedCenter {
         }
     }
 
-    /** onDestroy() 會 shutdownNow() 上面條 executor，但 wifi receiver
-     *  之前 postDelayed 了的 runnable (1200ms) 還會在之後照開，當時再排就撞上
-     *  RejectedExecutionException 崩潰在 main thread——app
-     *  收緊皮當時掉了個 LED 更新是正確行為，吞了它。
-     *  公開是因為 mute 鍵小智開關／mute LED 發送都借這條單線程做背景執行。 */
+    /** onDestroy() calls shutdownNow() on the executor above, but a runnable that
+     *  the wifi receiver posted earlier with postDelayed (1200 ms) can still fire
+     *  afterwards. Posting at that point hits RejectedExecutionException on the main
+     *  thread. Dropping one LED update during shutdown is the correct behaviour, so
+     *  swallow it.
+     *  Public because the mute key Xiaozhi switch and the mute LED send also borrow
+     *  this single thread for background execution. */
     public void postPadLed(Runnable r) {
         try {
             padLedExecutor.execute(r);
@@ -146,13 +155,14 @@ public final class LedCenter {
     private volatile boolean padMinusHeld = false;
     private volatile boolean padPlusHeld = false;
     private volatile boolean padLedWorkerRunning = false;
-    // pad 實體鍵狀態世代：每次 setPad*Held 即 +1。GestureCenter 雙鍵總停後
-    // 1.5s 嘅 failsafe 熄燈，淨係喺世代冇郁過（期間冇新撳掣）先清——唔係會
-    // 熄咗人哋跟住㩒住嗰粒燈（見 stopAllViaPads）。
+    // Pad physical key state generation: +1 on each setPad*Held. The 1.5 s failsafe
+    // light-off in GestureCenter after the two-key stop clears only if the generation
+    // did not move (no new key press in the meantime). Otherwise it would turn off a
+    // light the user then pressed (see stopAllViaPads).
     private final java.util.concurrent.atomic.AtomicInteger padHeldEpoch =
             new java.util.concurrent.atomic.AtomicInteger();
 
-    /** 手勢層設定實體鍵狀態 (0x5a-0x5f)，跟著即刻調 padLedUpdate()。 */
+    /** The gesture layer sets the physical key state (0x5a-0x5f), then calls padLedUpdate() right away. */
     public void setPadMinusHeld(boolean held) {
         padMinusHeld = held;
         padHeldEpoch.incrementAndGet();
@@ -163,16 +173,19 @@ public final class LedCenter {
         padHeldEpoch.incrementAndGet();
     }
 
-    /** 讀世代（failsafe 熄燈用；見上）。 */
+    /** Read the generation (for the failsafe light-off; see above). */
     public int getPadHeldEpoch() {
         return padHeldEpoch.get();
     }
 
     /**
-     * V+/V- 綠色音量計（用戶要求）：讀 STREAM_MUSIC 即時音量，0-4 粒綠燈
-     * 顯示喺頭（能用只有 1-4，見上面位圖）。level 0 即全滅，滿格即 4 粒。
-     * 每次撳掣即更，留低唔還原（disco／LED 頁／下次撳掣會自然覆寫）。
-     * 行 pad 單線程，同 pad 燈 burst 排隊，唔會同 JNI 打架。
+     * Green volume meter for V+/V- (user request): read the live STREAM_MUSIC volume
+     * and show 0-4 green lights on the head (only 1-4 are usable; see the bit map
+     * above). Level 0 = all off, full = 4 lights.
+     * Update on every key press and do not restore (disco, the LED page, or the next
+     * key press overwrites it naturally).
+     * Runs on the pad single thread, queues behind the pad light bursts, and never
+     * races the JNI.
      */
     private static final int VOLUME_LED_GREEN = 2;
     private static final int VOLUME_LED_BRIGHTNESS = 9;
@@ -214,24 +227,27 @@ public final class LedCenter {
     }
 
     /**
-     * 按住 +/- firmware 不會自亮 14/16，所以按住期間繼續由
-     * app 主動點亮；放手後補 ledSetOFF 清場。單線程 worker，正在跑不重入。
+     * The firmware does not light 14/16 while +/- is held, so the app keeps the
+     * light on actively during the hold and sends ledSetOFF on release to clean up.
+     * Single-thread worker; no re-entry while running.
      */
     public synchronized void padLedUpdate() {
-        // check-then-set 要原子——兩個線程同撳嗰陣唔好開多條 worker 打架。
+        // check-then-set must be atomic: two threads pressing at once must not start two workers that fight.
         if (padLedWorkerRunning) {
             return;
         }
         padLedWorkerRunning = true;
         postPadLed(() -> {
-            int lastCombo = -1; // bit0=minus bit1=plus；只在組合變化先補發（無人搶燈）
+            int lastCombo = -1; // bit0=minus bit1=plus; resend only when the combo changes (no one else takes the light)
             try {
                 for (;;) {
                     while (padMinusHeld || padPlusHeld) {
                         int combo = (padMinusHeld ? 1 : 0) | (padPlusHeld ? 2 : 0);
                         if (combo != lastCombo) {
-                            // 轉組合（例如兩粒㩒住放開一粒）先全局熄一次——
-                            // 硬件無逐粒熄，放開嗰粒唔清會著到放晒手。
+                            // On a combo change (for example, two held and one released),
+                            // turn everything off once.
+                            // The hardware has no per-light off. An uncleared released
+                            // light stays lit until both keys let go.
                             if (lastCombo != -1 && !assertPadLedsOffBurst()) {
                                 Log.w(TAG, "pad combo-change off-burst failed");
                             }
@@ -244,7 +260,7 @@ public final class LedCenter {
                         Log.w(TAG, "pad release off-burst failed, pads may stay lit");
                     }
                     if (!padMinusHeld && !padPlusHeld) break;
-                    // 熄燈途中又按過：回到 loop，不交棒
+                    // Pressed again while turning off: back to the loop, do not hand over
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -257,7 +273,7 @@ public final class LedCenter {
     /** Gap between open() attempts inside one burst (ms). */
     private static final long PAD_LED_RETRY_GAP_MS = 40;
 
-    /** pad LED open 重試間隔（combo／off／wifi 三個 burst loop 逐字一樣）。 */
+    /** Pad LED open retry interval (the combo / off / wifi burst loops are identical word for word). */
     private static boolean sleepPadRetryGap() {
         try {
             Thread.sleep(PAD_LED_RETRY_GAP_MS);
@@ -269,14 +285,16 @@ public final class LedCenter {
     }
 
     /**
-     * 按住期間點亮組合 burst：open 到就按 padMinusHeld/padPlusHeld 點 14/16
-     *（累加式，兩顆齊按兩顆都著），打不開就重試。
+     * Light the held combo burst: when open, light 14/16 according to
+     * padMinusHeld/padPlusHeld (additive: two held, both light). Retry if the
+     * open fails.
      */
     private boolean assertPadLedsComboBurst() {
         for (int attempt = 1; attempt <= PAD_LED_OPEN_ATTEMPTS; attempt++) {
             final boolean[] openOk = {false};
-            // open→ioctl→close 包入全局驅動鎖：/dev/led_eye 頂唔順併發 open，
-            // 同 disco 高頻打燈撞即有機會硬 hang。重試 sleep 留喺鎖出面。
+            // Wrap open->ioctl->close in the global driver lock: /dev/led_eye cannot
+            // take concurrent opens, and a collision with the high-frequency disco
+            // light can hang the hardware hard. Keep the retry sleep outside the lock.
             DirectLedController.runExclusive(() -> {
                 try {
                     openOk[0] = LedControl.open();
@@ -313,26 +331,33 @@ public final class LedCenter {
     }
 
     /**
-     * 放手後熄燈 burst：全域 OFF（ledSetOFF 係「一鑊清晒」，頭/眼/pad/wifi/咀
-     * 全部死）之後即刻補返應該留低嘅燈。
+     * Light-off burst after release: a global OFF (ledSetOFF is "clear all at
+     * once"; head/eye/pad/wifi/mouth all die), then immediately restore the lights
+     * that should stay on.
      *
-     * 實機 logcat 捉到嘅原 bug：呢度以前淨係打 OFF 再補個咀，head/eye/pad/wifi
-     * 就永久黑——實機係撳一次 V+/V- 放開就見到成部機燈爆一鑊再淨返個咀，
-     * disco 跳舞途中被踩到就成段唔見。wifi 尤其慘：applyWifiLedInternal 每隔
-     * 幾百 ms 又補返 wifi 一次，於是 OFF→補 wifi 无限 ping-pong。
+     * The original bug, caught in real hardware logcat: this used to send only OFF
+     * and then restore the mouth, leaving head/eye/pad/wifi black forever. On real
+     * hardware, one V+/V- press-and-release made all the machine's lights flash off
+     * and only the mouth remain. A disco dance step got cut off and the whole
+     * section vanished. Wifi was the worst: applyWifiLedInternal restored wifi
+     * every few hundred ms, so OFF->restore-wifi ping-ponged forever.
      *
-     * 而家用 runBatch（OFF + 補燈同一個 open，中間零黑場），跟 ledPadSet 嗰套
-     * 一致。keepPads=false：實體鍵放手就係嗰粒(s)要滅，唔應該照 mirror 補返。
+     * Now use runBatch (OFF + restore in one open, zero blackout in between), the
+     * same pattern as ledPadSet. keepPads=false: a physical key release means that
+     * key's light(s) must go out; do not restore them from the mirror.
      */
     private boolean assertPadLedsOffBurst() {
         for (int attempt = 1; attempt <= PAD_LED_OPEN_ATTEMPTS; attempt++) {
             java.util.List<DirectLedController.LedOp> ops = new java.util.ArrayList<>(6);
             ops.add(DirectLedController.LedOp.off());
-            // keepPads 睇播歌指示燈：佢著嘅時候，實體鍵放手唔應該連佢一齊熄。
+            // keepPads considers the music-playing indicator: while it is lit, a
+            // physical key release must not switch it off with the pad.
             appendRestoreOps(ops, false, null);
             if (DirectLedController.runBatch(ops)) {
-                // 全局熄連 pad 試燈態一齊清（硬件現實：兩粒一齊死，mirror 唔呃人）。
-                // 旗操作同 ledPadSet 揸同一把鎖，唔好兩邊同時改。
+                // The global off also clears the pad test-light state (the hardware
+                // reality: both die together; the mirror must not lie).
+                // The flag operations share the same lock as ledPadSet. Do not
+                // modify from both sides at once.
                 synchronized (padToggleLock) {
                     padMinusLit = false;
                     padPlusLit = false;
@@ -346,18 +371,24 @@ public final class LedCenter {
     }
 
     /**
-     * 全域 OFF 之後要補返嘅燈（頭 → 眼 → pad → wifi），一個接一個加落去。
+     * Restore the lights after a global OFF (head -> eye -> pad -> wifi), added
+     * one by one.
      *
-     * @param keepPads  false = 實體音量鍵放手，pad 兩粒都唔補（要佢哋熄）。
-     * @param wifiOverride null = 照 wifiLedState 補；"red"/"blue" = 補呢隻新色；
-     *                     "off" = 唔補 wifi（ledWifiSet(color=off) 用）。
-     * 頭/眼只喺真係著過先補（DirectLedController.lastHeadParams 未打過會回 null）。
+     * @param keepPads  false = a physical volume key released. Do not restore
+     *                  either pad light (they must go out).
+     * @param wifiOverride null = restore from wifiLedState; "red"/"blue" = restore
+     *                     this new color; "off" = do not restore wifi (for
+     *                     ledWifiSet(color=off)).
+     * Head/eye restore only if they really lit (DirectLedController.lastHeadParams
+     * returns null before the first call).
      *
-     * pad/wifi 嘅 mirror 一定要揸住 padToggleLock 讀：ledPadSet 同一個全域 OFF
-     * 補燈都係喺呢把鎖入面做。唔鎖就會讀到半舊半新——實機見過連續轉 wifi 色
-     * （每轉一次都全域 OFF 一次）撞埋 pad 試燈，補燈時 pad 旗未更新，
-     * 嗰粒 v-/v+ 就被 OFF 咗又唔補返，變成間中熄。
-     * 鎖係可重入，ledPadSetLocked 本身已揸住，巢狀安全。
+     * Read the pad/wifi mirrors only while holding padToggleLock: ledPadSet and a
+     * global OFF restore both work under this same lock. Without the lock, a read
+     * can be half-stale and half-new. On real hardware, a rapid wifi color switch
+     * (each switch is one global OFF) collided with the pad test light: the pad
+     * flag was not updated at restore time, so that v-/v+ light got switched off
+     * and never restored, flickering out at intervals.
+     * The lock is reentrant. ledPadSetLocked already holds it, so nesting is safe.
      */
     private void appendRestoreOps(java.util.List<DirectLedController.LedOp> ops,
                                   boolean keepPads, String wifiOverride) {
@@ -386,22 +417,26 @@ public final class LedCenter {
     }
 
     /**
-     * 節奏燈（disco）嘅系統燈：**跟頭/眼/咀同一個 batch、同一個 disco job
-     * 一齊著一齊熄**，唔好另外開一套狀態機（用戶要求）。
+     * System lights for the rhythm light (disco): **they light and go out in the
+     * same batch as head/eye/mouth, within the same disco job**. Do not start
+     * another state machine (user request).
      *
-     * 呢度**寫入** padMinusLit/padPlusLit（即係當成「撳咗個掣」），所以之後
-     * 用家手動改 pad 就真係改到、唔會彈返——同 wifi/mute 一致。呢個係修正
-     * 之前 pad 嘅 API 講大話：`led/pad/set?on=false` 回 ok 但粒燈即刻彈返
-     * （實測 minus=false 送完即刻 true）。disco 係「開燈嗰刻設一次」，
-     * 唔係成首歌鎖住用家隻手。
+     * This **writes** padMinusLit/padPlusLit (it counts as "a key was pressed"),
+     * so a later manual pad change by the user really sticks and does not bounce
+     * back. Same as wifi/mute. This fixes the pad API lying before:
+     * `led/pad/set?on=false` returned ok, but the light bounced back immediately
+     * (measured: right after sending minus=false, it read true). Disco is "set
+     * once at the moment the light turns on", not "hold the user's hand for the
+     * whole song".
      *
-     * @param on true = 著緊：pad v-(14)/v+(16) + wifi 紅(13)。
-     *            false = 熄：pad 兩粒都熄，wifi 校返真實連線態。
+     * @param on true = lit: pad v-(14)/v+(16) + wifi red (13).
+     *            false = off: both pad lights out, wifi corrected to the real
+     *            connection state.
      */
     public java.util.List<DirectLedController.LedOp> discoSystemLightsOps(boolean on) {
         java.util.List<DirectLedController.LedOp> ops = new java.util.ArrayList<>(5);
         if (on) {
-            // 只加唔減：pad 由熄變著同 wifi 轉紅都係累加式，唔使全域 OFF。
+            // Add only, no subtract: pad off->on and wifi ->red are both additive. No global OFF needed.
             padMinusLit = true;
             padPlusLit = true;
             ops.add(DirectLedController.LedOp.on(PAD_LED_INDEX_MINUS));
@@ -409,7 +444,8 @@ public final class LedCenter {
             ops.add(DirectLedController.LedOp.on(WIFI_LED_INDEX_RED));
             wifiLedState = "red";
         } else {
-            // 熄：pad 唔補（跟 disco 一齊熄）；wifi 校返真實連線態（通咗就藍）。
+            // Off: do not restore pad (it goes out with the disco); correct wifi to
+            // the real connection state (connected = blue).
             padMinusLit = false;
             padPlusLit = false;
             appendRestoreOps(ops, false, realWifiColor());
@@ -419,7 +455,7 @@ public final class LedCenter {
         return ops;
     }
 
-    /** 現查 wifi 開關制＋連線態，出 "blue"/"red"/"off"。 */
+    /** Query the wifi switch and connection state now. Returns "blue"/"red"/"off". */
     private String realWifiColor() {
         try {
             android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
@@ -436,29 +472,33 @@ public final class LedCenter {
         }
     }
 
-    // -- WiFi 燈 (12 藍=有網 / 13 紅=無網) --------------------------------------
+    // -- WiFi light (12 blue = network up / 13 red = no network) --------------------------------------
     private static final int WIFI_LED_INDEX_BLUE = 12;
     private static final int WIFI_LED_INDEX_RED = 13;
     private BroadcastReceiver wifiLedReceiver;
     private Runnable wifiLedReapply;
 
     public void registerWifiLedReceiver() {
-        // 重入保護：唔好 register 兩次漏掉第一個 receiver。
+        // Re-entry guard: do not register twice and lose the first receiver.
         if (wifiLedReceiver != null) return;
         wifiLedReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 String action = intent != null ? intent.getAction() : "";
-                // 收斂：關閉 wifi 時 DISABLED 同 disconnected 兩個 broadcast 先後不定，
-                // 先到的若判了紅，後到的熄燈蓋過；反之亦然。1.2s 後按權威狀態重設一次，
-                // 保證最終一致（單線程 executor 保序，debounce 防堆積）。
+                // Convergence: when wifi closes, the order of the DISABLED and
+                // disconnected broadcasts is not fixed. If the first one judges red,
+                // the later off overwrites it; and the reverse. After 1.2 s, reset
+                // once from the authoritative state to guarantee eventual
+                // consistency (single-thread executor preserves order; the debounce
+                // prevents buildup).
                 if (wifiLedReapply != null) mainHandler.removeCallbacks(wifiLedReapply);
                 wifiLedReapply = new Runnable() {
                     @Override public void run() { applyWifiLed(); }
                 };
                 mainHandler.postDelayed(wifiLedReapply, 1200);
                 if (WifiManager.WIFI_STATE_CHANGED_ACTION.equals(action)) {
-                    // 開關本身：關了即熄燈；其他狀態轉 query 最新為準。
+                    // The switch itself: off means light off. For other state
+                    // changes, take the fresh query as authoritative.
                     int st = intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE, -1);
                     if (st == WifiManager.WIFI_STATE_DISABLED
                             || st == WifiManager.WIFI_STATE_DISABLING) {
@@ -468,11 +508,13 @@ public final class LedCenter {
                     }
                     return;
                 }
-                // 連線變化：intent 自帶的 NetworkInfo 即權威新狀態，直接用，
-                // 不重查（重查有 race：broadcast 到了但 ConnectivityManager
-                // 還是舊值，會凍結在紅燈，實機見過）。但開關制要現查——關閉 wifi
-                // 時 DISABLED 同 disconnected 兩個 broadcast 先後到，後者若
-                // 當 wifi 還開著就會重新點亮紅燈蓋過熄燈。
+                // Connection change: the NetworkInfo carried by the intent is the
+                // authoritative new state. Use it directly, no re-query (a re-query
+                // has a race: the broadcast arrived but ConnectivityManager still
+                // holds the old value, freezing on red; seen on real hardware). But
+                // the switch needs a fresh query: when wifi closes, the DISABLED
+                // and disconnected broadcasts arrive in some order. If the latter
+                // treats wifi as still on, it re-lights red and covers the off.
                 android.net.NetworkInfo info = intent != null ? intent
                         .getParcelableExtra(WifiManager.EXTRA_NETWORK_INFO) : null;
                 if (info != null && info.getType()
@@ -489,7 +531,7 @@ public final class LedCenter {
         filter.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);
         appContext.registerReceiver(wifiLedReceiver, filter);
 
-        // App 啟動時按當前狀態即刻設好。
+        // On app start, set from the current state immediately.
         applyWifiLed();
     }
 
@@ -507,12 +549,12 @@ public final class LedCenter {
         }
     }
 
-    /** WiFi 燈狀態切換入口（已知名確狀態版） - 排給 pad LED 單線程 executor 執行。 */
+    /** WiFi light state switch entry (known explicit state version) - queued to the pad LED single-thread executor. */
     private void applyWifiLedState(final boolean wifiOn, final boolean connected) {
         postPadLed(() -> applyWifiLedInternal(wifiOn, connected));
     }
 
-    /** 現查 wifi 開關制（裹 try/catch，查不到當開著，由連線態決定）。 */
+    /** Query the wifi switch now (wrapped in try/catch; if the query fails, treat it as on and let the connection state decide). */
     private boolean isWifiEnabledNow() {
         try {
             android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
@@ -524,13 +566,14 @@ public final class LedCenter {
         }
     }
 
-    /** WiFi 燈狀態切換入口（現查版：開機/開關變化時用） - 排給 pad LED 單線程 executor 執行。 */
+    /** WiFi light state switch entry (fresh-query version: used at boot and on switch changes) - queued to the pad LED single-thread executor. */
     private void applyWifiLed() {
         postPadLed(() -> applyWifiLedSync());
     }
 
-    /** 上面嘅同步本體——ledPadSet 獨立熄嗰陣要即刻同一步做埋，唔經 executor
-     *  排隊（否則同補燈搶鎖次序亂）。 */
+    /** The sync body of the above - when ledPadSet switches off independently, it
+     *  must do this step immediately and inline, without going through the executor
+     *  queue (otherwise the lock order with the light restore gets scrambled). */
     private void applyWifiLedSync() {
         final boolean wifiOn;
         try {
@@ -559,26 +602,32 @@ public final class LedCenter {
     }
 
     /**
-     * 實際切換: 先 ledSetOFF() 清除舊色, 等 100ms, 再點目標顏色
-     * （wifi 關閉就不點亮）。兩步都是 burst 重試式。
+     * Actual switch: first ledSetOFF() to clear the old color, wait 100 ms, then
+     * light the target color (do not light when wifi is off). Both steps use
+     * burst retry.
      */
-    /** Wi-Fi 燈試燈＋mirror 用嘅最後態（red/blue/off）。applyWifiLedInternal
-     *  同 ledWifiSet 都會更新；LED tab 頭燈第 5 粒跟呢個畫（硬件就係咁）。 */
+    /** Last state (red/blue/off) for the Wi-Fi light test + mirror.
+     *  Both applyWifiLedInternal and ledWifiSet update it; the 5th light in the
+     *  LED tab head follows this (that is just how the hardware is). */
     private volatile String wifiLedState = "off";
 
     private void applyWifiLedInternal(boolean wifiOn, boolean connected) {
         String want = !wifiOn ? "off" : (connected ? "blue" : "red");
-        // 冇變色就一個 ioctl 都唔使打。實機 logcat 見過舊 path 隔幾百 ms 就
-        // 「全域 OFF → sleep 100ms → 淨返個 wifi」咁 ping-pong，仲要成部機
-        // 黑 100ms，disco 頭/眼跳舞被踩到就成段唔見。加呢個閘之後靜晒。
+        // No color change, no ioctl at all. The real-hardware logcat showed the old
+        // path ping-ponging "global OFF -> sleep 100 ms -> restore wifi only" every
+        // few hundred ms, blacking the whole machine for 100 ms. A disco head/eye
+        // dance step got cut off and the whole section vanished. With this gate,
+        // it is quiet.
         synchronized (padToggleLock) {
             if (want.equals(wifiLedState)) return;
             if (!wifiOn) {
-                // 熄＝全域 OFF（會連頭/眼一齊清）。跟返原本語義。
+                // Off = global OFF (head/eye get cleared too). Follow the original
+                // semantics.
                 if (assertPadLedsOffBurst()) wifiLedState = "off";
                 return;
             }
-            // 紅↔藍淨係打 ledSetOn(12/13)，唔使先 OFF（見 ledWifiSet 註解）。
+            // Red<->blue only needs ledSetOn(12/13). No OFF first (see the ledWifiSet
+            // note).
             if (assertSingleLedBurst(connected ? WIFI_LED_INDEX_BLUE : WIFI_LED_INDEX_RED)) {
                 wifiLedState = want;
             }
@@ -586,7 +635,8 @@ public final class LedCenter {
     }
 
     /** One burst: retry open()/dev/led_eye until it opens, light a single LED index.
-     *  open→ioctl→close 入全局驅動鎖，唔好同 disco 撞 open（見上）。 */
+     *  open->ioctl->close goes under the global driver lock. Do not collide opens
+     *  with the disco (see above). */
     private boolean assertSingleLedBurst(int index) {
         for (int attempt = 1; attempt <= PAD_LED_OPEN_ATTEMPTS; attempt++) {
             final boolean[] openOk = {false};
@@ -616,34 +666,42 @@ public final class LedCenter {
         return false;
     }
 
-    // -- Alpha2 PIR 警示反應 (LED+鈴聲) ----------------------------------------------
-    // 監聽獨立的 "alpha2_pir_state" event, 用 Alpha2 backend
-    // 的 LED API 觸發 LED/鈴聲。
+    // -- Alpha2 PIR warning response (LED + ringtone) ----------------------------------------------
+    // Listen for the standalone "alpha2_pir_state" event and use the Alpha2 backend
+    // LED API to trigger the LED / ringtone.
     //
-    // PIR raw 事件 (chest cmd=-109, "PIR HUMON DETECT") 會正常觸發 -
-    // 這台機器底層 chest MCU 硬體本身能做 PIR。
+    // The PIR raw event (chest cmd=-109, "PIR HUMON DETECT") fires normally -
+    // the low-level chest MCU hardware on this machine can do PIR on its own.
     //
-    // LED 部分: 眼/頭 5-mic LED 長亮紅燈 (setHeadEyeLedLong(1, 9)), 顏色代碼 1=紅,
-    // 見下面 LEDs 一節 color 表 (1=紅 2=綠 3=藍 4=黃 5=紫 6=青 7=白)。
+    // LED part: keep the eye/head 5-mic LED red solid (setHeadEyeLedLong(1, 9)),
+    // color code 1 = red.
+    // See the color table in the LEDs section below (1=red 2=green 3=blue 4=yellow
+    // 5=purple 6=cyan 7=white).
     //
-    // 這台機器頭板的 5-mic head/eye LED
-    // 對 PIR 警示反應是有效的 (眼/頭會亮紅燈)。PIR 警示只
-    // 走這一條路, 沒有再加 mouth LED breathing 做 fallback, 嘴部不用閃, 和鈴聲一起
-    // 僅眼/頭長著紅燈。
+    // The 5-mic head/eye LED on this machine's head board
+    // is effective for the PIR warning response (eye/head light red). The PIR
+    // warning
+    // goes through this one path only. No mouth LED breathing fallback is added.
+    // The mouth does not flash; with the ringtone, only eye/head stay red.
     private volatile boolean alpha2PirAlertActive = false;
-    // 獨立於 pir/set 感應器硬件開關本身 - 預設關, 使用者要自己選開才會有 LED/聲反應,
-    // 避免一開機就無啦啦閃紅燈/響鈴。
+    // Independent of the pir/set sensor hardware switch itself - default off. The
+    // user has to turn it on to get the LED/sound response.
+    // This avoids a red light flashing or a ringtone ringing for no reason right
+    // after boot.
     private volatile boolean alpha2PirAlertEnabled = false;
-    // PIR 硬件開關自記態（胸口讀唔返，只能記最後一次設定；預設開——
-    // 同警示開關唔同，感應器本身出廠多數係開住，toggle 熄咗先會停事件）。
+    // Self-remembered state of the PIR hardware switch (the chest cannot read it
+    // back; only the last setting is remembered; default on -
+    // different from the warning switch: the sensor itself usually ships on, and
+    // only a toggle off stops the events).
     private volatile boolean pirEnabled = true;
 
-    /** 由 pir/alert_enabled endpoint (pirAlertEnabledResponse) 轉調。 */
+    /** Called through from the pir/alert_enabled endpoint (pirAlertEnabledResponse). */
     public void setPirAlertEnabled(boolean enabled) {
         alpha2PirAlertEnabled = enabled;
         if (!enabled && alpha2PirAlertActive) {
-            // 中途關掉開關也要立即熄掉目前亮著的燈/停止正在播的聲音, 不只是不再對之後的
-            // 事件有反應。
+            // Turning the switch off mid-way must immediately switch off the
+            // currently lit light / stop the sound that is playing, not just stop
+            // reacting to later events.
             new Thread(new Runnable() {
                 @Override
                 public void run() {
@@ -655,35 +713,37 @@ public final class LedCenter {
 
     public synchronized void applyAlpha2PirLedAndSound(boolean triggered) {
         if (!alpha2PirAlertEnabled && triggered) {
-            return; // 開關關閉 - 不理會新觸發 (但已經亮著的仍然可以經由
-                     // setPirAlertEnabled(false) 熄掉)。
+            return; // Switch off - ignore new triggers (but what is already lit can
+                     // still be switched off via setPirAlertEnabled(false)).
         }
         if (triggered == alpha2PirAlertActive) {
-            return; // 避免每次重複收到同一個狀態的事件都重新送一次 LED/聲音, 和
-                     // onSonarDistanceReceived() 一致的做法。
+            return; // Avoid re-sending LED/sound every time the same state event
+                     // repeats. Same practice as onSonarDistanceReceived().
         }
         alpha2PirAlertActive = triggered;
-        // PIR 警示（獨立網頁「PIR 測試」開關 alpha2PirAlertEnabled 控制）直接單發
-        // setHeadEyeLedLong()/stop——後到者胜，無需取消任何东西。
+        // The PIR warning (controlled by the standalone "PIR test" page switch
+        // alpha2PirAlertEnabled) sends a single
+        // setHeadEyeLedLong()/stop directly - the later call wins, nothing to cancel.
         try {
             if (triggered) {
-                setHeadEyeLedLong(1, 9); // 1 = 紅 (red), 9 = 最光
+                setHeadEyeLedLong(1, 9); // 1 = red, 9 = brightest
             } else {
                 DirectLedController.stopHead5Mic();
                 DirectLedController.stopEye5Mic();
             }
         } catch (Throwable t) {
-            // 5-mic head/eye LED 路徑失敗時記 warning（PIR 警示只走這條路，不加 mouth fallback）。
+            // Log a warning when the 5-mic head/eye LED path fails (the PIR warning
+            // goes through this path only; no mouth fallback is added).
             Log.w(TAG, "applyAlpha2PirLedAndSound: 5-mic head/eye LED path failed", t);
         }
         if (triggered) {
-            ringtoneCenter.playPirAlertCue(); // lazy-lookup 好的 "Heaven" 鈴聲
+            ringtoneCenter.playPirAlertCue(); // the lazily looked-up "Heaven" ringtone
         } else {
             ringtoneCenter.stopRingtonePlayback();
         }
     }
 
-    // -- PIR 事件接線 --
+    // -- PIR event wiring --
     public void registerAlpha2PirAlertListener() {
         EventBus.get().subscribe(new EventBus.Listener() {
             @Override
@@ -695,9 +755,10 @@ public final class LedCenter {
                 if (triggered == null) {
                     return;
                 }
-                // onEvent() 在 main thread 執行 - AIDL/JNI LED call 搬到 background
-                // thread, 不要用主執行緒, 和專案一貫做法一致 (見
-                // registerPirAlertListener()/registerChestMuteKeyTestListener())。
+                // onEvent() runs on the main thread - move the AIDL/JNI LED call to a
+                // background thread. Do not use the main thread. This matches the
+                // project's usual practice (see
+                // registerPirAlertListener()/registerChestMuteKeyTestListener()).
                 new Thread(new Runnable() {
                     @Override
                     public void run() {
@@ -720,12 +781,13 @@ public final class LedCenter {
         return null;
     }
 
-    // directChestReady() 薄 delegate（實現見 DirectProbes，同下面 headerReady() 一對）。
+    // Thin delegate for directChestReady() (implementation in DirectProbes, a pair
+    // with headerReady() below).
     private boolean directChestReady() {
         return DirectProbes.isChestReady(appContext);
     }
 
-    // 真機已確認 cmd=72 開關生效, PIR 觸發正常。
+    // Confirmed on real hardware: the cmd=72 switch takes effect, and PIR triggers normally.
     public HttpServer.ApiResponse pirSetResponse(Map<String, String> query) {
         boolean enabled = ApiValidator.requireBoolean(query, "on");
         boolean sent = HardwareDirectManager.get(appContext).chest().setPirEnabled(enabled);
@@ -733,24 +795,26 @@ public final class LedCenter {
         return MainActivity.sentReadyResponse(sent, directChestReady());
     }
 
-    /** 面板入頁同步共用：讀 PIR 自記態（硬件讀唔返；pir/set 顯式寫即同步）。 */
+    /** Shared by the panel page-entry sync: read the PIR self-remembered state (the hardware cannot read it back; an explicit write from pir/set syncs it at once). */
     public boolean isPirEnabled() {
         return pirEnabled;
     }
 
-    /** 面板入頁同步共用：讀警示反應開關。 */
+    /** Shared by the panel page-entry sync: read the warning response switch. */
     public boolean isPirAlertEnabled() {
         return alpha2PirAlertEnabled;
     }
 
-    /** pir/get 本體：硬件開關自記態＋警示反應開關一次過回，免面板開兩次口。 */
+    /** Body of pir/get: return the hardware switch self-remembered state and the warning response switch in one call, so the panel does not open two. */
     public HttpServer.ApiResponse pirGetResponse() {
         return HttpServer.ApiResponse.ok("{\"ok\":true,\"enabled\":" + isPirEnabled()
                 + ",\"alertEnabled\":" + isPirAlertEnabled() + "}");
     }
 
-    /** 映射共用：PIR 硬件單鍵 toggle（讀自記態，見 pirEnabled）。
-     *  回 true＝已送達（taken 照實）；送唔出即態不變。 */
+    /** Shared by the mapping: PIR hardware single-key toggle (reads the self-remembered
+     *  state, see pirEnabled).
+     *  Returns true = delivered (taken as-is); if the send fails, the state is
+     *  unchanged. */
     public synchronized boolean togglePir() {
         boolean next = !pirEnabled;
         boolean sent = false;
@@ -763,10 +827,11 @@ public final class LedCenter {
         return sent;
     }
 
-    /** 獨立於 pir/set 這個感應器硬件開關本身, 純粹控制
-     *  「偵測到人就閃紅燈/響鈴」這個警示反應要不要開。已確認 PIR 事件
-     *  本身 (cmd=-109, "PIR HUMON DETECT") 會正常觸發 - 這個
-     *  endpoint 就是讓前端選擇要不要對這個事件有反應。 */
+    /** Independent of the pir/set sensor hardware switch itself. This purely controls
+     *  whether the warning response of "flash a red light / ring when a person is
+     *  detected" is on. It is confirmed that the PIR event
+     *  itself (cmd=-109, "PIR HUMON DETECT") fires normally - this
+     *  endpoint lets the front end choose whether to react to that event. */
     public HttpServer.ApiResponse pirAlertEnabledResponse(Map<String, String> query) {
         boolean enabled = ApiValidator.requireBoolean(query, "on");
         setPirAlertEnabled(enabled);
@@ -775,20 +840,21 @@ public final class LedCenter {
 
     /** Same "long" (solid, always-on) LED effect as led/head/set & led/eye/set's
      *  preset=long, but callable directly server-side without an HTTP round-trip.
-     *  pure-direct 下单发即稳住。 */
+     *  pure-direct: a single send settles it. */
     public void setHeadEyeLedLong(int color, int brightness) {
         DirectLedController.setHead5MicRaw(color, brightness, 31, 31, Integer.MAX_VALUE, 0, Integer.MAX_VALUE, 0);
         DirectLedController.setEye5MicRaw(color, brightness, 255, 255, Integer.MAX_VALUE, 0, Integer.MAX_VALUE, 0);
     }
 
-    /** 這台機器 (head board / firmware 1.1.1.14) 的 obstacle LED 指示：
-     *  頭/眼經 DirectLedController（pure-direct JNI，同 LED tab／disco 同一路，
-     *  實機識著）長著紫燈，同時閃嘴燈做多重提示。兩條路獨立 try/catch，
-     *  其中一條失敗不會擋住另一條。 */
+    /** Obstacle LED indicator for this machine (head board / firmware 1.1.1.14):
+     *  head/eye go through DirectLedController (pure-direct JNI, the same path as the
+     *  LED tab / disco, confirmed working on real hardware) and stay purple, while the
+     *  mouth LED flashes at the same time as a second cue. The two paths use
+     *  independent try/catch, so one failure does not block the other. */
     public void applyObstacleIndicator(boolean triggered) {
         try {
             if (triggered) {
-                setHeadEyeLedLong(5, 9); // 5 = 紫 (purple), see led/head/set color-code comment
+                setHeadEyeLedLong(5, 9); // 5 = purple, see the led/head/set color-code comment
             } else {
                 DirectLedController.stopHead5Mic();
                 DirectLedController.stopEye5Mic();
@@ -812,8 +878,10 @@ public final class LedCenter {
     }
 
     // Speed used for the mouth LED breathing effect auto-triggered around TTS speech
-    // (see startMouthLedForTts()/stopMouthLedForTts()) - 0 = 最快呼吸（實機確認有光），
-    // 同 LED tab 條 slider 無關（嗰條 100-1000、預設 150，只管手動 led/mouth/set）。
+    // (see startMouthLedForTts()/stopMouthLedForTts()) - 0 = fastest breathing
+    // (confirmed working on real hardware),
+    // unrelated to the LED tab slider (that one is 100-1000, default 150, and only
+    // controls the manual led/mouth/set).
     private static final int TTS_MOUTH_LED_SPEED = 0;
 
     /**
@@ -842,7 +910,7 @@ public final class LedCenter {
         MouthLedData.off().apply();
     }
 
-    /** TTS 播緊唔播緊（嘴係咪佢嘅）——disco 推嘴之前要讓路，唔好同佢打架。 */
+    /** Whether TTS is playing (whether the mouth belongs to it) - disco must yield before it pushes the mouth, so it does not fight with it. */
     private static volatile boolean mouthTtsActive = false;
 
     public static boolean isMouthTtsActive() {
@@ -851,21 +919,23 @@ public final class LedCenter {
 
     // -- LEDs (5-mic hardware only path - server-side preset mapping) --------------
     // Colour/brightness/mode values are user-confirmed on real 5-mic hardware:
-    //   color: 1=紅 2=綠 3=藍 4=黃 5=紫 6=青 7=白
+    //   color: 1=red 2=green 3=blue 4=yellow 5=purple 6=cyan 7=white
     //   brightness: 1 (dimmest) .. 9 (brightest)
     //   preset -> (p5 upTime, p6 downTime, p7 runTime, p8 mode) mapping below.
     //   mode codes differ between head and eye - see Alpha2RobotApi javadoc.
-    // 頭部左右各 5 粒 LED 位置圖（實機試位確認）：
-    //   P4＝左邊（正序）：滅=0，開1=1，開2=2，開3=4，開4=8，開5=16；
-    //     開1,2=3，開1,2,3=7，開1,2,3,4=15，全開=31。
-    //   P3＝右邊（反序）：滅=0，開1=16，開2=8，開3=4，開4=2，開5=1；
-    //     開1,2=24，開1,2,3=28，開1,2,3,4=30，全開=31。
-    //   注意：左右第 5 粒畀 wifi 搶走咗（閂唔到），實際能用只有 1-4：
-    //     左＝P4=15，右＝P3=30（disco 就係用呢組）。
-    //   V+/V- 綠色音量計（用戶要求）：最大聲 4 粒綠燈、無聲全滅，
-    //   見下面 showVolumeMeter()，GestureCenter 每次調音量都更一次。
+    // Head LED position map, 5 per side (confirmed by probing on real hardware):
+    //   P4 = left side (forward order): off=0, light 1=1, 2=2, 3=4, 4=8, 5=16;
+    //     1,2=3; 1,2,3=7; 1,2,3,4=15; all=31.
+    //   P3 = right side (reverse order): off=0, light 1=16, 2=8, 3=4, 4=2, 5=1;
+    //     1,2=24; 1,2,3=28; 1,2,3,4=30; all=31.
+    //   Note: the 5th light on each side is taken by wifi (cannot be turned off).
+    //     Only 1-4 are actually usable: left = P4=15, right = P3=30
+    //     (disco uses exactly this group).
+    //   V+/V- green volume meter (user request): loudest = 4 green lights, silent =
+    //   all off.
+    //   See showVolumeMeter() below. GestureCenter updates it on every volume change.
     public HttpServer.ApiResponse ledHeadSet(Map<String, String> query) {
-        // pure-direct: 5-mic 经 libhead_led.so JNI 直驱（DirectLedController），不再经 binder。
+        // pure-direct: the 5-mic goes directly through the libhead_led.so JNI (DirectLedController), no longer via binder.
         String preset = ApiValidator.requireLedHeadPreset(query);
         if ("stop".equals(preset)) {
             boolean stopped = DirectLedController.stopHead5Mic();
@@ -873,8 +943,10 @@ public final class LedCenter {
         }
         int color = ApiValidator.requireColor(query);
         int brightness = ApiValidator.requireBrightness(query);
-        // 速度（ms，50-500）：flash p5/p6、chase/dual p5、breathe 按比例；
-        // 唔帶＝沿用各 preset 經典值（Blockly／舊客無影響）。
+        // Speed (ms, 50-500): flash uses p5/p6, chase/dual use p5, breathe scales
+        // by ratio;
+        // absent = keep the classic value of each preset (no impact on
+        // Blockly / old clients).
         int speed = ApiValidator.optionalIntRange(query, "speed", 50, 500, -1);
         int p5, p6, p8;
         switch (preset) {
@@ -885,7 +957,8 @@ public final class LedCenter {
             case "long":
             default:        p5 = Integer.MAX_VALUE; p6 = 0; p8 = 0; break;
         }
-        // 逐粒試燈：preset 跟住而家著緊嘅 mask（唔帶＝全開，兼容舊客/Blockly）。
+        // Per-light test: the preset follows the currently lit mask (absent = all
+        // on, compatible with old clients / Blockly).
         int p3 = ApiValidator.optionalIntRange(query, "p3", 0, 31, 31);
         int p4 = ApiValidator.optionalIntRange(query, "p4", 0, 31, 31);
         boolean sent = DirectLedController.setHead5MicRaw(color, brightness, p3, p4, p5, p6, Integer.MAX_VALUE, p8);
@@ -900,7 +973,8 @@ public final class LedCenter {
         }
         int color = ApiValidator.requireColor(query);
         int brightness = ApiValidator.requireBrightness(query);
-        // 速度（ms，50-500）：flash p5/p6、chase/dual p5；唔帶＝經典值。
+        // Speed (ms, 50-500): flash uses p5/p6, chase/dual use p5; absent = the
+        // classic value.
         int speed = ApiValidator.optionalIntRange(query, "speed", 50, 500, -1);
         int p5, p6, p8;
         switch (preset) {
@@ -910,23 +984,29 @@ public final class LedCenter {
             case "long":
             default:      p5 = Integer.MAX_VALUE; p6 = 0; p8 = 0; break;
         }
-        // 逐粒試燈：preset 跟住而家著緊嘅 mask（唔帶＝全開，兼容舊客/Blockly）。
+        // Per-light test: the preset follows the currently lit mask (absent = all
+        // on, compatible with old clients / Blockly).
         int p3 = ApiValidator.optionalIntRange(query, "p3", 0, 255, 255);
         int p4 = ApiValidator.optionalIntRange(query, "p4", 0, 255, 255);
         boolean sent = DirectLedController.setEye5MicRaw(color, brightness, p3, p4, p5, p6, Integer.MAX_VALUE, p8);
         return MainActivity.sentReadyResponse(sent, headerReady());
     }
 
-    // 眼部每邊 8 粒 LED 位置圖（實機試位確認）：P3＝左眼，P4＝右眼；
-    // 順時針排：12點=1號，3點=3號，6點=5號，9點=7號。
-    // bit 對位：開1=16，開2=8，開3=4，開4=2，開5=1，開6=128，開7=64，開8=32；
-    //   開1,2=24，開1,2,3=28，開1-4=30，開1-5=31，
-    //   開1-6=159，開1-7=223，全開=255。
-    // 平時 255/255 全開。
+    // Eye LED position map, 8 per side (confirmed by probing on real hardware):
+    // P3 = left eye, P4 = right eye;
+    // clockwise order: 12 o'clock = number 1, 3 o'clock = number 3, 6 o'clock =
+    // number 5, 9 o'clock = number 7.
+    // Bit mapping: light 1=16, 2=8, 3=4, 4=2, 5=1, 6=128, 7=64, 8=32;
+    //   1,2=24; 1,2,3=28; 1-4=30; 1-5=31;
+    //   1-6=159; 1-7=223; all on=255.
+    // Normally 255/255 all on.
 
-    /** 逐粒試燈用：直接寫 p3/p4 mask（長開 MAX，同 long preset 同形）。
-     *  頭：P4＝左 5 粒（正序 bit 1,2,4,8,16），P3＝右 5 粒（反序 16,8,4,2,1）；
-     *  第 5 粒係 wifi 位（閂唔實），見上面位置圖。 */
+    /** For per-light test: write the p3/p4 mask directly (stays on at MAX, same
+     *  shape as the long preset).
+     *  Head: P4 = the 5 left lights (forward-order bits 1,2,4,8,16), P3 = the 5
+     *  right lights (reverse order 16,8,4,2,1);
+     *  the 5th light is the wifi slot (cannot be held reliably), see the position
+     *  map above. */
     public HttpServer.ApiResponse ledHeadRaw(Map<String, String> query) {
         int color = ApiValidator.requireColor(query);
         int brightness = ApiValidator.requireBrightness(query);
@@ -937,8 +1017,10 @@ public final class LedCenter {
         return MainActivity.sentReadyResponse(sent, headerReady());
     }
 
-    /** 逐粒試燈用：直接寫 p3/p4 mask（長開 MAX）。眼：P3＝左眼，P4＝右眼，
-     *  每邊 8 粒 ring（bit 見上面位置圖，全開＝255）。 */
+    /** For per-light test: write the p3/p4 mask directly (stays on at MAX). Eye:
+     *  P3 = left eye, P4 = right eye,
+     *  8-light ring per side (see the position map above for the bits; all on =
+     *  255). */
     public HttpServer.ApiResponse ledEyeRaw(Map<String, String> query) {
         int color = ApiValidator.requireColor(query);
         int brightness = ApiValidator.requireBrightness(query);
@@ -949,23 +1031,28 @@ public final class LedCenter {
         return MainActivity.sentReadyResponse(sent, headerReady());
     }
 
-    /** 逐粒試燈 mirror 用：回 DirectLedController 記低嘅最後燈態（硬件 write-only
-     *  讀唔返）。未打過＝-1，熄咗＝0。 */
+    /** For the per-light test mirror: return the last light state recorded by
+     *  DirectLedController (the hardware is write-only and cannot be read back).
+     *  Never sent = -1, off = 0. */
     public HttpServer.ApiResponse ledStateGet() {
         String s = DirectLedController.lastStateJson();
-        // 搭埋 pad 試燈態＋wifi 燈態：
-        // s 尾係 ...}}，strip 走最尾個 outer }，攝 "pad" 同 "wifi" 入去，
-        // 最尾補返一個 }（唔係兩個！多一個 JSON 即爛，之前就係咁瀨嘢）。
-        // 防呆：s 空/太短/唔係 } 收尾（上游改格式嗰陣）即回原字串，唔好掟
-        // StringIndexOutOfBoundsException 變 500。
+        // Also include the pad test-light state + the wifi light state:
+        // the end of s is ...}}. Strip the last outer }, insert "pad" and "wifi",
+        // and add one } back at the end (not two! one extra JSON brace breaks it;
+        // that is how the earlier bug happened).
+        // Guard: if s is empty / too short / does not end with } (when upstream
+        // changes the format), return the original string. Do not throw a
+        // StringIndexOutOfBoundsException and turn it into a 500.
         if (s == null || s.length() < 2 || s.charAt(s.length() - 1) != '}') {
             return HttpServer.ApiResponse.ok(s == null ? "{\"ok\":false}" : s);
         }
         String extra = ",\"pad\":{\"minus\":" + padMinusLit
                 + ",\"plus\":" + padPlusLit + "}"
                 + ",\"wifi\":\"" + wifiLedState + "\"}";
-        // 胸口 mute 燈有效態（小智連線 OR 播歌指示）：LED tab 靜音掣跟實機轉色用。
-        // 未注入查詢即報 false（唔好擋住成個 state）。
+        // Effective state of the chest mute light (Xiaozhi connected OR music playing):
+        // the LED tab mute button uses it to follow the real hardware color.
+        // If the query is not injected, report false (do not block the whole
+        // state).
         boolean muteLit = false;
         try {
             MuteStateQuery q = muteStateQuery;
@@ -977,40 +1064,51 @@ public final class LedCenter {
         return HttpServer.ApiResponse.ok(s.substring(0, s.length() - 1) + extra);
     }
 
-    // -- 系統燈試燈（wifi／pad／mute）------------------------------------------
-    // wifi 燈 firmware 唔會自己著，由 applyWifiLedInternal 按連線態手動
-    // （紅 13／藍 12）；呢度手動逼紅／藍／熄——下次 wifi 狀態變嗰陣自動
-    // 校返正，試燈用途 fire-and-forget（同 preset 掣一樣）。
+    // -- System light test (wifi / pad / mute)------------------------------------------
+    // The wifi light does not light on its own in firmware. applyWifiLedInternal sets
+    // it manually by connection state (red 13 / blue 12). Here we force red / blue /
+    // off manually - the next wifi state change corrects it automatically.
+    // Fire-and-forget, for testing (like the preset button).
     public HttpServer.ApiResponse ledWifiSet(Map<String, String> query) {
         String color = ApiValidator.requireWifiLedColor(query);
         boolean ok;
         if ("off".equals(color)) {
-            // 熄＝全局 OFF（會連頭/眼一齊清，同 applyWifiLedInternal 同一語義）。
+            // Off = global OFF (head/eye get cleared too, same semantics as
+            // applyWifiLedInternal).
             ok = assertPadLedsOffBurst();
             if (ok) wifiLedState = "off";
         } else {
-            // 紅↔藍淨係打一個 ledSetOn(12/13) 就得，唔使先全域 OFF——實機
-            // 確認 ledSetOn 自己會換走上一隻色。（2026-09 試過改用
-            // 「OFF + 補頭/眼/pad + 點新色」個 batch，結果每轉一次色就成版
-            // 燈爆一鑊，v-/v+ 隔住就見到熄，user 投訴。唔好行嗰條路。）
+            // Red<->blue only needs one ledSetOn(12/13). No global OFF first -
+            // confirmed on real hardware that ledSetOn replaces the previous color
+            // on its own. (In 2026-09 we tried switching to
+            // an "OFF + restore head/eye/pad + light the new color" batch. Result:
+            // every color change made the whole board flash off, v-/v+ visibly went
+            // out, and the user complained. Do not go down that path.)
             ok = assertSingleLedBurst("blue".equals(color) ? WIFI_LED_INDEX_BLUE : WIFI_LED_INDEX_RED);
             if (ok) wifiLedState = color;
         }
         return HttpServer.ApiResponse.okBool(ok);
     }
 
-    /** 音量 -/+ pad 燈（ledSetOn 14／16）試燈：撳一下開，再撳一下熄。
-     *  硬件無逐粒熄——熄嗰陣全局 OFF 之後逐樣補返（另一粒 pad → wifi →
-     *  頭 → 眼，long 形），肉眼睇淨係呢粒熄。disco 行緊嗰陣下一個 push
-     *  （≤50ms）自然覆寫；LED tab 動畫 preset 會變長開（要閃返撳多次）。
-     *  on 唔帶＝toggle。實體鍵按住嗰陣 worker 會搶（放手全局熄，
-     *  mirror 照清，見 assertPadLedsOffBurst）。 */
+    /** Volume -/+ pad light (ledSetOn 14 / 16) test: one press turns it on, another
+     *  press turns it off.
+     *  The hardware has no per-light off - when turning off, it does a global OFF
+     *  and then restores each item one by one (the other pad -> wifi ->
+     *  head -> eye, long shape). To the eye, only this light goes out. While disco
+     *  is running, the next push (<=50 ms) overwrites it naturally. The LED tab
+     *  animation preset becomes a long on (to flash it back, press several times).
+     *  Absent on = toggle. While a physical key is held, the worker takes over (on
+     *  release it goes globally off,
+     *  the mirror stays correct, see assertPadLedsOffBurst). */
     private volatile boolean padMinusLit = false;
     private volatile boolean padPlusLit = false;
 
-    /** 胸口 mute 燈嘅控制權喺 XiaozhiBridge（小智連線態）。呢度淨係一個
-     *  callback：節奏燈同「已連線」燈共用一盞實體燈，所以淨係報「呢次係
-     *  因為節奏燈而定/唔定」，真正點邊個色由嗰邊 OR 埋小智狀態。 */
+    /** Control of the chest mute light belongs to XiaozhiBridge (the Xiaozhi
+     *  connection state). This is only a
+     *  callback: the rhythm light and the "connected" light share one physical
+     *  light, so this only reports "this time it is
+     *  decided by the rhythm light / not decided", and the side there ORs in the
+     *  Xiaozhi state to pick the actual color. */
     public interface MuteLedSink {
         void applyMuteLed(boolean litByDisco);
     }
@@ -1021,8 +1119,9 @@ public final class LedCenter {
         this.muteLedSink = s;
     }
 
-    /** 節奏燈一齊著埋胸口 mute 燈／一齊熄。跟 disco job 同一個時機叫，
-     *  唔係另外一套狀態機。 */
+    /** Light the chest mute light together with the rhythm light / turn it off
+     *  together. Called at the same timing as the disco job,
+     *  not as another state machine. */
     public void discoMuteLed(boolean litByDisco) {
         MuteLedSink s = muteLedSink;
         if (s == null) return;
@@ -1033,8 +1132,10 @@ public final class LedCenter {
         }
     }
 
-    /** 胸口 mute 燈有效態查詢（小智 OR 播歌，見 XiaozhiBridge.isMuteLedLit）——
-     *  供 led/state/get mirror 跟實機轉色用（未注入即報 false，唔好擋住成個 state）。 */
+    /** Effective-state query for the chest mute light (Xiaozhi OR music playing, see
+     *  XiaozhiBridge.isMuteLedLit) -
+     *  for the led/state/get mirror to follow the real hardware color (report false
+     *  if not injected, do not block the whole state). */
     public interface MuteStateQuery {
         boolean isMuteLit();
     }
@@ -1044,9 +1145,11 @@ public final class LedCenter {
     public void setMuteStateQuery(MuteStateQuery q) {
         this.muteStateQuery = q;
     }
-    // pad toggle 讀改寫鎖：連撳快嗰陣兩個 request 會同時讀到同一個舊旗，
-    // 一齊著，結果應該熄變著（之前「時得時唔得」就係咁嚟）。成個 toggle
-    // 揸住把鎖做（連驅動 ops），排隊慢慢嚟，一次一個。
+    // Pad toggle read-modify-write lock: when pressing rapidly, two requests read
+    // the same stale flag at the same time,
+    // both light it, and the result that should be off becomes on (that is how the
+    // earlier "sometimes works, sometimes does not" came about). The whole toggle
+    // holds this lock (including the driver ops), queued one at a time.
     private final Object padToggleLock = new Object();
 
     public HttpServer.ApiResponse ledPadSet(Map<String, String> query) {
@@ -1069,20 +1172,27 @@ public final class LedCenter {
                 if (minus) padMinusLit = true; else padPlusLit = true;
             }
         } else {
-            // 熄邊粒就留返另一粒：OFF 係「一鑊清晒」，所以要補返。
-            // 補幾粒用「實際應否著」（手動 OR 播歌指示燈）去判。
-            // 注意：手動旗只可以改「今次撳嗰粒」，唔可以順手把對面粒嘅手動旗
-            // 覆寫成有效值——咁樣會污染手動狀態（之前搞到歌停咗之後，另一粒
-            // pad 永遠熄唔到）。對面粒原狀照留，appendRestoreOps 自然識補。
+            // Whichever light goes out, the other stays: OFF is "clear all at
+            // once", so a restore is needed.
+            // Decide which lights to restore from "what should actually be on"
+            // (manual OR the music-playing indicator light).
+            // Note: the manual flag can only change "the light pressed this time".
+            // It must not overwrite the opposite light's manual
+            // flag into an active value - that pollutes the manual state (it once
+            // made it so that after the song stopped, the other
+            // pad light could never be turned off). The opposite light keeps its
+            // original state, and appendRestoreOps knows how to restore it.
             if (minus) padMinusLit = false; else padPlusLit = false;
-            // 一批過：OFF → 頭 → 眼 → 保留嘅 pad → wifi，一次 open，
-            // 中間零停頓——逐個打要幾百 ms，肉眼見到成組閃一閃。
+            // One batch: OFF -> head -> eye -> kept pad -> wifi, in a single open,
+            // zero pause in between - sending them one by one takes several hundred
+            // ms, and the whole group visibly flickers.
             java.util.List<DirectLedController.LedOp> ops = new java.util.ArrayList<>(6);
             ops.add(DirectLedController.LedOp.off());
             appendRestoreOps(ops, true, null);
             ok = DirectLedController.runBatch(ops);
             if (!ok) {
-                // 衰咗（多數第一下 OFF 都打唔開）：response 話失敗，用家會再撳。
+                // Failed (usually the first OFF cannot even open): the response
+                // says failed, and the user will press again.
                 Log.w(TAG, "pad set off failed");
             }
         }
@@ -1091,11 +1201,15 @@ public final class LedCenter {
                 + ",\"plus\":" + padPlusLit + "}");
     }
 
-    /** 胸口 mute 燈（chest cmd 68）試燈：純粹點燈，唔掂小智連線。
-     *  注意：小智連線／斷線、實體 mute 鍵會按真實狀態改寫（同撳掣無關），
-     *  所以呢度 fire-and-forget，唔入 mirror。
-     *  幀格式照抄 XiaozhiBridge（F8 8F 08 00 00 44 data sum ED），
-     *  單發一次（之前連發三次，WebSocket 洗三行 chest_rcv，用家嫌煩）。 */
+    /** Chest mute light (chest cmd 68) test: purely light it. It does not touch the
+     *  Xiaozhi connection.
+     *  Note: Xiaozhi connect / disconnect and the physical mute key overwrite it by
+     *  real state (unrelated to pressing the button),
+     *  so this is fire-and-forget here and does not enter the mirror.
+     *  The frame format is copied from XiaozhiBridge (F8 8F 08 00 00 44 data sum
+     *  ED),
+     *  sent once (it used to send three times in a row, washing three lines of
+     *  chest_rcv into the WebSocket, and the user found that annoying). */
     public HttpServer.ApiResponse ledMuteSet(Map<String, String> query) {
         boolean on = ApiValidator.requireBoolean(query, "on");
         byte data = (byte) (on ? 1 : 0);
@@ -1138,12 +1252,16 @@ public final class LedCenter {
     }
 
     public HttpServer.ApiResponse debugJniLed(Map<String, String> query) {
-        // 直接試 /dev/led_eye 這個 JNI driver 的各個 native
-        // function（眼/頭/嘴/pad 全部走呢條路）。
-        // 很可能也是同一個 driver 另一個 ioctl (例如尚未用過的 ledSetOn(i))。
-        // func=on&i=N -> ledSetOn(N); func=eye/head&a1..a8 -> 對應 setter。
+        // Directly test each native
+        // function of the /dev/led_eye JNI driver (eye/head/mouth/pad all go
+        // through this path).
+        // Very likely another ioctl of the same driver (for example the not-yet-used
+        // ledSetOn(i)).
+        // func=on&i=N -> ledSetOn(N); func=eye/head&a1..a8 -> the corresponding
+        // setter.
         String func = ApiValidator.requireDebugLedFunc(query);
-        // 同埋照舊排全局驅動鎖：唔好喺 disco 高頻打燈途中另起 open。
+        // Also queue the global driver lock as before: do not start another open
+        // in the middle of the disco's high-frequency light sending.
         if ("off".equals(func)) {
             final boolean[] res = new boolean[2];
             DirectLedController.runExclusive(() -> {
@@ -1151,9 +1269,11 @@ public final class LedCenter {
                 res[1] = LedControl.ledSetOFF(0);
                 LedControl.close();
             });
-            // OFF 會連咀一齊清，補返（之前呼吸緊先補）。
+            // OFF clears the mouth too, so restore it (used to restore only when
+            // breathing).
             DirectLedController.restoreMouthAfterOff();
-            // raw 反轉慣例：false＝ioctl 成功。之前一律 ok:true，連 open 失敗都報成功。
+            // Raw inverted convention: false = the ioctl succeeded. It used to report
+            // ok:true in all cases, even when the open failed.
             boolean offOk = res[0] && !res[1];
             Log.i(TAG, "ledSetOFF open=" + res[0] + " raw=" + res[1]);
             return HttpServer.ApiResponse.ok(
@@ -1165,7 +1285,9 @@ public final class LedCenter {
             DirectLedController.runExclusive(() -> {
                 openOk[0] = LedControl.open();
                 if (!openOk[0]) {
-                    // 打唔開就唔好掂 ioctl（之前照打，close 白跑，仲要回 ok:true 呃人）。
+                    // If it cannot open, do not touch the ioctl (it used to send the
+                    // ioctl anyway, close ran for nothing, and it still returned
+                    // ok:true, lying).
                     rbody[0] = "{\"ok\":false,\"open\":false}";
                     return;
                 }
@@ -1200,20 +1322,26 @@ public final class LedCenter {
                 }
             });
         } catch (Throwable t) {
-            // runExclusive 掟（少見）／參數超範圍：唔好 NPE 回 500，照回 ok:false。
+            // runExclusive threw (rare) / parameter out of range: do not return 500
+            // on an NPE. Return ok:false as usual.
             Log.w(TAG, "debugJniLed failed", t);
             return HttpServer.ApiResponse.ok("{\"ok\":false}");
         }
-        // runExclusive 掟之前 rbody 未賦值嗰陣上面 catch 接住，而家一定非 null。
+        // Before runExclusive could throw, the catch above caught the moment rbody
+        // was still unassigned. Now it is definitely non-null.
         return HttpServer.ApiResponse.ok(rbody[0] != null ? rbody[0] : "{\"ok\":false}");
     }
 
     public HttpServer.ApiResponse debugSerialSend(Map<String, String> query) {
-        // raw serial 發送測試端點, 用來反推音量鍵 LED 和
-        // 胸口 mute 鍵 LED 的控制指令 (headboard v1.1 上 alpha2services v1.0
-        // 協議不合, 只要它一動作 MCU 就不再自動點燈, 要自己 app 補上)。port=head
-        // 走 header_sendRawData (ttyS3), port=chest 走 chest_sendRawData
-        // (ttyS1); hex 是完整 wire frame (f8 ... ed), 我們在 PC 側組好再送出。
+        // Raw serial send test endpoint, used to reverse-engineer the control
+        // commands for the volume key LED and
+        // the chest mute key LED (on headboard v1.1 the alpha2services v1.0
+        // protocol does not fit. As soon as it moves, the MCU stops lighting
+        // automatically, and our app has to make up for it). port=head
+        // goes through header_sendRawData (ttyS3), port=chest goes through
+        // chest_sendRawData
+        // (ttyS1). hex is the complete wire frame (f8 ... ed), assembled on the PC
+        // side before sending.
         String port = ApiValidator.optionalSerialPort(query);
         byte[] data = parseHexBytes(ApiValidator.require(query, "hex"));
         // alpha2-brain#24: chest cmd 0x19 [00] and cmd 0x40 [01 ..] start "Sit down".
@@ -1237,7 +1365,7 @@ public final class LedCenter {
         // alpha2-brain#29: a cmd 0x17 reply for this client goes out as chest_rcv also while
         // the servo read stream runs.
         if ("chest".equals(port)) ServoReadStream.noteExternalReads(data);
-        // pure-direct: 经 DirectSerialPort.sendRaw 透传完整 wire 帧。
+        // pure-direct: passes the complete wire frame through via DirectSerialPort.sendRaw.
         boolean sent = "chest".equals(port)
                 ? HardwareDirectManager.get(appContext).chest().sendRaw(data,
                         ApiValidator.optionalAllowSitDown(query))
@@ -1262,12 +1390,14 @@ public final class LedCenter {
         return out;
     }
 
-    // -- MCP tools (XiaozhiBridge callTool switch 轉調) --
+    // -- MCP tools (XiaozhiBridge callTool switch delegates here) --
 
-    /** self.robot.led_set_head 本體 (XiaozhiBridge 轉調)。
-     *  pure-direct: 经 JNI 直驱，单发即稳住。
-     *  同 HTTP 一套驗證（preset 枚舉＋color 1-7＋brightness 1-9），不合即報錯，
-     *  不靜默 clamp／不靜默當 long（之前錯值直落 JNI／錯 preset 靜默變 long）。 */
+    /** Body of self.robot.led_set_head (delegated from XiaozhiBridge).
+     *  pure-direct: driven directly via JNI. A single send settles it.
+     *  The same validation as HTTP (preset enum + color 1-7 + brightness 1-9).
+     *  Mismatch is an error,
+     *  no silent clamp / no silent treatment as long (previously a wrong value went
+     *  straight into the JNI / a wrong preset silently became long). */
     public SonarCenter.McpResult mcpLedSetHead(org.json.JSONObject arguments) {
         String preset = arguments.optString("preset", "long");
         if (!"long".equals(preset) && !"flash".equals(preset) && !"breathe".equals(preset)
@@ -1311,9 +1441,11 @@ public final class LedCenter {
                 String.valueOf(code) + " (headerReady=" + hReady + ")");
     }
 
-    /** self.robot.led_set_eye 本體 (XiaozhiBridge 轉調)。pure-direct: 经 JNI 直驱。
-     *  同 HTTP 一套驗證——眼燈無 breathe（之前 "breathe" 靜默變 long，同 schema
-     *  講嘅唔啱），錯 preset 即報錯。 */
+    /** Body of self.robot.led_set_eye (delegated from XiaozhiBridge).
+     *  pure-direct: driven directly via JNI.
+     *  The same validation as HTTP - the eye light has no breathe (previously
+     *  "breathe" silently became long, which did not match what the
+     *  schema said). A wrong preset is an error. */
     public SonarCenter.McpResult mcpLedSetEye(org.json.JSONObject arguments) {
         String preset = arguments.optString("preset", "long");
         if (!"long".equals(preset) && !"flash".equals(preset) && !"chase".equals(preset)
@@ -1357,9 +1489,11 @@ public final class LedCenter {
                 String.valueOf(code) + " (headerReady=" + eReady + ")");
     }
 
-    /** self.robot.led_set_mouth 本體 (XiaozhiBridge 轉調)。
-     *  同 HTTP 一套驗證（preset 枚舉＋speed 100-1000）：之前打錯 preset
-     *  （如 "flash"）靜默變 breathing，speed 超範圍直落——家下即報錯。 */
+    /** Body of self.robot.led_set_mouth (delegated from XiaozhiBridge).
+     *  The same validation as HTTP (preset enum + speed 100-1000): previously a
+     *  wrong preset
+     *  (e.g. "flash") silently became breathing, and an out-of-range speed went
+     *  straight through - now it is an error at once. */
     public SonarCenter.McpResult mcpLedSetMouth(org.json.JSONObject arguments) {
         String preset = arguments.optString("preset", "breathing");
         if (!"breathing".equals(preset) && !"off".equals(preset)) {
@@ -1370,8 +1504,9 @@ public final class LedCenter {
         if ("off".equals(preset)) {
             ok = MouthLedData.off().apply();
         } else {
-            // 唔帶默認 150，同 HTTP requireMouthSpeed 睇齊（之前默認 0，
-            // 但 0 出範圍次次都錯，唔帶即錯）。
+            // Absent = default 150, matching the HTTP requireMouthSpeed
+            // (the previous default was 0,
+            // but 0 is out of range and was always an error. Absent was an error).
             int speedMs = arguments.optInt("speed_ms", 150);
             if (speedMs < ApiValidator.LED_MOUTH_SPEED_MIN_MS
                     || speedMs > ApiValidator.LED_MOUTH_SPEED_MAX_MS) {
