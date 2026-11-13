@@ -4,24 +4,28 @@ import android.content.Context;
 import android.content.Intent;
 
 /**
- * 2026-09: 脫離 Alpha2OpenSdk —— 取代 sdk-module/ubtechalpha2robot 的
- * Alpha2RobotApi。機身根本無 com.ubtechinc.alpha2services，所有 binder
- * 調用註定失敗，所以這個是一個永久的 no-op facade：每個方法都即時回一個
- * 誠實的失敗值（{@link UbxErrorCode.API_ERROR_CODE#API_ERROR_NOT_INIT}、
- * {@code false}、{@code null}），listener 永遠不會被 callback，絕不 block、
- * 絕不 throw。行為同之前（util 全 null）一模一樣，純粹不再需要整個 SDK module。
+ * 2026-09: Decoupled from Alpha2OpenSdk - replaces Alpha2RobotApi from
+ * sdk-module/ubtechalpha2robot. The robot body has no
+ * com.ubtechinc.alpha2services at all, so every binder call is doomed to
+ * fail. This is therefore a permanent no-op facade: each method returns an
+ * honest failure value immediately ({@link UbxErrorCode.API_ERROR_CODE#API_ERROR_NOT_INIT},
+ * {@code false}, {@code null}). Listeners are never called back, and nothing
+ * blocks or throws. Behavior is identical to before (with every util null);
+ * the only difference is that the whole SDK module is no longer needed.
  *
- * <p>例外（不經 binder、本來就 work，保留原語義）：
+ * <p>Exceptions (no binder involved, worked originally, original semantics kept):
  * <ul>
- *   <li>{@link #requestRobotUUID()} - 照發 broadcast（無人收，純粹向後相容；
- *       真正讀值行 {@code queryChestRobotUuid()} direct 路）。</li>
- *   <li>{@link #speech_SetMIC(boolean)} - 照回 {@code true}（同 SDK 在 util
- *       null 時一樣，什麼都不做）。</li>
- *   <li>{@link #releaseApi()} - no-op。</li>
+ *   <li>{@link #requestRobotUUID()} - still sends the broadcast (nobody
+ *       receives it, purely for backward compatibility; the real value read
+ *       goes through the {@code queryChestRobotUuid()} direct path).</li>
+ *   <li>{@link #speech_SetMIC(boolean)} - still returns {@code true} (same as
+ *       the SDK when util is null; does nothing).</li>
+ *   <li>{@link #releaseApi()} - no-op.</li>
  * </ul>
  *
- * <p>真正行硬件全部經 {@code HardwareDirectManager}（胸/頭串口直驅）、
- * {@code DirectLedController}（JNI）、Android 原生 API。
+ * <p>Everything that really touches hardware goes through
+ * {@code HardwareDirectManager} (chest/head serial direct drive),
+ * {@code DirectLedController} (JNI), and the Android native APIs.
  */
 public final class RobotStub {
     private final Context mContext;
@@ -30,20 +34,22 @@ public final class RobotStub {
         this.mContext = context.getApplicationContext();
     }
 
-    /** Grammar-build callback (binder 時代遺留接口，listener 永遠不會被叫）。 */
+    /** Grammar-build callback (leftover interface from the binder era; the
+     *  listener is never called). */
     public interface IAlpha2SpeechGrammarInitListener {
         void speechGrammarInitCallback(String grammarId, int errorCode);
     }
 
-    /** Grammar-result callback （同上）。 */
+    /** Grammar-result callback (same as above). */
     public interface IAlpha2SpeechGrammarListener {
         void onSpeechGrammarResult(int type, String result);
         void onSpeechGrammarError(int errorCode);
     }
 
-    // 2026-09 移除: action_getActionList / action_PlayActionName /
-    // action_StopAction (零調用；動作一律經 UbxPlayer 直驅，見 actionListDirect())。
-    // -- Speech / TTS (全死：無 speech service) --------------------------------
+    // Removed 2026-09: action_getActionList / action_PlayActionName /
+    // action_StopAction (zero callers; actions always go through UbxPlayer
+    // direct drive, see actionListDirect()).
+    // -- Speech / TTS (all dead: no speech service) ----------------------------
 
     public UbxErrorCode.API_ERROR_CODE speech_startTTS(String language, String text, String strVoiceName) {
         return UbxErrorCode.API_ERROR_CODE.API_ERROR_NOT_INIT;
@@ -66,14 +72,17 @@ public final class RobotStub {
         return UbxErrorCode.API_ERROR_CODE.API_ERROR_NOT_INIT;
     }
 
-    // -- Mic (假成功：同 SDK 在 util null 時一樣回 true，什麼都不做) ---------------
-    // 注意：回 true 不代表搶到 mic——調用方（MicCenter 持鎖管線）不可以靠這個
-    // 返回值判斷擁有權，只當「已通知（無人收）」；真實 mic 状态看自家 AudioRecord。
+    // -- Mic (false success: returns true like the SDK when util is null, does
+    // nothing) -------------------------------------------------------------
+    // Note: returning true does not mean the mic was grabbed. Callers (the
+    // MicCenter lock-holding pipeline) must not use this return value to
+    // decide ownership. Treat it only as "notified (nobody receives it)"; read
+    // the real mic state from our own AudioRecord.
     public boolean speech_SetMIC(boolean isWake) {
         return true;
     }
 
-    // -- 非 binder：原語義保留 --------------------------------------------------
+    // -- No binder: original semantics kept --------------------------------
 
     public void requestRobotUUID() {
         mContext.sendBroadcast(new Intent("com.ubtechinc.robot_uuid.request"));
