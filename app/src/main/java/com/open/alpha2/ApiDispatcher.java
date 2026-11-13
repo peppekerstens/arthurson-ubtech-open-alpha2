@@ -10,25 +10,25 @@ import com.ubtechinc.alpha.hardware.ubx.UbxPlayer;
 import java.util.Map;
 
 /**
- * /api/alpha2/* dispatcher：薄 delegate switch，body 在各 center。
+ * /api/alpha2/* dispatcher: a thin delegate switch; the body is in each center.
  *
- * 跨域 core 經下面 Host 縫調回：
- * - speech/tts、speech/stop 由 SpeechCenter 直實現（MainActivity 不再 implements Host）
- * （speech/set_mic、set_mic_keep_held 經下面 micCenter 直調。）
- * （speech/offline_auto_switch、get_default_grammar 經下面 grammarCenter 直調，Host 不經手。）
- * （servo/sonar 經下面 sonarCenter 直調——discover 的
- * sensors 三值繼續經 sensorState 照讀，正在轉交同一個 SonarCenter。）
- * directChestReady/directHeaderReady 是內聯副本
- * （同 UbxApi/LedCenter/ChestQuery/XiaozhiBridge 一樣做法）。
- * walkie testtone/diagnose/play 經下面 micCenter 直調。
- * handleSystemApi（discover＋music/*，要 UbxPlayer pose＋MusicController＋deviceStatus.getWifiIp()）同
- * handleDirectApi（servo/led/sonar/ubx 直驅，要 LocalAlpha2Services＋
- * UbxPlayer notePose）。
+ * Cross-domain cores call back through the Host seam below:
+ * - speech/tts, speech/stop are directly implemented by SpeechCenter (MainActivity no longer implements Host)
+ * (speech/set_mic, set_mic_keep_held go through micCenter below, direct call.)
+ * (speech/offline_auto_switch, get_default_grammar go through grammarCenter below, direct call; the Host is not involved.)
+ * (servo/sonar go through sonarCenter below, direct call - the three sensors values of
+ * discover continue to be read via sensorState, being handed to the same SonarCenter.)
+ * directChestReady/directHeaderReady are inline copies
+ * (the same approach as UbxApi/LedCenter/ChestQuery/XiaozhiBridge).
+ * walkie testtone/diagnose/play go through micCenter below, direct call.
+ * handleSystemApi (discover + music/*, needs UbxPlayer pose + MusicController + deviceStatus.getWifiIp()) and
+ * handleDirectApi (servo/led/sonar/ubx direct drive, needs LocalAlpha2Services +
+ * UbxPlayer notePose).
  */
 public final class ApiDispatcher {
 
     /**
-     * 宿主縫：speech/tts、speech/stop 由 SpeechCenter 直實現。
+     * Host seam: speech/tts, speech/stop are directly implemented by SpeechCenter.
      */
     public interface Host {
         HttpServer.ApiResponse handleSpeechTts(Map<String, String> query);
@@ -57,7 +57,7 @@ public final class ApiDispatcher {
     private final UbxPlayer ubxPlayer;
     private final MusicController musicController;
     private final LocalAlpha2Services localServices;
-    // servo/sonar 直調這裡 (放最尾，慣例)。
+    // Direct calls for servo/sonar go here (placed last, by convention).
     private final SonarCenter sonarCenter;
     private final ActionsPackController actionsPackController;
     private final ApkDownloadController apkDownloadController;
@@ -117,22 +117,22 @@ public final class ApiDispatcher {
         this.gamepadCenter = gamepadCenter;
     }
 
-    // directChestReady() 內聯：經 appContext 不用 Activity（各 center 自帶副本）。
+    // directChestReady() inlined: uses appContext, no Activity (each center carries its own copy).
     private boolean directChestReady() {
         return directReady(true);
     }
 
-    // directHeaderReady() 內聯：同上（handleSystemApi discover＋handleDirectApi status 用）。
+    // directHeaderReady() inlined: same as above (used by handleSystemApi discover + handleDirectApi status).
     private boolean directHeaderReady() {
         return directReady(false);
     }
 
-    /** 胸／頭串口就緒二合一（實現見 {@link DirectProbes}，這裡僅留薄 delegate 保 call site 不變）。 */
+    /** Chest/head serial ready, two in one (implementation in {@link DirectProbes}; a thin delegate only, to keep the call sites unchanged). */
     private boolean directReady(boolean chest) {
         return chest ? DirectProbes.isChestReady(appContext) : DirectProbes.isHeadReady(appContext);
     }
 
-    /** music/* 六連發共用形（err != null 即 500，否則 {"ok":true}）。 */
+    /** Shared shape for the six music/* operations (err != null means 500, otherwise {"ok":true}). */
     private static HttpServer.ApiResponse musicOp(MusicOp op) {
         String err = op.run();
         if (err != null) return HttpServer.ApiResponse.error(err);
@@ -141,7 +141,7 @@ public final class ApiDispatcher {
 
     private interface MusicOp { String run(); }
 
-    /** 三個 404 共用形（訊息前綴不變，免 drift／前端字串比對斷）。 */
+    /** Shared shape for the three 404s (the message prefix is unchanged, to avoid drift / a broken frontend string comparison). */
     private static HttpServer.ApiResponse unknown(String kind, String path) {
         String prefix = kind == null || kind.isEmpty() ? "unknown endpoint: "
                 : "unknown " + kind + " endpoint: ";
@@ -158,12 +158,12 @@ public final class ApiDispatcher {
 
     public HttpServer.ApiResponse handleApi(String path, Map<String, String> query, String method, String body) {
         switch (path) {
-            // -- 健康狀態聚合 (body 在 DeviceStatus；薄 delegate，不要在這裡加 logic) --
+            // -- Health status aggregation (body in DeviceStatus; thin delegate, do not add logic here) --
             case "status":
                 return deviceStatus.statusResponse();
 
             case "chest/version": {
-                // 只回 chest MCU 真實韌體版本 (sendCommand 51)
+                // Return only the real firmware version of the chest MCU (sendCommand 51)
                 long timeoutMs = ApiValidator.optionalLong(query, "timeout", 1500L);
                 String v = chestQuery.queryFirmwareVersion(timeoutMs);
                 if (v != null) {
@@ -173,7 +173,7 @@ public final class ApiDispatcher {
                 }
             }
             case "chest/upgrade": {
-                // 觸發胸口升級：讀 /sdcard/AlphaII_CHEST_kernel.bin 經 48/49/50 協議升級
+                // Trigger the chest upgrade: read /sdcard/AlphaII_CHEST_kernel.bin, upgrade via the 48/49/50 protocol
                 String err = chestUpgrade.startChestUpgrade();
                 if (err == null) {
                     return HttpServer.ApiResponse.ok("{\"ok\":true,\"started\":true}");
@@ -194,12 +194,12 @@ public final class ApiDispatcher {
                 chestUpgrade.abort();
                 return HttpServer.ApiResponse.ok("{\"ok\":true,\"aborted\":true}");
             }
-            // -- 升級鏡像讀頁 (body 在 ChestUpgrade；薄 delegate，不要在這裡加 logic) --
+            // -- Upgrade image read page (body in ChestUpgrade; thin delegate, do not add logic here) --
             case "chest/page":
                 return chestUpgrade.chestPageResponse(query);
 
-            // -- Actions (pure-direct: actionInfo.txt + UbxPlayer，机身已无 alpha2services，
-            // 旧 AIDL action_* 一律 NOT_INIT，此处不再经过 RobotStub) --------------
+            // -- Actions (pure-direct: actionInfo.txt + UbxPlayer; the body has no alpha2services,
+            // the old AIDL action_* all return NOT_INIT, so this no longer goes through RobotStub) --------------
             case "action/list":
                 return actionDirect.actionListDirect();
             case "action/play":
@@ -207,21 +207,21 @@ public final class ApiDispatcher {
                         () -> actionDirect.actionPlayDirect(ApiValidator.require(query, "name")),
                         ApiDispatcher::motionRefused);
             case "action/stop": {
-                // 用戶要求「停止」要連帶做「蹲下站起」回位動作：与手势总停/MCP 共用
-                // stopActionWithRecovery()，回位播不播到不影響停止本身回 true。
+                // A user "stop" must also do the "squat then stand up" recovery action: shared with the gesture stop-all / MCP
+                // stopActionWithRecovery(); whether the recovery plays does not affect the stop itself returning true.
                 return MainActivity.codeResponse(actionDirect.stopActionWithRecovery());
             }
-            // -- 動作包下載＋替換（實驗 tab 動作包卡用；body 在 ActionsPackController，
-            // 薄 delegate，不要在這裡加 logic）--
-            // 固定 URL（見 ActionsPackController.PACK_URL），後端直落 zip＋自動
-            // unzip 到 sdcard，舊 /sdcard/actions 改名 /sdcard/actions-backup。
+            // -- Action pack download + replace (experiments tab action pack card; body in ActionsPackController,
+            // thin delegate, do not add logic here) --
+            // Fixed URL (see ActionsPackController.PACK_URL); the backend drops the zip directly + auto
+            // unzip into sdcard; the old /sdcard/actions is renamed to /sdcard/actions-backup.
             case "action/pack/download": {
                 if (actionsPackController == null) {
                     return HttpServer.ApiResponse.error("actions pack not initialised");
                 }
                 String err = actionsPackController.startDownload();
                 if (err != null) {
-                    // 正在下載中都回現狀等前端跟進度（同 vosk/download 一致）。
+                    // While a download is in progress, return the current state so the frontend can follow progress (same as vosk/download).
                     if (err.startsWith("already downloading")) {
                         return HttpServer.ApiResponse.ok(actionsPackController.statusJson());
                     }
@@ -243,17 +243,17 @@ public final class ApiDispatcher {
                 if (err != null) return HttpServer.ApiResponse.error(err);
                 return HttpServer.ApiResponse.ok(actionsPackController.statusJson());
             }
-            // -- APK 下載（實驗 tab 資源下載卡 Google TTS 區用；body 在
-            // ApkDownloadController，薄 delegate，不要在這裡加 logic）--
-            // 固定 URL（見 ApkDownloadController.APK_URL），後端直落 apk 到
-            // sdcard，落完自動開系統安裝器等人手確認。
+            // -- APK download (experiments tab resource download card, Google TTS area; body in
+            // ApkDownloadController, thin delegate, do not add logic here) --
+            // Fixed URL (see ApkDownloadController.APK_URL); the backend drops the apk directly into
+            // sdcard, then opens the system installer to wait for manual confirmation.
             case "apk/download": {
                 if (apkDownloadController == null) {
                     return HttpServer.ApiResponse.error("apk download not initialised");
                 }
                 String err = apkDownloadController.startDownload();
                 if (err != null) {
-                    // 正在下載中都回現狀等前端跟進度（同 vosk/download 一致）。
+                    // While a download is in progress, return the current state so the frontend can follow progress (same as vosk/download).
                     if (err.startsWith("already downloading")) {
                         return HttpServer.ApiResponse.ok(apkDownloadController.statusJson());
                     }
@@ -276,9 +276,9 @@ public final class ApiDispatcher {
                 return HttpServer.ApiResponse.ok(apkDownloadController.statusJson());
             }
 
-            // -- Ubx 直播（供前端动作 tab：api() 只发 /api/alpha2/*，故在此挂一份；
-            // /api/direct/ubx/* 那份调同一 helper，行为一致；/api/ubx/* 裸路径经
-            // fallthrough 亦到此）--------------
+            // -- Ubx live (for the frontend action tab: api() only sends /api/alpha2/*, so one copy is hooked here;
+            // the /api/direct/ubx/* one calls the same helper, consistent behavior; the /api/ubx/* bare path
+            // also reaches here via fallthrough) --------------
             case "ubx/list":
                 return ubxApi.ubxListResponse();
             case "ubx/play":
@@ -289,27 +289,27 @@ public final class ApiDispatcher {
             case "ubx/status":
                 return ubxApi.ubxStatusResponse();
             case "ubx/speed":
-                // 枚舉校驗在 ubxSpeedResponse 內經 ApiValidator.parseUbxSpeedValue 統一做,
-                // 這裡只保證必填 (缺席即 400), 避免兩次 parse。
+                // Enum validation is done uniformly inside ubxSpeedResponse via ApiValidator.parseUbxSpeedValue;
+                // here only the required check (absent means 400), avoiding a double parse.
                 return ubxApi.ubxSpeedResponse(ApiValidator.require(query, "value"));
 
             // -- Speech / TTS -----------------------------------------------------------
             // engine: android only (only engine that speaks). nuance/iflytek
-            // 已死 (alpha2services binder 不存在，robot.speech_startTTS 恆回 NOT_INIT)：
-            // ApiValidator 直接拒收非 "android" 值。
+            // are dead (the alpha2services binder does not exist, robot.speech_startTTS always returns NOT_INIT):
+            // ApiValidator directly rejects any value other than "android".
             case "speech/tts":
                 return host.handleSpeechTts(query);
             case "speech/stop":
                 return host.handleSpeechStop();
 
-            // Android TTS 語言選擇 - engine 現在只有 android，lang 由 speech/tts_languages
-            // 提供的清單選。ui_lang ("zh"/"en") 控制的是 displayName 用邊種語言顯示。
+            // Android TTS language selection - engine is android only now; lang is chosen from the list
+            // provided by speech/tts_languages. ui_lang ("zh"/"en") controls which language displayName is shown in.
             case "speech/tts_languages":
                 return ttsCenter.ttsLanguages(query);
 
-            // Android TTS 引擎選擇 - 機身可能裝了不只一個系統 TTS 引擎 (例如出廠
-            // 內建 + Google TTS + SVOX Pico), 這三個 endpoint 供 speech tab 選擇
-            // speech/tts 實際用哪個發音。
+            // Android TTS engine selection - the body may have more than one system TTS engine installed (e.g. factory
+            // built-in + Google TTS + SVOX Pico); these three endpoints let the speech tab choose
+            // which voice speech/tts actually uses.
             case "speech/tts_engines":
                 return ttsCenter.ttsEngines();
 
@@ -319,19 +319,19 @@ public final class ApiDispatcher {
             case "speech/cur_tts_engine":
                 return ttsCenter.curTtsEngine();
 
-            // TTS 卡語言選擇的後端 pref (BCP-47 tag，空=沿用引擎
-            // 目前語言)。前端 setAndroidTtsLang() 同步寫入；對話管線
-            // speakAndroidTts() 優先讀它——一選即時跟。
+            // Backend pref for the language selection of the TTS card (BCP-47 tag; empty = keep the
+            // engine's current language). The frontend setAndroidTtsLang() writes it synchronously; the dialogue
+            // pipeline speakAndroidTts() reads it first - a choice takes effect immediately.
             case "speech/set_tts_lang":
                 return ttsCenter.setTtsLang(query);
 
             case "speech/cur_tts_lang":
                 return ttsCenter.curTtsLang();
 
-            // TTS 卡聲音選擇 (Google TTS 每個語言多把聲)。
-            // tts_voices?lang=<BCP-47> 列該語言把聲 (name/locale/network/quality)；
-            // set/cur_tts_voice 讀寫選擇 (空=該語言預設聲)。轉引擎/轉語言會清
-            // 舊聲。speech/tts 帶 voice 參數即用該聲讀；對話管線自動跟 pref。
+            // Voice selection for the TTS card (Google TTS has multiple voices per language).
+            // tts_voices?lang=<BCP-47> lists the voices of that language (name/locale/network/quality);
+            // set/cur_tts_voice read and write the selection (empty = the default voice of that language). Switching engine / language clears
+            // the old voice. speech/tts with a voice parameter reads in that voice; the dialogue pipeline follows the pref automatically.
             case "speech/tts_voices":
                 return ttsCenter.ttsVoices(query);
 
@@ -341,16 +341,16 @@ public final class ApiDispatcher {
             case "speech/cur_tts_voice":
                 return ttsCenter.curTtsVoice();
 
-            // TTS 音高／語速預設值 (1.0＝正常，範圍 0.5–2.0)。speech/tts 無帶
-            // pitch／rate 時用；對話管線亦跟。body 在 TtsCenter。
+            // TTS pitch/rate default values (1.0 = normal, range 0.5-2.0). Used when speech/tts has no
+            // pitch/rate; the dialogue pipeline also follows. Body in TtsCenter.
             case "speech/tts_prosody/get":
                 return ttsCenter.getTtsProsody();
 
             case "speech/tts_prosody/set":
                 return ttsCenter.setTtsProsody(query);
 
-            // TTS 跟隨 Vosk 開關（語音 tab 手動／自動選擇；body 在 TtsCenter；
-            // 薄 delegate，不要在這裡加 logic）。
+            // TTS-follows-Vosk switch (voice tab manual/auto selection; body in TtsCenter;
+            // thin delegate, do not add logic here).
             case "speech/cur_tts_follow_vosk":
                 return ttsCenter.curTtsFollowVosk();
 
@@ -361,22 +361,22 @@ public final class ApiDispatcher {
                 return micCenter.setMic(query);
             case "speech/set_mic_keep_held":
                 return micCenter.setMicKeepHeld(query);
-            // 已移除（死 binder）：speech/reset、speech/start_asr、speech/set_voice、
-            // speech/set_language、speech/self_interrupt、speech/inject。舊 .xml
-            // 程式有用過這幾粒的話，匯入那顆會 load 不到，要手動刪了它。
-            // -- 語義模擬 (body 在 SemanticCenter；薄 delegate，不要在這裡加 logic) --
+            // Removed (dead binder): speech/reset, speech/start_asr, speech/set_voice,
+            // speech/set_language, speech/self_interrupt, speech/inject. If an old .xml
+            // program used any of these, importing it will fail to load; delete it by hand.
+            // -- Semantic simulation (body in SemanticCenter; thin delegate, do not add logic here) --
             case "speech/semantic_simulate":
                 return semanticCenter.semanticSimulateResponse(query);
-            // 已移除（死 binder）：speech/stop_inject。
-            // 已移除（死 binder）：speech/init_grammar、speech/start_grammar、
-            // speech/stop_grammar 三個 endpoint（機身已無 iFlytek 引擎，
-            // 恒回 NOT_INIT）。內部 doInitGrammar/doStartGrammar/doStopGrammar
-            // 保留（離線自動切換內部流程還正在用），get_default_grammar 照讀本地 asset。
+            // Removed (dead binder): speech/stop_inject.
+            // Removed (dead binder): the three endpoints speech/init_grammar, speech/start_grammar,
+            // speech/stop_grammar (the body has no iFlytek engine,
+            // always returns NOT_INIT). The internal doInitGrammar/doStartGrammar/doStopGrammar
+            // remain (the offline auto-switch internal flow still uses them); get_default_grammar still reads the local asset.
             case "speech/get_default_grammar":
                 return grammarCenter.getDefaultGrammar();
             case "speech/offline_auto_switch":
                 return grammarCenter.offlineAutoSwitch(query);
-            // -- Vosk 離線 ASR (body 在 VoskApi；薄 delegate，不要在這裡加 logic) --
+            // -- Vosk offline ASR (body in VoskApi; thin delegate, do not add logic here) --
             case "vosk/models":
                 return voskApi.voskModels();
             case "vosk/load":
@@ -421,7 +421,7 @@ public final class ApiDispatcher {
             }
             case "servo/all":
                 return motionGate.guardAll(() -> ubxApi.servoAllResponse(query), ApiDispatcher::motionRefused);
-            // threshold state 經 sonarCenter 直調。
+            // threshold state goes through sonarCenter, direct call.
             case "servo/sonar":
                 return sonarCenter.servoSonarResponse(query);
             case "servo/sonar/get":
@@ -430,7 +430,7 @@ public final class ApiDispatcher {
                 return ubxApi.servoReadResponse(query);
             case "servo/read-all":
                 return ubxApi.servoReadAllResponse();
-            // 絕對角度實際讀取 (cmd 6，同 servo/one 同單位；read/read-all 那個是 trim/偏差)。
+            // Absolute angle actual read (cmd 6, same units as servo/one; the read/read-all one is trim/offset).
             case "servo/angle":
                 return ubxApi.servoAngleResponse(query);
             case "servo/angle-restore":
@@ -439,7 +439,7 @@ public final class ApiDispatcher {
             case "servo/angle-all":
                 return motionGate.guardWholeBody("servo/angle-all", () -> ubxApi.servoAngleAllResponse(),
                         ApiDispatcher::motionRefused);
-            // 回讀角度實際讀取 (cmd 23 / 0x17，PC 工具「讀角度 6」同款；純讀唔寫回，實測中)。
+            // Angle read-back actual read (cmd 23 / 0x17, same as the PC tool "read angle 6"; pure read, no write-back, being tested).
             case "servo/back-angle":
                 return ubxApi.servoBackAngleResponse(query);
             case "servo/back-angle-all":
@@ -459,7 +459,7 @@ public final class ApiDispatcher {
             case "servo/stream/stop":
             case "servo/stream/status":
                 return ServoReadStream.api(path, query);
-            // -- 舵機韌體升級（body 在 ServoUpgrade；薄 delegate，不要在這裡加 logic）--
+            // -- Servo firmware upgrade (body in ServoUpgrade; thin delegate, do not add logic here) --
             case "servo/upgrade":
                 return servoUpgrade.servoUpgradeResponse(query);
             case "servo/upgrade/status":
@@ -468,7 +468,7 @@ public final class ApiDispatcher {
                 servoUpgrade.abort();
                 return HttpServer.ApiResponse.ok("{\"ok\":true,\"aborted\":true}");
 
-            // -- PIR (body 在 LedCenter；薄 delegate，不要在這裡加 logic) --
+            // -- PIR (body in LedCenter; thin delegate, do not add logic here) --
             case "pir/set":
                 return ledCenter.pirSetResponse(query);
             case "pir/alert_enabled":
@@ -478,7 +478,7 @@ public final class ApiDispatcher {
 
             // -- LEDs (5-mic hardware only path - server-side preset mapping) --------------
             // Colour/brightness/mode values are user-confirmed on real 5-mic hardware:
-            //   color: 1=紅 2=綠 3=藍 4=黃 5=紫 6=青 7=白
+            //   color: 1=red 2=green 3=blue 4=yellow 5=purple 6=cyan 7=white
             //   brightness: 1 (dimmest) .. 9 (brightest)
             //   preset -> (p5 upTime, p6 downTime, p7 runTime, p8 mode) mapping below.
             //   mode codes differ between head and eye - see Alpha2RobotApi javadoc.
@@ -511,7 +511,7 @@ public final class ApiDispatcher {
                 boolean sent = HardwareDirectManager.get(appContext).head().setNoiseReduction(on);
                 return MainActivity.codeResponse(MainActivity.directCode(sent));
             }
-            // -- UUID (body 在 ChestQuery；薄 delegate，不要在這裡加 logic) --
+            // -- UUID (body in ChestQuery; thin delegate, do not add logic here) --
             case "misc/request_uuid":
                 return chestQuery.requestUuidResponse();
             case "misc/set_uuid":
@@ -547,16 +547,16 @@ public final class ApiDispatcher {
                 return cameraApi.resolution(query);
             case "camera/zoom":
                 return cameraApi.zoom(query);
-            // -- 機端錄影 mp4（body 在 VideoCenter，經 CameraApi 薄 delegate；
-            // 有聲優先，搶唔到咪自動轉純畫面；用家撳停為止，不設時長上限）--
+            // -- On-body video recording mp4 (body in VideoCenter, thin delegate via CameraApi;
+            // audio first, if the mic cannot be acquired it switches to video only automatically; until the user presses stop, no time limit) --
             case "camera/video/start":
                 return cameraApi.videoStart(query);
             case "camera/video/stop":
                 return cameraApi.videoStop();
             case "camera/video/status":
                 return cameraApi.videoStatus();
-            // -- Android 內置人臉追蹤（body 在 FaceTrackCenter，經 CameraApi 薄 delegate；
-            // 純 framework android.media.FaceDetector，零額外依賴，見該類 javadoc）--
+            // -- Android built-in face tracking (body in FaceTrackCenter, thin delegate via CameraApi;
+            // pure framework android.media.FaceDetector, zero extra dependencies, see that class's javadoc) --
             case "face/track/start":
                 return cameraApi.faceTrackStart(query);
             case "face/track/stop":
@@ -567,8 +567,8 @@ public final class ApiDispatcher {
                 return cameraApi.faceTrackConfig(query);
             case "face/track/probe":
                 return cameraApi.faceTrackProbe();
-            // -- 純 Java 顏色追蹤（body 在 ColorTrackCenter，經 CameraApi 薄 delegate；
-            // HSV 閾值＋最大 blob，零額外依賴；同人臉追蹤互斥，start 即停另一邊）--
+            // -- Pure Java color tracking (body in ColorTrackCenter, thin delegate via CameraApi;
+            // HSV threshold + largest blob, zero extra dependencies; mutually exclusive with face tracking, start stops the other) --
             case "color/track/start":
                 return cameraApi.colorTrackStart(query);
             case "color/track/stop":
@@ -577,7 +577,7 @@ public final class ApiDispatcher {
                 return cameraApi.colorTrackStatus();
             case "color/track/config":
                 return cameraApi.colorTrackConfig(query);
-            // -- Walkie-talkie (body 在 MicCenter；薄 delegate，不要在這裡加 logic) --
+            // -- Walkie-talkie (body in MicCenter; thin delegate, do not add logic here) --
             case "audio/testtone":
                 return micCenter.testTone();
             case "audio/diagnose":
@@ -600,27 +600,27 @@ public final class ApiDispatcher {
             case "audio/ringtones/play":
                 return ringtoneCenter.ringtonesPlay(query);
 
-            // 用 title 查找鈴聲, 不再用 audio/ringtones/list 的 numbered
-            // index (見上面 findRingtoneByTitle() 的 javadoc: cursor position 不保證
-            // 跨機一致, 因為 RingtoneManager 內部排序邏輯不一定和 adb content query
-            // 手動加 --sort 那個排序一樣)。Blockly 頁面現在內嵌一份靜態 title 清單
-            // (由實機 adb content query 執行一次抓回來, 見 blockly-actions-data.js
-            // 旁邊的 blockly-ringtone-data.js), 選了 title 直接送這個 API, 沿用
-            // findRingtoneByTitle() 這個已經被 playStopCue()/playShutterCue() 使用、
-            // 驗證過穩健的「查 title 轉 Uri」機制, 完全不用理會 index 排序這個問題。
+            // Look up the ringtone by title, no longer using the numbered
+            // index of audio/ringtones/list (see the javadoc of findRingtoneByTitle() above: the cursor position is not
+            // guaranteed consistent across devices, because the internal sort order of RingtoneManager is not necessarily the same as the
+            // manual --sort of adb content query). The Blockly page now embeds a static title list
+            // (fetched once from the real device's adb content query; see blockly-ringtone-data.js
+            // next to blockly-actions-data.js). A chosen title is sent directly to this API, reusing
+            // findRingtoneByTitle(), the "title to Uri" mechanism already used by playStopCue()/playShutterCue()
+            // and verified stable; the index sort issue is completely irrelevant.
             case "audio/ringtones/play_by_title":
                 return ringtoneCenter.ringtonesPlayByTitle(query);
 
-            // 停止目前正在播放的系統鈴聲/通知聲 (play / play_by_title 兩個
-            // endpoint 播放的那個), 對應 Blockly「範例 5」的「停止播放」按鈕。
+            // Stop the system ringtone/notification sound currently playing (the one played by the two
+            // endpoints play / play_by_title), corresponding to the "stop playback" button of Blockly "example 5".
             case "audio/ringtones/stop":
                 return ringtoneCenter.ringtonesStop();
 
-            // -- Local music (/mnt/internal_sd/music/): 用戶自己放在機身的音樂檔,
-            // 和上面 audio/ringtones/* 那些系統鈴聲是兩回事, 各自獨立一套 endpoint/
-            // MediaPlayer, 詳見 listLocalMusicFiles()/playLocalMusicFile() 的
-            // javadoc。"list" 沒有 index (檔案清單會隨用戶自己增減歌曲而變, 不像
-            // ringtone 那些系統清單那麼穩定), "play" 直接用檔名 (含副檔名) 選取。
+            // -- Local music (/mnt/internal_sd/music/): music files the user placed on the body,
+            // a different thing from the system ringtones of audio/ringtones/* above; each has its own set of
+            // endpoint/MediaPlayer; see listLocalMusicFiles()/playLocalMusicFile()
+            // javadoc for details. "list" has no index (the file list changes as the user adds/removes songs,
+            // not as stable as the system list of ringtones); "play" selects directly by file name (including extension).
             case "audio/local_music/list":
                 return audioCenter.localMusicList();
             case "audio/local_music/play":
@@ -650,24 +650,24 @@ public final class ApiDispatcher {
             case "audio/local_music/disco/set":
                 return audioCenter.discoSet(query);
 
-            // -- 共用播放器 EQ（body 在 AudioCenter；Equalizer 綁 MediaPlayer
-            // session，同 Visualizer 同一生死，本地＋電台共用；薄 delegate）--
+            // -- Shared player EQ (body in AudioCenter; the Equalizer is bound to the
+            // MediaPlayer session, same life and death as the Visualizer, shared by local + radio; thin delegate) --
             case "audio/local_music/eq/get":
                 return audioCenter.musicEqGet();
             case "audio/local_music/eq/set":
                 return audioCenter.musicEqSet(query);
 
-            // -- FM/網絡電台 (經 Radio Browser API, radio-browser.info, 動態搜全
-            // 世界公開電台 - 見 searchRadioStations()/resolveRadioStation() 的
-            // javadoc, 這台機器不再內建任何寫死的電台清單) - "search" 對應
-            // self.media.search_radio, "play" 用 resolveRadioStation() 做人類
-            // 語言名比對 (先比對 lastRadioSearchResults, 比對不到就直接當新搜尋詞打
-            // API)。多加一個 "status" 供前端面板顯示「目前正在播哪個台」用 (電台沒有
-            // 檔名那麼直觀, 用戶自己按「轉台」之後有需要知道結果)。這兩個 endpoint
-            // 內部會打網路, 和 MCP tool 那邊不同 (那邊有外層 try/catch(Exception)
-            // 包住整個 switch), handleApi() 沒有, 所以這裡自己要包一層 try/catch
-            // 把 IOException/JSONException 轉成正常的 {"ok":false,...} 回應,
-            // 不可以讓 exception 直接飛出 handleApi()。
+            // -- FM/online radio (via the Radio Browser API, radio-browser.info, dynamically searching
+            // all public radios in the world - see searchRadioStations()/resolveRadioStation()
+            // javadoc; this machine no longer has any built-in hardcoded radio list) - "search" corresponds to
+            // self.media.search_radio; "play" uses resolveRadioStation() for
+            // human-language name matching (first match against lastRadioSearchResults; if not found, treat it directly as a new search term and hit the
+            // API). One more "status" is added for the frontend panel to display "which station is currently playing" (a radio does not have
+            // a file name that is so intuitive; after the user presses "change station" they may need to know the result). These two endpoints
+            // hit the network internally; different from the MCP tool side (that side has an outer try/catch(Exception)
+            // wrapping the whole switch); handleApi() does not, so wrap a try/catch here
+            // to turn IOException/JSONException into a normal {"ok":false,...} response;
+            // do not let the exception fly out of handleApi() directly.
             case "audio/radio/search":
                 return audioCenter.radioSearch(query);
             case "audio/radio/play":
@@ -678,7 +678,7 @@ public final class ApiDispatcher {
                 return audioCenter.radioStop();
             case "audio/radio/status":
                 return audioCenter.radioStatus();
-            // -- 網絡電台收藏（機身 SharedPreferences 持久化，見 AudioCenter radioFavorites*） --
+            // -- Online radio favorites (persisted in the body's SharedPreferences; see AudioCenter radioFavorites*) --
             case "audio/radio/favorites/list":
                 return audioCenter.radioFavoritesList();
             case "audio/radio/favorites/add":
@@ -686,13 +686,13 @@ public final class ApiDispatcher {
             case "audio/radio/favorites/remove":
                 return audioCenter.radioFavoritesRemove(query);
 
-            // -- Media volume (body 在 AudioCenter；薄 delegate，不要在這裡加 logic) --
+            // -- Media volume (body in AudioCenter; thin delegate, do not add logic here) --
             case "audio/volume/get":
                 return audioCenter.systemVolumeGet();
             case "audio/volume/set":
                 return audioCenter.systemVolumeSet(query);
 
-            // -- Battery (body 在 DeviceStatus；薄 delegate，不要在這裡加 logic) --
+            // -- Battery (body in DeviceStatus; thin delegate, do not add logic here) --
             case "battery/status":
                 return deviceStatus.batteryStatus();
 
@@ -702,9 +702,9 @@ public final class ApiDispatcher {
             case "bt/status":
                 return deviceStatus.btStatus();
 
-            // -- BT 手柄／鍵盤（body 在 GamepadCenter；薄 delegate，不要在這裡加 logic）--
-            // A 端＝機器人直連 HID（物理鍵經 MainActivity 截獲）；gamepad/key／axis
-            // 係脚本直調注入（B 端瀏覽器遙控已移除）。全部行同一套分邊映射。
+            // -- BT gamepad/keyboard (body in GamepadCenter; thin delegate, do not add logic here) --
+            // A end = the robot directly connected to HID (physical keys intercepted by MainActivity); gamepad/key/axis
+            // are injected by direct script calls (the B-end browser remote control has been removed). All go through the same set of edge mappings.
             case "gamepad/status":
                 return gamepadCenter.statusResponse();
             case "gamepad/config/get":
@@ -731,20 +731,20 @@ public final class ApiDispatcher {
                 return gamepadCenter.inputSetResponse(query);
 
             // -- Robot-service broadcasts with simple boolean extras. --------------------
-            // 已移除（假活）：misc/power_save（見下）與 misc/charge_play ——
-            // 純粹發 broadcast 給已不存在的 alpha2services, 回 ok:true 但實際
-            // 無效。
+            // Removed (false alive): misc/power_save (see below) and misc/charge_play -
+            // they purely sent a broadcast to alpha2services which no longer exists; they returned ok:true but were
+            // actually ineffective.
 
-            // -- Accelerometer (body 在 DeviceStatus；薄 delegate，不要在這裡加 logic) --
+            // -- Accelerometer (body in DeviceStatus; thin delegate, do not add logic here) --
             case "accelerometer/set":
                 return deviceStatus.accelerometerSet(query);
             case "accelerometer/get":
                 return deviceStatus.accelerometerGet();
 
-            // 已移除：service_config/get|set（alpha2services 專用 config，機身已無此
-            // 服務，對 open alpha2 無用）。reboot 亦已
-            // 移除：App 無 REBOOT 權限 (uid 無 grant，實機 verified 永遠
-            // SecurityException)，改做手動重開機提示。
+            // Removed: service_config/get|set (config dedicated to alpha2services; the body no longer has
+            // this service, useless for the open alpha2). reboot is also
+            // removed: the App has no REBOOT permission (uid not granted; verified on the real device, always a
+            // SecurityException); changed to a manual reboot prompt.
 
             default:
                 return unknown("", path);
@@ -760,9 +760,9 @@ public final class ApiDispatcher {
     public HttpServer.ApiResponse handleSystemApi(String path, Map<String, String> query, String method, String body,
             Map<String, String> headers) {
         switch (path) {
-            // 一次搜齊機器資料（lynx 年代 sys/* 七連發的 pure-direct 版，一個回包齊完，
-            // 慢 query 各 1.5s 上限）。電池版本字串本機胸固件無此命令，如實缺席；
-            // 電量/充電走 Android 系統廣播。
+            // Search all machine data in one shot (the pure-direct version of the seven sys/* of the lynx era; one response is complete,
+            // each slow query has a 1.5s cap). Battery version string: the local chest firmware has no such command, absent as-is;
+            // battery level/charging go through the Android system broadcast.
             case "discover": {
                 String appVer = "?";
                 try {
@@ -810,8 +810,8 @@ public final class ApiDispatcher {
                 sb.append("}}");
                 return HttpServer.ApiResponse.ok(sb.toString());
             }
-            // -- 實驗 tab 面板 token 認證（見 PanelAuth：opt-in，預設關＝全開；
-            // status/verify 永遠開放，set/clear 啟用中要舊值證明（current 或 Bearer）） --
+            // -- Experiments tab panel token authentication (see PanelAuth: opt-in, default off = fully open;
+            // status/verify always open; set/clear while enabled requires proof of the old value (current or Bearer)) --
             case "auth/status":
                 return PanelAuth.status(appContext);
             case "auth/set":
@@ -820,12 +820,11 @@ public final class ApiDispatcher {
                 return PanelAuth.clear(appContext, query, headers);
             case "auth/verify":
                 return PanelAuth.verify(appContext, query, headers);
-            // ---------------- 本地音樂播放 ----------------
-            // "/api/system/music/..." - 播放機身 SD 卡裡面 (/sdcard/Music 等) 已有的
-            // 音樂檔, 經由 MusicController (standard android.media.MediaPlayer,
-            // STREAM_MUSIC 由機器人喇叭輸出) 播放, 和 AIDL 機器人 API 完全無關,
-            // 所以放在 system 這個 namespace 底下, 和 camera/audio-testtone 那類
-            // 純硬體功能看齊。
+            // ---------------- Local music playback ----------------
+            // "/api/system/music/..." - plays music files already on the body's SD card (/sdcard/Music etc.)
+            // via MusicController (standard android.media.MediaPlayer,
+            // STREAM_MUSIC output from the robot's speaker); completely unrelated to the AIDL robot API,
+            // so it is placed under the system namespace, aligned with pure hardware functions like camera/audio-testtone.
 
             case "music/list": {
                 java.util.List<MusicController.Track> tracks = musicController.listTracks();
@@ -901,14 +900,14 @@ public final class ApiDispatcher {
                 int id = ApiValidator.requireIntRange(query, "id", ApiValidator.SERVO_ID_MIN, ApiValidator.SERVO_ID_MAX);
                 int angle = ApiValidator.requireIntRange(query, "angle", ApiValidator.SERVO_ANGLE_MIN, ApiValidator.SERVO_ANGLE_MAX);
                 int time = ApiValidator.optionalIntRange(query, "time", ApiValidator.SERVO_TIME_MIN_MS, ApiValidator.SERVO_TIME_MAX_MS, 500);
-                // cmd05 單發（官方 tuner 實測本機可動），見 servoSendOneCode。
+                // cmd05 single-shot (official tuner, tested to work on this body), see servoSendOneCode.
                 return motionGate.guardServo(id, () -> ubxApi.servoSendOne(id, angle, time), ApiDispatcher::motionRefused);
             }
             case "servo/all": {
                 int[] arr = ApiValidator.requireAngles20(query);
                 int time = ApiValidator.optionalIntRange(query, "time", ApiValidator.SERVO_TIME_MIN_MS, ApiValidator.SERVO_TIME_MAX_MS, 500);
                 return motionGate.guardAll(() -> {
-                    // setAllServos 内部已转 cmd03（cmd52 有 ACK 无动作）。
+                    // setAllServos internally already translates to cmd03 (cmd52 has an ACK but no action).
                     boolean sent = HardwareDirectManager.get(appContext).chest().setAllServos(arr, (short) time);
                     if (!sent) return HttpServer.ApiResponse.error("direct not ready");
                     ubxPlayer.notePose(arr);
@@ -955,7 +954,7 @@ public final class ApiDispatcher {
                 boolean sent = HardwareDirectManager.get(appContext).chest().setPowerSave(enter, servoOff, allow);
                 return HttpServer.ApiResponse.okBool(sent);
             }
-            // Ubx 直播（与 /api/alpha2/ubx/* 同 helper；抢占式：播新自动停旧）。
+            // Ubx live (same helper as /api/alpha2/ubx/*; preemptive: playing a new one stops the old one).
             case "ubx/list":
                 return ubxApi.ubxListResponse();
             case "ubx/play":
@@ -973,6 +972,3 @@ public final class ApiDispatcher {
     }
 
 }
-
-
-

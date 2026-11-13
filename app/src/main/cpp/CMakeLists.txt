@@ -1,48 +1,48 @@
-# easyopus JNI 橋接層 - 原本嚟自 theeasiestway/android-opus-codec 嘅
-# easyopus-jni-src, 用嚟將 Java 側 com.theeasiestway.opus.Opus 嘅 native
-# method call 轉駁去 libopus 嘅 C API (opus_encoder_*/opus_decoder_* 等)。
+# easyopus JNI bridge layer - from theeasiestway/android-opus-codec
+# easyopus-jni-src. It connects the native method calls of the Java class
+# com.theeasiestway.opus.Opus to the C API of libopus (opus_encoder_*/opus_decoder_* etc.).
 #
-# 2026-08: 呢個 CMake build 取代咗之前直接用 app/libs/opus.aar (內含預編譯
-# 嘅 libeasyopus.so + libopus.so + libopusenc.so) 嘅做法, 改為喺專案入面
-# 自己編譯 libeasyopus.so, 淨係 link 一個由 Arthur 提供嘅新版
-# prebuilt/armeabi-v7a/libopus.so (opus 1.5.x 系, 帶 DRED, 已驗證有齊
-# opus_encoder_create/opus_encode/opus_decoder_create/opus_decode 等
-# CodecOpus.cpp 用到嘅全部 symbol - 見 nm -D 輸出記錄)。
+# 2026-08: this CMake build replaces the old way of using app/libs/opus.aar directly
+# (which bundled prebuilt libeasyopus.so + libopus.so + libopusenc.so). It now
+# compiles libeasyopus.so inside the project and links only the newer
+# prebuilt/armeabi-v7a/libopus.so provided by Arthur (opus 1.5.x series, DRED,
+# verified to contain all the symbols CodecOpus.cpp uses, including
+# opus_encoder_create/opus_encode/opus_decoder_create/opus_decode - see the nm -D output record).
 #
-# 冇再 link opusenc: 原本上游 template 有 add_library(opusenc ...), 但
-# CodecOpus.cpp 全程只用 <opus.h> 嘅 raw OpusEncoder/OpusDecoder API,
-# 完全冇用到 libopusenc (Ogg-Opus 封裝格式) 嘅任何 ope_* 函數 - 呢個
-# project 淨係做 raw frame streaming (小智 WebSocket 協議), 唔涉及
-# Ogg 容器, 所以刪走呢個冗餘 dependency。
+# opusenc is no longer linked: the upstream template had add_library(opusenc ...), but
+# CodecOpus.cpp uses only the raw OpusEncoder/OpusDecoder API of <opus.h>
+# throughout and no ope_* function of libopusenc (Ogg-Opus container format).
+# This project does raw frame streaming only (XiaoZhi WebSocket protocol), no
+# Ogg container, so this redundant dependency is removed.
 
 cmake_minimum_required(VERSION 3.10.2)
 
 project("easyopus")
 
-# 2026-09-09 guard：prebuilt/libopus.so 得 armeabi-v7a 一份，鬆 abiFilters
-# 會變成難明嘅缺檔錯，早啲死得明白。
+# 2026-09-09 guard: prebuilt/libopus.so exists for armeabi-v7a only. A loose abiFilters
+# would give an obscure missing-file error. Fail early and clearly.
 if(NOT ANDROID_ABI STREQUAL "armeabi-v7a")
-  message(FATAL_ERROR "easyopus 只支援 armeabi-v7a（prebuilt 淨係得呢個 ABI），got: ${ANDROID_ABI}")
+  message(FATAL_ERROR "easyopus supports armeabi-v7a only (the prebuilt exists for this ABI only), got: ${ANDROID_ABI}")
 endif()
 
-add_library( # 編譯出嚟嘅 .so 名 -> libeasyopus.so, Java 側
-             # System.loadLibrary("easyopus") 會搵呢個名
-             easyopus
+add_library( # output .so name -> libeasyopus.so; the Java side
+              # System.loadLibrary("easyopus") looks up this name
+              easyopus
 
-             SHARED
+              SHARED
 
-             codec/CodecOpus.cpp
-             utils/SamplesConverter.cpp
-             easyopus.cpp)
+              codec/CodecOpus.cpp
+              utils/SamplesConverter.cpp
+              easyopus.cpp)
 
-# CodecOpus.h 寫 #include <opus.h> (冇 opus/ prefix), 所以 include path
-# 要指去 include/opus 呢一層, 唔係 include 本身。opus.h/opus_defines.h/
-# opus_types.h 三個標準 header 嚟自官方 libopus-dev 1.4-1build1 package
-# (Ubuntu archive), C API 簽名長年不變, 同 Arthur 提供嘅新版
-# libopus.so (1.5.x 系) ABI 相容。
+# CodecOpus.h writes #include <opus.h> (no opus/ prefix), so the include path
+# must point at the include/opus layer, not include itself. The three standard headers
+# opus.h/opus_defines.h/opus_types.h come from the official libopus-dev 1.4-1build1 package
+# (Ubuntu archive); the C API signature is stable and the result is ABI-compatible with
+# the newer libopus.so (1.5.x series) provided by Arthur.
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include/opus)
 
-# --- prebuilt libopus.so (Arthur 提供, armeabi-v7a only) ---
+# --- prebuilt libopus.so (provided by Arthur, armeabi-v7a only) ---
 add_library(opus SHARED IMPORTED)
 set_target_properties(opus PROPERTIES
         IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/prebuilt/${ANDROID_ABI}/libopus.so)

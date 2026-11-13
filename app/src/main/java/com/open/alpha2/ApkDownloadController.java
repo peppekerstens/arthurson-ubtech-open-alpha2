@@ -8,29 +8,31 @@ import android.util.Log;
 import java.io.File;
 
 /**
- * APK 下載（實驗 tab「資源下載」卡 Google TTS 區用）。
+ * APK download (used by the Google TTS area of the "resource download" card in the experiments tab).
  *
- * <p>固定單一 URL（allowlist，不收任意 URL，防 SSRF）：
- * Google TTS 指定版本。後端直落 apk 到 sdcard 頂層，落完即開系統
- * 安裝器等人手確認（經 scrcpy mouse 撳到；部機無觸屏）。
+ * <p>Fixed single URL (allowlist; no arbitrary URL, SSRF prevention):
+ * the specified version of Google TTS. The backend drops the apk directly into the sdcard root;
+ * after it lands, open the system installer to wait for manual confirmation (pressed with the
+ * scrcpy mouse; this device has no touchscreen).
  *
- * <p>開唔到安裝器都唔當下載失敗（檔已落好，照樣可用 adb 裝）。
+ * <p>If the installer cannot be opened, that is still not a download failure (the file has already
+ * landed and can still be installed via adb).
  *
- * <p>同 Vosk／動作包共用單一下載通道（見 {@link DownloadGate}），每次只准
- * 一樣下載緊。狀態機：idle／downloading／done／error／cancelled。
- * heavy 工自己開 thread，public 方法 thread-safe。
+ * <p>Shares the single download channel with Vosk / the action pack (see {@link DownloadGate});
+ * only one download at a time. State machine: idle/downloading/done/error/cancelled.
+ * The heavy work opens its own thread; public methods are thread-safe.
  */
 public final class ApkDownloadController {
     private static final String TAG = "ApkDownloadController";
 
-    /** 固定下載連結（唯一合法來源；要換版先改這裡＋spec 描述）。 */
+    /** Fixed download link (the only legal source; to switch versions, change here + the spec description first). */
     public static final String APK_URL =
             "https://github.com/arthurson/ubtech-open-alpha2/releases/download/beta/com.google.android.tts_24.9.361717975-210316629.apk";
 
     private final Context appContext;
 
     private volatile String apkState = "idle";
-    private volatile int apkProgress = -1; // 0-100，-1＝未知（長度不明）
+    private volatile int apkProgress = -1; // 0-100, -1 = unknown (length unknown)
     private volatile long apkBytes = 0;
     private volatile long apkTotal = -1;
     private volatile String apkError;
@@ -41,7 +43,7 @@ public final class ApkDownloadController {
         this.appContext = context.getApplicationContext();
     }
 
-    /** URL 尾段檔名（allowlist 固定，唔使防 traversal 都照擋 ../）。 */
+    /** File name of the URL tail segment (fixed by the allowlist; still block ../ even without traversal defense). */
     static String apkFileName() {
         String u = APK_URL;
         int i = u.lastIndexOf('/');
@@ -53,7 +55,7 @@ public final class ApkDownloadController {
         return name;
     }
 
-    /** 下載根＝sdcard 頂層（同 Vosk／動作包一致）。 */
+    /** Download root = sdcard top level (same as Vosk / the action pack). */
     private static File downloadRoot() {
         File ext = null;
         try {
@@ -70,12 +72,12 @@ public final class ApkDownloadController {
         return new File("/mnt/internal_sd");
     }
 
-    /** 開始下載。return null＝已開始，否則即時錯誤字串。 */
+    /** Start the download. return null = started, otherwise an immediate error string. */
     public synchronized String startDownload() {
         if ("downloading".equals(apkState)) {
             return "already downloading (" + apkProgress + "%)";
         }
-        // 單通道：Vosk／動作包下載緊就唔開得。
+        // Single channel: cannot start while the Vosk model / the action pack is downloading.
         if (!DownloadGate.tryAcquire("apk", apkFileName())) {
             return "another download in progress (" + DownloadGate.describe() + ")";
         }
@@ -108,7 +110,7 @@ public final class ApkDownloadController {
         if ("downloading".equals(apkState)) apkCancel = true;
     }
 
-    /** apk/status endpoint 用（透傳 JSON，不經 ApiResponse 包多層）。 */
+    /** For the apk/status endpoint (pass-through JSON, not wrapped in an extra ApiResponse layer). */
     public String statusJson() {
         String st;
         int prog;
@@ -175,7 +177,7 @@ public final class ApkDownloadController {
             synchronized (this) {
                 if (apkCancel) throw new java.io.IOException("cancelled");
             }
-            // 落完即開系統安裝器等人手確認（開唔到唔當失敗，檔已落好）。
+            // As soon as it lands, open the system installer to wait for manual confirmation (if it cannot be opened, that is not a failure; the file has already landed).
             openSystemInstaller(new File(root, apkFileName()));
             setApk("done", 100, null);
             DownloadGate.release("apk");
@@ -200,7 +202,7 @@ public final class ApkDownloadController {
         }
     }
 
-    /** 下載本體（同 Vosk／動作包同一套：trust-all＋超時＋逐 0.5s 推進度）。 */
+    /** Download body (the same set as Vosk / the action pack: trust-all + timeouts + progress every 0.5s). */
     private void downloadToTmp(File root, File tmp) throws java.io.IOException {
         java.net.HttpURLConnection conn = null;
         java.io.InputStream in = null;
@@ -221,8 +223,8 @@ public final class ApkDownloadController {
             if (code < 200 || code >= 300) {
                 throw new java.io.IOException("HTTP " + code);
             }
-            // int 版 getContentLength（API 1 已有；apk 遠細過 2GB，
-            // getContentLengthLong 要 API 24+，呢個 APK 要行 API 21/22）。
+            // The int version of getContentLength (available since API 1; the apk is far smaller than 2GB,
+            // getContentLengthLong needs API 24+, but this APK must run on API 21/22).
             long total = -1;
             try {
                 total = conn.getContentLength();
@@ -290,8 +292,8 @@ public final class ApkDownloadController {
         }
     }
 
-    /** 落完開系統安裝器等人手確認（經 scrcpy mouse 撳到；部機無觸屏）。
-     *  開唔到都唔當下載失敗（檔已落好，照樣可用 adb 裝）。絕不 throw。 */
+    /** After landing, open the system installer to wait for manual confirmation (pressed with the scrcpy mouse; this device has no touchscreen).
+     *  Even if it cannot be opened, that is not a download failure (the file has already landed and can still be installed via adb). Never throws. */
     private void openSystemInstaller(File apk) {
         try {
             android.content.Intent intent =
