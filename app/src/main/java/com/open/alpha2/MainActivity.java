@@ -36,9 +36,11 @@ import java.nio.charset.StandardCharsets;
 /**
  * Single-activity host for the Open Alpha2 robot panel.
  *
- * Owns the one {@link RobotStub} instance for the process (同
- * Alpha2OpenSdk 脫鉤：機身無 alpha2services，所有舊 binder 調用誠實失敗；
- * 真正行硬件經 HardwareDirectManager／DirectLedController／Android 原生 API),
+ * Owns the one {@link RobotStub} instance for the process (decoupled from
+ * Alpha2OpenSdk: the body has no alpha2services, so all the old binder calls
+ * fail honestly;
+ * the real hardware path goes through HardwareDirectManager /
+ * DirectLedController / Android native APIs),
  * initialises every sub-system and answers every "/api/..." HTTP call from
  * {@link HttpServer}. All asynchronous hardware callbacks are pushed to
  * {@link EventBus} so the browser panel's WebSocket log updates live.
@@ -52,15 +54,19 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
 
     static final String PREFS_NAME = "robotpanel";
 
-    // (蹲下站起；停止語義不變，見 actionDirect.stopActionWithRecovery())。
+    // (squat down and stand up; the stop semantics are unchanged, see
+    // actionDirect.stopActionWithRecovery()).
 
     private RobotStub robot;
     private LocalAlpha2Services localServices;
-    // 動作配樂由 UbxPlayer 內 voice 線負責（a/j/a/o 官方語義：同 clock 並行、
-    // 槽位起播、b*timeBase 自停、切幀打斷），獨立於 currentMusicPlayer/currentRadioPlayer，
-    // 不經 filler 循環/頻譜。
+    // Action music is handled by the voice line inside UbxPlayer (official
+    // a/j/a/o semantics: parallel with the clock, starts at the slot,
+    // b*timeBase auto-stop, frame switch interrupts). It is independent of
+    // currentMusicPlayer / currentRadioPlayer and does not go through the
+    // filler loop / spectrum.
     private final UbxPlayer ubxPlayer = new UbxPlayer();
-    // 三個共用上面同一個 ubxPlayer 實例 (servo 讀寫還在這裡直接用)。
+    // The three share the same ubxPlayer instance above (servo read/write still
+    // use it directly here).
     private ActionDirect actionDirect;
     private ActionsPackController actionsPackController;
     private ApkDownloadController apkDownloadController;
@@ -68,7 +74,7 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
     private HttpServer httpServer;
     private RobotEventReceiver dynamicReceiver;
 
-    // -- WiFi 指示燈 -----------------------------------------------
+    // -- WiFi indicator light -----------------------------------------------
     private BroadcastReceiver panelUrlReceiver;
     private TextView panelLinkView;
     private String currentPanelUrl;
@@ -79,7 +85,7 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
     private GestureCenter gestureCenter;
     private final MusicController musicController = new MusicController();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    /** 開機 15s 後試播開機語音。field 化方便 onDestroy removeCallbacks。 */
+    /** Try to play the boot voice 15 s after boot. A field so onDestroy can removeCallbacks easily. */
     private final Runnable bootVoiceRunnable = new Runnable() {
         @Override public void run() {
             if (sInstance == null || xiaozhiBridge == null) return;
@@ -89,48 +95,59 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
 
     static final long MIC_HOLD_ENFORCER_INTERVAL_MS = 2000;
 
-    /** 完全取代悠聊 APK (com.ubtech.iflytekmix) 用的中文語意配對引擎
-     *  實例。在 onCreate() 建立一次 (只持有 Context, 不碰 AIDL, 沒有初始化順序問題),
-     *  真正的 1000 條資料就到 handleSemanticMatch() 第一次被叫才讀 assets - 見
-     *  SemanticMatcherZh 本身的 lazy-load 設計。 */
+    /** Chinese semantic matching engine instance that fully replaces the 悠聊
+     *  APK (com.ubtech.iflytekmix). Created once in onCreate() (it only holds a
+     *  Context, does not touch AIDL, so there is no initialization order
+     *  problem). The real 1000 entries are read from assets only when
+     *  handleSemanticMatch() is called for the first time - see the lazy-load
+     *  design of SemanticMatcherZh itself. */
     private SemanticMatcherZh semanticMatcherZh;
 
-    /** 完全取代 AlphaEnglishChat APK
-     *  (com.ubtechinc.alphaenglishchat) 用的英文語意配對引擎實例, 和 semanticMatcherZh
-     *  屬於同一套機制、獨立資料 (1000 條英文問法, 見 SemanticMatcherEn)。
-     *  哪句用哪個 matcher 由 SemanticCenter 根據對話語言／輸入文字決定
-     *  (見 handleSemanticMatch), 靠內容判斷更可靠。 */
+    /** English semantic matching engine instance that fully replaces the
+     *  AlphaEnglishChat APK (com.ubtechinc.alphaenglishchat). Same mechanism as
+     *  semanticMatcherZh, with independent data (1000 English phrasings, see
+     *  SemanticMatcherEn). SemanticCenter decides which sentence uses which
+     *  matcher from the conversation language / input text (see
+     *  handleSemanticMatch); content-based judgment is more reliable. */
     private SemanticMatcherEn semanticMatcherEn;
 
-    /** 西班牙文語意配對引擎實例, 和中英文版同一套機制、獨立資料
-     *  (semantic_es.json, 見 SemanticMatcherEs)。
-     *  哪句用哪個 matcher 由 SemanticCenter 根據對話語言／輸入文字決定
-     *  (見 handleSemanticMatch), 靠內容判斷更可靠。 */
+    /** Spanish semantic matching engine instance. Same mechanism and independent
+     *  data as the Chinese and English versions (semantic_es.json, see
+     *  SemanticMatcherEs). SemanticCenter decides which sentence uses which
+     *  matcher from the conversation language / input text (see
+     *  handleSemanticMatch); content-based judgment is more reliable. */
     private SemanticMatcherEs semanticMatcherEs;
 
-    /** 法文語意配對引擎實例, 和其他語言版同一套機制、獨立資料
-     *  (semantic_fr.json, 見 SemanticMatcherFr, 第一版係空庫骨架)。
-     *  哪句用哪個 matcher 由 SemanticCenter 根據對話語言／輸入文字決定
-     *  (見 handleSemanticMatch), 靠內容判斷更可靠。 */
+    /** French semantic matching engine instance. Same mechanism and independent
+     *  data as the other language versions (semantic_fr.json, see
+     *  SemanticMatcherFr; the first version is an empty library skeleton).
+     *  SemanticCenter decides which sentence uses which matcher from the
+     *  conversation language / input text (see handleSemanticMatch);
+     *  content-based judgment is more reliable. */
     private SemanticMatcherFr semanticMatcherFr;
 
-    /** 日文語意配對引擎實例, 和其他語言版同一套機制、獨立資料
-     *  (semantic_ja.json, 見 SemanticMatcherJa: 85 ACTION＋200 日常 CHAT)。
-     *  哪句用哪個 matcher 由 SemanticCenter 根據對話語言／輸入文字決定
-     *  (見 handleSemanticMatch), 靠內容判斷更可靠。 */
+    /** Japanese semantic matching engine instance. Same mechanism and
+     *  independent data as the other language versions (semantic_ja.json, see
+     *  SemanticMatcherJa: 85 ACTION + 200 daily CHAT). SemanticCenter decides
+     *  which sentence uses which matcher from the conversation language / input
+     *  text (see handleSemanticMatch); content-based judgment is more reliable. */
     private SemanticMatcherJa semanticMatcherJa;
 
-    /** 德文／意大利文／葡萄牙文／韓文／俄文語意配對引擎實例, 和其他語言版
-     *  同一套機制、獨立資料 (semantic_de/it/pt/ko/ru.json, 見對應 Matcher:
-     *  目前係空庫骨架，內容後加)。接線同其他五語一樣，免內容到咗再改接線。 */
+    /** German / Italian / Portuguese / Korean / Russian semantic matching
+     *  engine instances. Same mechanism and independent data as the other
+     *  language versions (semantic_de/it/pt/ko/ru.json, see the matching
+     *  Matchers: currently empty library skeletons, content to be added later).
+     *  Wiring is the same as the other five languages, so no rewiring is needed
+     *  when the content arrives. */
     private SemanticMatcherDe semanticMatcherDe;
     private SemanticMatcherIt semanticMatcherIt;
     private SemanticMatcherPt semanticMatcherPt;
     private SemanticMatcherKo semanticMatcherKo;
     private SemanticMatcherRu semanticMatcherRu;
 
-    /** Vosk 離線 ASR controller (語音 tab)。單例，onCreate 起，
-     *  onDestroy 停。Model 放 sdcard 自動偵測，見 VoskController。 */
+    /** Vosk offline ASR controller (voice tab). Singleton, started in onCreate,
+     *  stopped in onDestroy. The model is placed on sdcard and auto-detected;
+     *  see VoskController. */
     private VoskController vosk;
 
     private RingtoneCenter ringtoneCenter;
@@ -139,11 +156,13 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
     private ChestUpgrade chestUpgrade;
     private ServoUpgrade servoUpgrade;
 
-    /** PIR 事件 static 縫 (RobotEventReceiver／onDirectChestFrame 入口，簽名不變)：
-     *  轉交 SonarCenter；sInstance／sonarCenter 任一
-     *  null 即 no-op——onCreate 同一 thread 先後建構（sonarCenter 遲過
-     *  registerDynamicReceiver），起動那幾 ms 內的 PIR edge 會遺失，行為同其他
-     *  center 的 null-guard 一致。非阻塞約束見 SonarCenter.onPirStateReceived。 */
+    /** Static seam for PIR events (entry from RobotEventReceiver /
+     *  onDirectChestFrame, signature unchanged): delegates to SonarCenter. If
+     *  sInstance / sonarCenter is null, no-op - they are constructed in sequence
+     *  on the same onCreate thread (sonarCenter comes after
+     *  registerDynamicReceiver). PIR edges within the first few ms of startup
+     *  are lost. Behaviour matches the null-guards of the other centers. See
+     *  SonarCenter.onPirStateReceived for the non-blocking constraint. */
     static void onPirStateReceived(final boolean triggered) {
         final MainActivity m = sInstance;
         if (m == null || m.sonarCenter == null) {
@@ -164,8 +183,10 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
     private SonarCenter sonarCenter;
     private GamepadCenter gamepadCenter;
 
-    // -- XiaozhiBridge.HostState (宿主縫)：TTS 兩法轉交 SpeechCenter，sonar 四法
-    // 轉交 SonarCenter（delegate＋null-guard；MCP 4 tool 經這裡照讀）。 --
+    // -- XiaozhiBridge.HostState (host seam): the two TTS methods delegate to
+    // SpeechCenter, the four sonar methods
+    // delegate to SonarCenter (delegate + null-guard; the 4 MCP tools still read
+    // through here). --
     @Override public boolean isRobotTtsSpeaking() { return speechCenter != null && speechCenter.isRobotTtsSpeaking(); }
     @Override public long getLastSpeechStopAtMs() { return speechCenter != null ? speechCenter.getLastSpeechStopAtMs() : 0L; }
     @Override public int getSonarDistanceCm() { return sonarCenter != null ? sonarCenter.getSonarDistanceCm() : -1; }
@@ -180,29 +201,36 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
     private FaceTrackCenter faceTrackCenter;
     private ColorTrackCenter colorTrackCenter;
 
-    // RobotEventReceiver 沒有 constructor/field 拿到 outer
-    // MainActivity instance (它一直只經 EventBus 靜態方法送 event, 不認識
-    // MainActivity 本身), 但 sonar_obstacle 的 LED 指示邏輯 (applyObstacleIndicator,
-    // sonarThresholdCm) 全部是 instance-level, 靠著 robot 這個 AIDL 連線。加一個
-    // static instance reference, 在 onCreate/onDestroy set/clear, 讓
-    // RobotEventReceiver 可以經 MainActivity.getSonarThresholdCm() /
-    // MainActivity.onSonarDistanceReceived() 這兩個 static bridge 方法接回
-    // instance 邏輯 (static 簽名不變轉交),
-    // 而不用將 RobotEventReceiver 的 constructor 簽名擴大 (這樣會
-    // 影響到整個 registerDynamicReceiver() 的 new RobotEventReceiver() call 位)。
+    // RobotEventReceiver has no constructor/field to reach the outer
+    // MainActivity instance (it has only ever sent events via the static EventBus
+    // methods and does not know
+    // MainActivity itself). But the LED indicator logic for sonar_obstacle
+    // (applyObstacleIndicator, sonarThresholdCm) is all instance-level, relying
+    // on the robot AIDL connection. Add a static
+    // instance reference, set/clear in onCreate/onDestroy, so
+    // RobotEventReceiver can reach back to the
+    // instance logic through the two static bridge methods
+    // MainActivity.getSonarThresholdCm() /
+    // MainActivity.onSonarDistanceReceived() (static signature unchanged,
+    // delegating),
+    // without widening the RobotEventReceiver constructor signature (that would
+    // affect
+    // every new RobotEventReceiver() call site in registerDynamicReceiver()).
     private static volatile MainActivity sInstance;
 
-    /** SONAR_DISTANCE_ACTION 觸發的 broadcast 未到之前, RobotEventReceiver 都要知道
-     *  現在的門檻才計得到 "triggered"。沒 instance／sonarCenter (例如 Activity
-     *  未起好/已destroy 中間那段窗口) 就當沒門檻, 不會誤判 triggered。 */
+    /** Until the broadcast triggered by SONAR_DISTANCE_ACTION arrives,
+     *  RobotEventReceiver must know the current threshold to compute
+     *  "triggered". If there is no instance / sonarCenter (for example the
+     *  window while the Activity is not yet fully up, or already destroyed),
+     *  treat it as no threshold, so triggered is not misjudged. */
     static int getSonarThresholdCm() {
         MainActivity m = sInstance;
         return (m != null && m.sonarCenter != null) ? m.sonarCenter.getSonarThreshold() : 30;
     }
 
-    /** RobotEventReceiver 收到 SONAR_DISTANCE_ACTION 之後的入口 (正本在
-     *  SonarCenter#onSonarDistanceReceived)：轉交；
-     *  沒 instance／sonarCenter 就悄悄地不做事。 */
+    /** Entry after RobotEventReceiver receives SONAR_DISTANCE_ACTION (the real
+     *  body is in SonarCenter#onSonarDistanceReceived): delegates;
+     *  if there is no instance / sonarCenter, quietly do nothing. */
     static void onSonarDistanceReceived(int distanceCm, boolean triggered) {
         MainActivity m = sInstance;
         if (m == null || m.sonarCenter == null) {
@@ -217,22 +245,25 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         sInstance = this;
         installCrashRestartHandler();
 
-        // LedCenter/RingtoneCenter 在這裡建立（不等 initRobot），因為下面
-        // registerWifiLedReceiver() 即刻就要用。兩個都只需要 Context/
-        // mainHandler，無其他依賴，提早建構行為不變。
+        // LedCenter/RingtoneCenter are created here (without waiting for
+        // initRobot), because registerWifiLedReceiver() below needs them
+        // immediately. Both only need Context / mainHandler and have no other
+        // dependencies, so constructing them earlier does not change behaviour.
         ringtoneCenter = new RingtoneCenter(this);
         ledCenter = new LedCenter(this, mainHandler, ringtoneCenter);
         registerDynamicReceiver();
         ledCenter.registerWifiLedReceiver();
         initRobot();
-        // pure-direct：胸 /dev/ttyS1 + 頭 /dev/ttyS3 + libhead_led.so JNI，
-        // 機身已無 alpha2services，無 binder fallback，失敗直接報錯。
+        // pure-direct: chest /dev/ttyS1 + head /dev/ttyS3 + libhead_led.so JNI.
+        // The body has no alpha2services, no binder fallback; failures report
+        // directly.
         localServices = new LocalAlpha2Services(this);
         new Thread(new Runnable() {
             @Override public void run() {
                 boolean direct = localServices.start();
                 Log.i(TAG, "LocalAlpha2Services direct=" + direct + " (pure-direct, no alpha2services fallback)");
-                // 用戶要求：開app自動做一次蹲下站起（伸展筋骨），只在直驅就緒先播。
+                // User request: on app start, automatically do one squat-and-stand
+                // (stretch). Play only when the direct drive is ready.
                 if (direct) {
                     if (actionDirect.playActionDirect(ActionDirect.STOP_RECOVERY_ACTION_ID)
                             != UbxErrorCode.API_ERROR_CODE.API_ERROR_SUCCEED) {
@@ -252,9 +283,10 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         semanticMatcherPt = new SemanticMatcherPt(this);
         semanticMatcherKo = new SemanticMatcherKo(this);
         semanticMatcherRu = new SemanticMatcherRu(this);
-        // Vosk 熔斷 —— vosk-android minSdk 21，API 19 機（這個 APK 要
-        // 裝到 4.4）絕對不可以碰 org.vosk.*（native/JNA 即崩潰）。19 機 vosk
-        // 維持 null，所有 vosk/* endpoint 經 VoskApi.voskOrError() 回清晰錯誤。
+        // Vosk circuit breaker - vosk-android minSdk 21. API 19 machines (this
+        // APK must install on 4.4) must never touch org.vosk.* (native/JNA
+        // crashes at once). On API 19, vosk stays null, and every vosk/*
+        // endpoint returns a clear error via VoskApi.voskOrError().
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             try {
                 vosk = new VoskController(this, semanticMatcherZh, semanticMatcherEn, semanticMatcherEs, semanticMatcherFr, semanticMatcherJa,
@@ -266,77 +298,100 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
             Log.i(TAG, "Vosk disabled: need API 21+, this device is API "
                     + android.os.Build.VERSION.SDK_INT);
         }
-        // Android TTS 層在 TtsCenter 建構 (vosk 之後起，等 listener 會用到
-        // vosk pause/resume)。null = 用機身目前預設引擎。
+        // The Android TTS layer is constructed in TtsCenter (started after vosk,
+        // because the listener uses vosk pause/resume later). null = use the
+        // body's current default engine.
         ttsCenter = new TtsCenter(this, vosk);
         ttsCenter.initAndroidTts(null);
         semanticCenter = new SemanticCenter(semanticMatcherZh, semanticMatcherEn, semanticMatcherEs, semanticMatcherFr, semanticMatcherJa,
                 semanticMatcherDe, semanticMatcherIt, semanticMatcherPt, semanticMatcherKo, semanticMatcherRu, actionDirect, ttsCenter);
         deviceStatus = new DeviceStatus(this, mainHandler, actionDirect, ubxPlayer, ttsCenter);
-        // sticky broadcast 註冊時機不敏感。
+        // Sticky broadcast registration is not timing-sensitive.
         deviceStatus.registerBatteryReceiver();
         cameraApi = new CameraApi(this, cameraController, ringtoneCenter);
-        // 機端錄影 mp4（MediaRecorder＋CameraController 交接；經 CameraApi 薄 delegate
-        // 暴露 camera/video/*，放 cameraApi 之後、dispatcher 之前）。
+        // On-device mp4 recording (MediaRecorder + CameraController handoff;
+        // exposes camera/video/* through a thin CameraApi delegate, placed after
+        // cameraApi and before the dispatcher).
         videoCenter = new VideoCenter(this, cameraController);
         cameraApi.setVideoCenter(videoCenter);
-        // Android 內置人臉追蹤（framework FaceDetector，零依賴；經 CameraApi 薄 delegate
-        // 暴露 face/track/*，見 FaceTrackCenter javadoc）。要 ubxApi（servo cmd05）
-        // ＋cameraController（預覽幀），放 cameraApi 之後、dispatcher 之前。
+        // Android built-in face tracking (framework FaceDetector, zero
+        // dependencies; exposes face/track/* through a thin CameraApi delegate,
+        // see FaceTrackCenter javadoc). Needs ubxApi (servo cmd05) +
+        // cameraController (preview frame), placed after cameraApi and before
+        // the dispatcher.
         faceTrackCenter = new FaceTrackCenter(cameraController, ubxApi);
         cameraApi.setFaceTrackCenter(faceTrackCenter);
-        // 純 Java 顏色追蹤（HSV＋最大 blob，零依賴；同人臉追蹤互斥，見 CameraApi）。
+        // Pure Java color tracking (HSV + largest blob, zero dependencies;
+        // mutually exclusive with face tracking, see CameraApi).
         colorTrackCenter = new ColorTrackCenter(cameraController, ubxApi);
         cameraApi.setColorTrackCenter(colorTrackCenter);
-        // 顏色行路跟要 ActionDirect：initRobot()（line 224）起得早過呢度，
-        // 嗰陣 Center 仲係 null 注入唔到，呢度兩邊齊先後補（之前擺 initRobot
-        // 入面永遠跳過——行路跟唔郁得頭郁就係咁嚟）。
+        // Color walk-follow needs ActionDirect: initRobot() (line 224) runs
+        // earlier than here, when the Center is still null and cannot be
+        // injected. Here, fill in the gap after both sides are ready (it used to
+        // sit inside initRobot and was always skipped - that is how the
+        // walk-follow got a head that would not move).
         if (actionDirect != null) {
             try { colorTrackCenter.setActionDirect(actionDirect); } catch (Throwable ignored) {}
         }
-        // Sonar＋PIR sensors 包：只需要 ledCenter (紫燈指示)，在 xiaozhiBridge 之前起——
-        // MCP sensors 4 tool 經 ctor 取得 (斷 cycle：PIR 推送
-        // uplink 經下面 setUplink 後補，見 SonarCenter javadoc 縫設計)。
+        // Sonar + PIR sensors package: only needs ledCenter (purple light
+        // indicator), started before xiaozhiBridge -
+        // the 4 MCP sensors tools get it through the ctor (breaks the cycle: the
+        // PIR push uplink is filled in later via setUplink below, see the
+        // SonarCenter javadoc seam design).
         sonarCenter = new SonarCenter(this, ledCenter);
-        // 小智包 (HTTP API/mic/activation/vision/MCP/mute 鍵開關)：collaborator 齊在這裡起。
-        // xiaozhiClient/xiaozhiAudioController/xiaozhiConfig 由它擁有。
-        // 起在 voskApi 之前——voskStart() 後開搶 mic 要經它。
-        // (sonarCenter 放最尾傳入；這裡建好先可用。)
+        // Xiaozhi package (HTTP API/mic/activation/vision/MCP/mute key switch):
+        // all collaborators assemble and start here.
+        // It owns xiaozhiClient/xiaozhiAudioController/xiaozhiConfig.
+        // Started before voskApi - taking the mic back after voskStart() goes
+        // through it.
+        // (sonarCenter is passed in at the end; it is only usable once built
+        // here.)
         xiaozhiBridge = new XiaozhiBridge(this, mainHandler, actionDirect, audioCenter,
                 robot, ttsCenter, vosk, cameraController, ledCenter, this, sonarCenter);
-        // PIR 推送 uplink 後補 (同一個 onCreate thread，httpServer 起之前一定到；
-        // 未補前的 PIR edge 照存 state、push 跳過)。
+        // PIR push uplink filled in later (same onCreate thread; it is bound to
+        // arrive before httpServer starts.
+        // PIR edges before it is filled in still store the state, the push is
+        // skipped).
         sonarCenter.setUplink(xiaozhiBridge);
         micCenter = new MicCenter(robot, ledCenter, audioController, audioPlaybackController, this);
-        // (apiDispatcher 那次一齊傳入；這裡建好先可用。)
-        // 手勢包 (head pad + 音量連發 + 雙鍵總停)：actionDirect/audioCenter 齊在這裡起 (initRobot 之後)。
+        // (passed in together with apiDispatcher; only usable once built here.)
+        // Gesture package (head pad + volume burst + two-key total stop):
+        // actionDirect/audioCenter assemble and start here (after initRobot).
         gestureCenter = new GestureCenter(this, mainHandler, ledCenter, ringtoneCenter,
                 actionDirect, audioCenter, this);
         gestureCenter.start();
         grammarCenter = new GrammarCenter(this, robot, xiaozhiBridge);
-        // sticky broadcast，註冊即刻有現狀 (起好先叫得)。
+        // Sticky broadcast: the current state is available right after
+        // registration (callable only once started).
         grammarCenter.registerConnectivityReceiver();
         voskApi = new VoskApi(vosk, xiaozhiBridge, semanticCenter);
-        // TTS orchestration 包 (speech/tts＋stop＋總停)：要 xiaozhiBridge
-        // (經 stopSpeechPlayback 停小智管道)，放 voskApi 之後、dispatcher 之前。
+        // TTS orchestration package (speech/tts + stop + total stop): needs
+        // xiaozhiBridge (stops the Xiaozhi pipeline via stopSpeechPlayback),
+        // placed after voskApi and before the dispatcher.
         speechCenter = new SpeechCenter(ttsCenter, vosk, xiaozhiBridge);
-        // FUNCTION 真執行後補（避開建構順序 cycle：semanticCenter 早過
-        // deviceStatus/cameraApi/speechCenter 起，呢度先齊人）。
+        // The real FUNCTION execution is filled in later (avoids a
+        // construction-order cycle: semanticCenter starts earlier than
+        // deviceStatus/cameraApi/speechCenter; only here are all the parts
+        // present).
         semanticCenter.setAudioCenter(audioCenter);
         semanticCenter.setDeviceStatus(deviceStatus);
         semanticCenter.setCameraApi(cameraApi);
         semanticCenter.setSpeechStopHost(this);
-        // (sonarCenter 已在上面 xiaozhiBridge 之前建好；
-        // dispatcher 放最尾。)
-        // BT 手柄／鍵盤包（要 actionDirect＋ubxApi＋deviceStatus，A 端物理鍵＋B 端
-        // HTTP 共用同一套映射，見 GamepadCenter；放 dispatcher 之前）。
+        // (sonarCenter was already built above, before xiaozhiBridge;
+        // the dispatcher goes at the very end.)
+        // BT gamepad / keyboard package (needs actionDirect + ubxApi +
+        // deviceStatus. The A-side physical keys and the B-side
+        // HTTP share the same mapping, see GamepadCenter. Placed before the
+        // dispatcher).
         gamepadCenter = new GamepadCenter(this, actionDirect, ubxApi, ubxPlayer, deviceStatus,
                 audioCenter, ringtoneCenter, ledCenter, speechCenter, cameraApi, sonarCenter,
                 xiaozhiBridge, voskApi);
-        // dispatcher 包全部上面 controller (+speechCenter 做 Host；sensorState
-        // 繼續經 this——TTS／sonar 全部轉交給對應 center；servo/sonar 直調
-        // sonarCenter)。
-        // 放最尾——要等齊所有 collaborator (上面 speechCenter 最遲)。
+        // The dispatcher wraps all the controllers above (+ speechCenter as
+        // Host. sensorState still goes through this - TTS / sonar all delegate
+        // to the corresponding center. servo/sonar call
+        // sonarCenter directly).
+        // Placed at the very end - it must wait for every collaborator
+        // (speechCenter above is the latest).
         apiDispatcher = new ApiDispatcher(this, speechCenter, this, actionDirect, ubxApi, chestQuery,
                 chestUpgrade, servoUpgrade, ttsCenter, voskApi, ledCenter, semanticCenter, deviceStatus,
                 cameraApi, audioCenter, ringtoneCenter, micCenter, robot, grammarCenter,
@@ -345,16 +400,19 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         // Wake word and local commands (alpha2-brain#16). Off until wake/set?enabled=true.
         WakeController.init(this, xiaozhiBridge, vosk, apiDispatcher);
 
-        // 播歌指示燈（disco 開住播歌）同「小智已連線」燈共用胸口同一盞 mute 燈，
-        // 由 XiaozhiBridge 做 OR。起喺 xiaozhiBridge 之後。
+        // The music-playing indicator light (playing music while disco is on)
+        // shares the same chest mute light as the "Xiaozhi connected" light.
+        // XiaozhiBridge does the OR. Started after xiaozhiBridge.
         ledCenter.setMuteLedSink(new LedCenter.MuteLedSink() {
             @Override
             public void applyMuteLed(boolean litByMusic) {
                 xiaozhiBridge.applyMuteLedByMusic(litByMusic);
             }
         });
-        // LED tab 靜音掣 mirror：跟胸口 mute 燈有效態（小智 OR 播歌），播歌開 disco
-        // 嗰陣掣即轉紅，唔使靠用家手撳先轉色。
+        // LED tab mute button mirror: follows the effective state of the chest
+        // mute light (Xiaozhi OR music playing). When music playing opens
+        // disco, the button turns red at once, without waiting for the user to
+        // press it.
         ledCenter.setMuteStateQuery(new LedCenter.MuteStateQuery() {
             @Override
             public boolean isMuteLit() {
@@ -384,10 +442,13 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
             @Override
             public HttpServer.ApiResponse handle(String path, Map<String, String> query, String method, String body,
                     Map<String, String> headers) {
-                // 實驗 tab 面板 token 中央閘口（見 PanelAuth：opt-in，預設關＝全開；
-                // 啟用後整個面板上鎖：全部 /api/* 都要 token（Bearer header 主，
-                // panel_token query 為 img／ws fallback），僅 system/auth/*
-                //（解鎖入口）開放；靜態頁不經這裡，維持開放；ws／stream 各自閘）。
+                // Central gate for the experiment tab panel token (see PanelAuth:
+                // opt-in, off by default = fully open.
+                // Once enabled, the whole panel locks: every /api/* needs a token
+                // (Bearer header primary, panel_token query as the img / ws
+                // fallback). Only system/auth/* (the unlock entry) stays open.
+                // Static pages do not go through here and remain open. ws /
+                // stream have their own gates).
                 if (!PanelAuth.isOpenApi(path)) {
                     HttpServer.ApiResponse gate = PanelAuth.requireAuth(MainActivity.this, query, headers);
                     if (gate != null) return gate;
@@ -424,8 +485,9 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
                 return handleUpload(path, query, body, headers);
             }
         });
-        // /ws 升級前閘口（瀏覽器 WebSocket 設不到 header，驗 Bearer 或 panel_token query；
-        // 未啟用即放行；靜態頁不經這裡）。
+        // Gate before the /ws upgrade (browser WebSockets cannot set headers, so
+        // check Bearer or the panel_token query. Not enabled means pass through.
+        // Static pages do not go through here).
         httpServer.setWsAuthGate(new HttpServer.WsAuthGate() {
             @Override
             public HttpServer.ApiResponse check(String path, Map<String, String> query,
@@ -441,7 +503,8 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         // broken layout, buttons stuck disabled). Per this class's original design intent,
         // the HTML panel at http://<robot-ip>:8888/ is the actual UI; the on-device
         // screen is just a native status readout telling the user where to point a browser.
-        // panelUrl/linkView 為成員變量並隨網絡變化自動更新
+        // panelUrl/linkView are member variables and update automatically as the
+        // network changes
         currentPanelUrl = scheme + "://" + ip + ":" + HttpServer.PORT + "/";
         int pad = (int) (16 * getResources().getDisplayMetrics().density);
 
@@ -497,14 +560,17 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
                 + ":" + HttpServer.PORT + "/ from any browser on the same network");
         registerPanelUrlReceiver();
 
-        // pure-direct: 「頭部降噪」預設常開，經 DirectHeadController 直發 /dev/ttyS3，
-        // 不再經 robot.waitHeaderReady() / alpha2services binder。
-        // 仍用獨立 background thread（localServices.start() 本身也是 async）。
+        // pure-direct: "head noise reduction" is on by default and sent directly
+        // to /dev/ttyS3 via DirectHeadController,
+        // no longer through robot.waitHeaderReady() / the alpha2services binder.
+        // Still uses a separate background thread (localServices.start() is
+        // itself async).
         new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    // 等直驅串口就緒（最多 5s，每 100ms poll 一次）
+                    // Wait for the direct serial port to be ready (up to 5 s, one
+                    // poll every 100 ms)
                     for (int i = 0; i < 50; i++) {
                         try {
                             if (HardwareDirectManager.get(MainActivity.this).head().isAvailable()) break;
@@ -523,9 +589,12 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
     private void registerDynamicReceiver() {
         dynamicReceiver = new RobotEventReceiver();
         IntentFilter filter = new IntentFilter();
-        // 下面字串全部保留原樣（考古細節見 git history＋RobotEventReceiver 各 case）：
-        // key 死 code 留著相容舊韌體；CHEST_ACTION 純輔助 debug，真 sonar 是 SONAR_DISTANCE_ACTION；
-        // pirStatus 未經真機驗證；尾段 mic 系 broadcast 語意未定，經 mic_broadcast_debug 收集。
+        // Keep every string below exactly as-is (see git history + each case in
+        // RobotEventReceiver for the archaeology details):
+        // the key dead code stays for old firmware compatibility. CHEST_ACTION is
+        // pure debug aid; the real sonar is SONAR_DISTANCE_ACTION.
+        // pirStatus is not verified on real hardware. The trailing mic-family
+        // broadcast semantics are undetermined, collected via mic_broadcast_debug.
         String[] actions = {
                 "com.ubtechinc.key",
                 "com.ubtechinc.robot.tts_hint_wakeup",
@@ -575,9 +644,10 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
                 restartIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
                 PendingIntent pendingIntent = PendingIntent.getActivity(
                         appContext, 0, restartIntent,
-                        // IMMUTABLE：target 22 現在不用，但升上 31+
-                        // 沒有這個 flag 即 crash。static final int 會 inline 落 dex，
-                        // 舊機 runtime 照行無影響。
+                        // IMMUTABLE: not needed at target 22 for now, but a move
+                        // to 31+ crashes without this flag. A static final int is
+                        // inlined into the dex, so old machine runtimes are
+                        // unaffected.
                         PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_CANCEL_CURRENT
                                 | PendingIntent.FLAG_IMMUTABLE);
                 AlarmManager alarmManager = (AlarmManager) appContext.getSystemService(Context.ALARM_SERVICE);
@@ -602,15 +672,18 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
     private AudioCenter audioCenter;
 
     /**
-     * WiFi 狀態 → wifi 指示燈 (三態: wifi 關＝關燈,
-     * wifi 開但未連=紅 13, 連上 AP=藍 12)。註冊當下立即檢查一次現狀,
-     * 處理「app 開啟之前已經連上/斷線」的情況。
+     * WiFi state -> wifi indicator light (three states: wifi off = light off,
+     * wifi on but not connected = red 13, connected to an AP = blue 12).
+     * Checks the current state once immediately on registration, covering the
+     * "already connected / disconnected before the app opened" case.
      */
 
     private void initRobot() {
-        // 脫離 Alpha2OpenSdk —— robot 是 RobotStub 純本地 no-op facade
-        // (機身無 alpha2services, 舊 binder 調用全部誠實失敗, 見 RobotStub)。
-        // chest/head 回幀只走下面的 wireDirectFrameListeners()。
+        // Decoupled from Alpha2OpenSdk - robot is the RobotStub pure-local no-op
+        // facade (the body has no alpha2services, so all old binder calls fail
+        // honestly, see RobotStub).
+        // chest/head reply frames only go through wireDirectFrameListeners()
+        // below.
         robot = new RobotStub(this);
         chestQuery = new ChestQuery(this, robot);
         actionDirect = new ActionDirect(this, ubxPlayer);
@@ -626,26 +699,33 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
                         || (servoUpgrade != null && servoUpgrade.isBusy());
             }
         });
-        // (ringtoneCenter/ledCenter 已在 onCreate 頭段建好，見上面。)
+        // (ringtoneCenter/ledCenter were already built at the top of onCreate,
+        // see above.)
         audioCenter = new AudioCenter(this, ubxPlayer, actionDirect, mainHandler, ledCenter);
         EventBus.get().publish("authorize", "{\"code\":1,\"info\":\"have offline authority\"}");
         Log.i(TAG, "Authorize result: 1 have offline authority");
 
-        // pure-direct: 機身已無 com.ubtechinc.alpha2services，不再做任何 bindService。
-        // 胸/頭串口幀由 HardwareDirectManager 經 DirectSerialPort 直接推送，
-        // 見 wireDirectFrameListeners()。
+        // pure-direct: the body no longer has com.ubtechinc.alpha2services, so
+        // no bindService at all.
+        // Chest/head serial frames are pushed directly by HardwareDirectManager
+        // via DirectSerialPort, see wireDirectFrameListeners().
         wireDirectFrameListeners();
 
-        // chest_mute_key 事件經 EventBus 照常上 WebSocket。
+        // The chest_mute_key event goes up to the WebSocket as usual via the
+        // EventBus.
         ledCenter.registerAlpha2PirAlertListener();
     }
 
     // -- pure-direct frame wiring -----------------------------------------------
     //
-    // 胸/頭 MCU 回幀經 HardwareDirectManager 直收：DirectSerialPort 送出的是完整
-    // wire 幀（F8 8F ... ED，官方 05 00 頭或 MCU 事件 00 00 頭），先經 stripSerialFrame()
-    // 剝到 payload 層（bytes[0] 即 cmd）再走 latch/EventBus 邏輯。對外發布的
-    // chest_rcv/head_rcv 事件用完整幀 hex（信息更多，前端事件 Log 照常顯示）。
+    // Chest/head MCU reply frames are received directly via
+    // HardwareDirectManager: what DirectSerialPort sends is a complete
+    // wire frame (F8 8F ... ED, the official 05 00 header or the MCU event
+    // 00 00 header). First stripSerialFrame()
+    // strips it down to the payload layer (bytes[0] is cmd) before the
+    // latch/EventBus logic. The outward-published
+    // chest_rcv/head_rcv events use the full frame hex (more information; the
+    // front-end Event Log displays them as usual).
     private void wireDirectFrameListeners() {
         try {
             HardwareDirectManager dm = HardwareDirectManager.get(this);
@@ -662,13 +742,18 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
     }
 
     /**
-     * 把完整 wire 幀剝到 payload 層（bytes[0] 即 cmd，與舊 AIDL 回調格式一致）。
-     * 兼容長式（F8 8F LEN SRC DST CMD PAYLOAD SUM ED；SRC DST = 05 00 官方式
-     * 或 00 00 事件式，cmd 在 i+5）和短式（F8 8F LEN CMD PAYLOAD SUM ED，
-     * 舊兼容）；找不到幀頭返回 null。
-     * 注：cmd 13 讀舵機在壞舵機（如本機 5/6 號）上回短 error 幀
-     * （payload [0x0d, 0x01, id]，無角度值），調用方須按 plen/首字節 status
-     * 區分 [00 id hi lo] 正常回覆，不可當角度解析。
+     * Strip the complete wire frame down to the payload layer (bytes[0] is cmd,
+     * matching the old AIDL callback format).
+     * Compatible with the long form (F8 8F LEN SRC DST CMD PAYLOAD SUM ED;
+     * SRC DST = the official 05 00 form
+     * or the 00 00 event form, cmd at i+5) and the short form (F8 8F LEN CMD
+     * PAYLOAD SUM ED,
+     * old compatibility). Returns null if no frame header is found.
+     * Note: cmd 13 servo read returns a short error frame on a bad servo
+     * (such as servos 5/6 on this machine)
+     * (payload [0x0d, 0x01, id], no angle value). The caller must use plen /
+     * the first-byte status to
+     * distinguish the normal [00 id hi lo] reply; do not parse it as an angle.
      */
     static byte[] stripSerialFrame(byte[] frame) {
         if (frame == null) return null;
@@ -676,7 +761,8 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         for (int i = 0; i + 5 < n; i++) {
             if ((frame[i] & 0xFF) == 0xF8 && (frame[i + 1] & 0xFF) == 0x8F) {
                 int lenByte = frame[i + 2] & 0xFF;
-                // 长式：[i+3] 为 05（官方）或 00（事件），[i+4] 为 00，cmd 在 i+5
+                // Long form: [i+3] is 05 (official) or 00 (event), [i+4] is 00,
+                // cmd at i+5
                 if (frame[i + 4] == 0 && (frame[i + 3] == 0x05 || frame[i + 3] == 0)) {
                     int pl = lenByte - 7;
                     if (pl < 0) pl = 0;
@@ -686,7 +772,7 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
                     if (pl > 0) System.arraycopy(frame, i + 6, out, 1, pl);
                     return out;
                 }
-                // 短式：cmd 在 i+3
+                // Short form: cmd at i+3
                 int pl = lenByte - 1;
                 if (pl < 0) pl = 0;
                 if (i + 4 + pl > n) pl = Math.max(0, n - (i + 4));
@@ -702,18 +788,21 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
     private void onDirectHeadFrame(byte[] frame) {
         if (frame == null || frame.length == 0) return;
         EventBus.get().publish("head_rcv", "{\"hex\":\"" + toHex(frame, frame.length) + "\"}");
-        // 頭幀僅 publish，不再做任何 latch。
+        // Head frames are only published; no latch at all anymore.
     }
 
     private void onDirectChestFrame(byte[] frame) {
         if (frame == null || frame.length == 0) return;
         byte[] payload = stripSerialFrame(frame);
         if (payload == null) payload = frame;
-        // 心跳靜音 - cmd 0x8B(-117, ~1Hz telemetry) 同 0x8D(-115, 5s
-        // heartbeat) 不再 publish chest_rcv 上 WebSocket (Event Log 刷屏, 見
-        // logcat 定量: 5 分鐘 361 幀幾乎全部是這兩種)。其他 cmd (UUID 回覆 0x37、
-        // PIR 0x93 等) 照舊發布; -109 PIR 採集/轉發邏輯在下面完全不動。
-        // logcat 的 DirectSerialPort RX hex 照樣保留, 要看 raw 幀去那裡看。
+        // Heartbeat silence - cmd 0x8B (-117, ~1Hz telemetry) and 0x8D (-115,
+        // 5s heartbeat) no longer publish chest_rcv to the WebSocket (the Event
+        // Log floods; see the logcat measurement: 361 frames in 5 minutes,
+        // almost all of these two). Other cmds (UUID reply 0x37,
+        // PIR 0x93, etc.) publish as before; the -109 PIR capture/forward logic
+        // below is completely untouched.
+        // The DirectSerialPort RX hex in logcat is kept as-is; look there for
+        // the raw frames.
         boolean noisyHeartbeat = payload.length >= 1
                 && (payload[0] == (byte) 0x8B || payload[0] == (byte) 0x8D);
         // Replies to the servo read stream go out as one servo_reads event per cycle instead
@@ -724,9 +813,12 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         }
         int plen = payload.length;
         handleChestObstacleFrame(payload, plen);
-        // pure-direct: 心口 mute 鍵 (-111/0x91) 與 PIR (-109/0x93) 直接從串口幀來。
-        // 舊路徑（CHEST_ACTION broadcast 由 alpha2services 轉發）已隨 APK 移除而消失，
-        // 這裡按舊 RobotEventReceiver 同一套語義直推：sub-value 1=按下/進入，0=放開/離開。
+        // pure-direct: the chest mute key (-111/0x91) and PIR (-109/0x93) come
+        // straight from the serial frames.
+        // The old path (the CHEST_ACTION broadcast forwarded by alpha2services)
+        // disappeared with the APK removal.
+        // Push here with the same semantics as the old RobotEventReceiver:
+        // sub-value 1 = pressed/entered, 0 = released/exited.
         if (plen >= 1) {
             if (payload[0] == (byte) -111) {
                 boolean pressed = plen < 2 || payload[1] == 1;
@@ -738,39 +830,52 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
                 try { onPirStateReceived(pirTriggered); } catch (Throwable t) { Log.w(TAG, "onPirStateReceived failed", t); }
             }
         }
-        // 优先处理升级 ACK (48/49/50)，交給 ChestUpgrade 認領
-        // （傳埋原始幀取回聲 index；呢行以外解析區一字不動）。
+        // Handle upgrade ACKs (48/49/50) first and let ChestUpgrade claim them
+        // (pass the raw frame too to get the ack index; outside this line the
+        // parse area does not change a single character).
         if (chestUpgrade.onAckFrame(frame, payload, plen)) return;
-        // 舵機升級 16/17 ACK＋134 結果交給 ServoUpgrade 認領（ChestQuery 版本 fallback 之前）。
+        // Servo upgrade 16/17 ACK + 134 result go to ServoUpgrade to claim
+        // (before the ChestQuery version fallback).
         if (servoUpgrade != null && servoUpgrade.onFrame(frame, payload, plen)) return;
-        // 版本/UUID 回覆 latch 交給 ChestQuery 認領 (升級 ACK 上面已優先處理)。
+        // The version/UUID reply latch goes to ChestQuery to claim (upgrade
+        // ACKs were already handled first above).
         if (chestQuery.onFrame(frame, payload, plen)) return;
     }
 
-    // -- pure-direct 共用回包 helper (directCode／codeResponse／codeResponseReady／
-    // jsonSafe／toHex／readFully 留在這裡，各 center 經 MainActivity. 直用) --
+    // -- pure-direct shared reply helpers (directCode / codeResponse /
+    // codeResponseReady / jsonSafe / toHex / readFully stay here; each center
+    // uses them directly through MainActivity.) --
     static UbxErrorCode.API_ERROR_CODE directCode(boolean ok) {
         return ok ? UbxErrorCode.API_ERROR_CODE.API_ERROR_SUCCEED
                 : UbxErrorCode.API_ERROR_CODE.API_ERROR_FAILED;
     }
 
-    // -- 本地語意配對: 完全取代悠聊 APK (com.ubtech.iflytekmix) -------------------
+    // -- Local semantic matching: fully replaces the 悠聊 APK (com.ubtech.iflytekmix)
+    // -------------------
     //
-    // 悠聊 APK 反編譯還原出來的完整 pipeline (見對話 history) 是:
-    //   機身 ASR 辨識完一句話 -> JsonResultParse 解析成 operation+slots
-    //     -> RobotActionBusiness.startBusiness(): TTS(200ms sleep)Action
-    // OpenAlpha2 已經有自己的 robot.speech_startTTS()/robot.action_PlayActionName(),
-    // 不需要悠聊那層 RobotHandle wrapper, 只需要搬「文字 -> operation/答案/動作」
-    // 這層語意配對 (SemanticMatcherZh, 由悠聊 assets/local_semantic 那 850 條
-    // 問法還原) 以及這個時序。
+    // The complete pipeline restored by decompiling the 悠聊 APK (see the
+    // conversation history) is:
+    //   the body ASR finishes recognizing a sentence -> JsonResultParse parses
+    // it into operation+slots
+    //     -> RobotActionBusiness.startBusiness(): TTS (200ms sleep) Action
+    // OpenAlpha2 already has its own robot.speech_startTTS() /
+    // robot.action_PlayActionName(), so it does not need the 悠聊 RobotHandle
+    // wrapper layer. It only needs the "text -> operation/answer/action"
+    // semantic matching layer (SemanticMatcherZh, restored from the 850
+    // phrasings in 悠聊 assets/local_semantic) and this timing.
     //
-    // 掛在哪裡: 前端統一經由 speech/semantic_simulate 觸發, 讓所有輸入方法 (真人說話/打字模擬) 都走
-    // 同一條路, 避免重複 TTS。中英文由 SemanticCenter 根據對話語言／輸入文字決定, 只看輸入文字內容,
-    // 不理會 ASR engine 目前設定的是哪種語言。
+    // Where it hooks in: the front end triggers everything through
+    // speech/semantic_simulate, so every input method (real speech / typed
+    // simulation) takes the same path, avoiding duplicate TTS. Chinese/English
+    // is decided by SemanticCenter from the conversation language / input text,
+    // looking only at the input text content, not at which language the ASR
+    // engine is currently set to.
 
-    // static 縫留在這裡 (frozen onDirectChestFrame／RobotEventReceiver 經這裡進入，簽名不變)。
-    /** RobotEventReceiver／onDirectChestFrame 收到胸口 mute 鍵 (-111) 時直接呼叫
-     *  (簽名不變)：轉交 XiaozhiBridge；sInstance／xiaozhiBridge 任一 null 即 no-op。 */
+    // The static seam stays here (the frozen onDirectChestFrame /
+    // RobotEventReceiver enter through here, signature unchanged).
+    /** Called directly when RobotEventReceiver / onDirectChestFrame receives
+     * the chest mute key (-111) (signature unchanged): delegates to
+     * XiaozhiBridge. If sInstance / xiaozhiBridge is null, no-op. */
     public static void onMuteKeyEvent(final boolean pressed) {
         final MainActivity m = sInstance;
         if (m == null || m.xiaozhiBridge == null) {
@@ -779,10 +884,11 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         m.xiaozhiBridge.onMuteKeyEvent(pressed);
     }
 
-    /** 接住 TtsCenter.checkTtsDataSyncLegacy() 發出的 ACTION_CHECK_TTS_DATA 結果。只
-     *  處理這個 app 自己認得的 requestCode, 其他一律交回給 super (雖然目前這個
-     *  app 沒有其他地方用 startActivityForResult(), 但這是基本禮貌, 不應該
-     *  吞掉所有 requestCode)。 */
+    /** Catches the result of the ACTION_CHECK_TTS_DATA sent by
+     *  TtsCenter.checkTtsDataSyncLegacy(). Handles only the requestCodes this
+     *  app itself recognizes; hands everything else back to super (this app
+     *  currently uses startActivityForResult() nowhere else, but that is basic
+     *  etiquette; it should not swallow every requestCode). */
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -791,14 +897,21 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         }
     }
 
-    // -- A 端：機器人直連 BT／USB 手柄／鍵盤 ----------------------------------
-    // HID 經這三個回調進（見 GamepadCenter 兩端分別註解）。
-    // - 分邊執行：鍵盤類來源（KEYBOARD 有、GAMEPAD／JOYSTICK 無）行 kb 映射，
-    //   其餘行 pad 映射；認得的鍵即攔即執行（撳鍵就郁，兩邊預設開）。
-    // - 該邊開關（HTML「直連手柄／直連鍵盤」，gamepad/input/*）熄咗就只記唔做。
-    // - 認唔到的鍵：記 unmapped（帶 code）再放行／吞（鍵盤吞、滑鼠吞、手柄放行）。
-    // - 滑鼠類（MOUSE 來源，一體觸控板）：一律吞，唔入系統。
-    // 重複 down（長按 repeat，getRepeatCount>0）一律靜默吞，唔記唔播。
+    // -- A side: robot directly connected to BT / USB gamepad / keyboard ----------------
+    // HID enters through these three callbacks (see the separate notes for the two
+    // sides in GamepadCenter).
+    // - Sides execute separately: keyboard-family sources (have KEYBOARD, no
+    //   GAMEPAD / JOYSTICK) take the kb mapping, the rest take the pad mapping;
+    //   a recognized key is intercepted and executed at once (press and move;
+    //   both sides default on).
+    // - If that side's switch (HTML "direct gamepad / direct keyboard",
+    //   gamepad/input/*) is off, only record, do not execute.
+    // - Unrecognized keys: record as unmapped (with code), then pass through or
+    //   swallow (keyboard swallows, mouse swallows, gamepad passes through).
+    // - Mouse family (MOUSE source, integrated touchpad): swallow all, never
+    //   into the system.
+    // Repeated downs (long-press repeat, getRepeatCount>0) are always silently
+    // swallowed: not recorded, not played.
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
         try {
@@ -819,10 +932,12 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
                 boolean isMouse = (src & android.view.InputDevice.SOURCE_MOUSE)
                         == android.view.InputDevice.SOURCE_MOUSE;
                 boolean pressed = event.getAction() == android.view.KeyEvent.ACTION_DOWN;
-                // 鍵盤類（無手柄位）行 kb 邊，其餘一律 pad 邊（含 DPAD-only 帽）。
+                // Keyboard family (no gamepad bit) takes the kb side, the rest
+                // always the pad side (including the DPAD-only cap).
                 String side = (isKb && !isGame) ? GamepadCenter.SIDE_KB : GamepadCenter.SIDE_PAD;
                 boolean enabled = gamepadCenter.isInputEnabled(side);
-                // 滑鼠類：成個功能閂咗——靜默吞，唔記事件唔入系統。
+                // Mouse family: the whole feature is shut - silently swallow,
+                // no event recorded, nothing into the system.
                 if (isMouse) {
                     return true;
                 }
@@ -836,7 +951,8 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
                     }
                     return true;
                 }
-                // 未映射：外接鍵盤吞（唔入系統）、手柄放行；一律先記。
+                // Unmapped: external keyboard swallows (not into the system),
+                // gamepad passes through; always record first.
                 if (isKb && !isGame) {
                     if (event.getRepeatCount() == 0) gamepadCenter.handleRobotUnknown(kc, pressed, src);
                     return true;
@@ -851,15 +967,22 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         return super.dispatchKeyEvent(event);
     }
 
-    // 外接輸入黑洞（滑鼠／觸控板成個功能閂咗）：
-    // - TOOL_TYPE_MOUSE：一律吞（左中右掣＋位移）。
-    // - 觸控屏類觸摸：只吞外接設備（isExternal；部份藍牙觸控板行絕對模式，
-    //   扮觸控屏，唔喺度攔會撳到機身 view）。機身自帶觸控屏（如果有）放行——
-    //   本機經 dumpsys input 核實過無觸控屏硬件，所以現階段外來即吞得。
-    // 手指／觸控筆經機身屏照行，機身掣照撳得。
+    // External input black hole (the mouse / touchpad feature is shut as a
+    // whole):
+    // - TOOL_TYPE_MOUSE: swallow all (left / middle / right buttons + movement).
+    // - Touchscreen-family touch: only swallow external devices (isExternal;
+    //   some Bluetooth touchpads run in absolute mode and impersonate a
+    //   touchscreen. If not intercepted here, they would press the body views).
+    //   The body's own touchscreen (if it has one) passes through -
+    //   on this machine, dumpsys input confirmed there is no touchscreen
+    //   hardware, so for now everything external can be swallowed.
+    // Fingers / stylus through the body screen work as before; the body buttons
+    // still press as before.
     /**
-     * 外接設備判別（isExternal 要 API 26，本 project compileSdk 25 無此符號，
-     * 故 reflection＋名字後備；行唔到即當機身設備＝放行，唔會誤吞）。
+     * External device detection (isExternal needs API 26; this project's
+     * compileSdk 25 has no such symbol, so use reflection plus a name
+     * fallback; if it cannot run, treat it as a body device = pass through, no
+     * accidental swallowing).
      */
     private static boolean isExternalInputDevice(int deviceId) {
         android.view.InputDevice dev = null;
@@ -886,8 +1009,9 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
     }
 
     /**
-     * 觸控板判別（名含 touchpad／trackpad 即係；ThinkPad 之類唔含完整字串，
-     * 誤中唔到；null／未知名一律當真滑鼠＝吞）。
+     * Touchpad detection (the name contains touchpad / trackpad; ThinkPad-class
+     * names do not contain the full string, so they cannot false-hit; null /
+     * unknown names are always treated as a real mouse = swallow).
      */
     private static boolean isTouchpadDevice(int deviceId) {
         try {
@@ -901,12 +1025,17 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
     }
 
     /**
-     * 觸控板／滑鼠分流（touch＋motion 共用；回 true＝食咗）。
-     * - 觸控板（名判）：kb 邊開即經 handleRobotTouchpad 節流轉頭 19/20；
-     *   熄咗靜默吞。相對＋絕對模式都行（delta 累積）。
-     * - 真滑鼠：一律吞（掣／位移／觸控，連 Event Log 都唔出）。
-     * - 外接觸控屏（唔係觸控板名）：保守吞；機身屏放行。
-     * - 手柄／搖桿／其他：一律 false，交返正常鏈。
+     * Touchpad / mouse routing (shared by touch + motion; returning true =
+     * consumed).
+     * - Touchpad (judged by name): if the kb side is on, turn the head 19/20
+     *   through handleRobotTouchpad throttling; if off, silently swallow. Both
+     *   relative and absolute modes work (delta accumulation).
+     * - Real mouse: swallow all (buttons / movement / touch, not even the Event
+     *   Log comes out).
+     * - External touchscreen (not a touchpad name): swallow conservatively; the
+     *   body screen passes through.
+     * - Gamepad / joystick / others: always false, hand back to the normal
+     *   chain.
      */
     private boolean routeTouchpadMotion(android.view.MotionEvent event) {
         if (gamepadCenter == null || event == null) return false;

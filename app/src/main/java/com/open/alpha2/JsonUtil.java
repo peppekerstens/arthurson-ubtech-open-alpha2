@@ -1,20 +1,23 @@
 package com.open.alpha2;
 
 /**
- * JSON 字串轉義 + 極輕量組裝 helper，取代之前散在各處的手寫轉義。
+ * JSON string escape + lightweight assembly helper. Replaces the hand-written
+ * escapes that used to be scattered across the code.
  *
- * 之前 {@link MainActivity#jsonSafe} 同 {@link HttpServer.ApiResponse} 的
- * {@code esc()} 是同一套轉義各自複製一份（comment 寫明「不直接引用免循環」）。
- * 現在單一實現放這裡，兩邊都 delegate 過來，行為不變。
+ * Previously {@link MainActivity#jsonSafe} and {@link HttpServer.ApiResponse}
+ * {@code esc()} each held a separate copy of the same escape (the comment
+ * stated "no direct reference to avoid a cycle").
+ * Now one implementation lives here and both sides delegate to it. Behaviour
+ * unchanged.
  *
- * 零依賴、API 22 相容（不用 String.join / Map.getOrDefault）。
+ * No dependencies, API 22 compatible (no String.join / Map.getOrDefault).
  */
 public final class JsonUtil {
     private JsonUtil() {}
 
     private static final char[] HEX = "0123456789abcdef".toCharArray();
 
-    /** JSON string 內容轉義（不包外層引號）。null 回 ""。 */
+    /** Escape JSON string content (no outer quotes). null returns "". */
     public static String esc(String s) {
         if (s == null) return "";
         StringBuilder sb = new StringBuilder(s.length());
@@ -42,17 +45,17 @@ public final class JsonUtil {
         return sb.toString();
     }
 
-    /** 加外層引號：{@code " + esc(s) + "}。 */
+    /** Add outer quotes: {@code " + esc(s) + "}. */
     public static String quote(String s) {
         return "\"" + esc(s) + "\"";
     }
 
-    /** nullable 字串值：null 回 {@code null}，否則回帶引號。 */
+    /** Nullable string value: null returns {@code null}, otherwise a quoted value. */
     public static String quoteOrNull(String s) {
         return s != null ? quote(s) : "null";
     }
 
-    /** {@code {"ok":true}} / {@code {"ok":false,"error":"..."}} 快捷。 */
+    /** Shortcuts for {@code {"ok":true}} / {@code {"ok":false,"error":"..."}}. */
     public static String okTrue() {
         return "{\"ok\":true}";
     }
@@ -61,7 +64,7 @@ public final class JsonUtil {
         return "{\"ok\":false,\"error\":\"" + esc(String.valueOf(error)) + "\"}";
     }
 
-    /** 超長字串截斷（log／NetLog 共用）：超限加 "..."。 */
+    /** Truncate an over-long string (shared by log / NetLog): add "..." past the limit. */
     public static String truncate(String s, int maxLen) {
         if (s == null || s.length() <= maxLen) return s;
         return s.substring(0, maxLen) + "...";
