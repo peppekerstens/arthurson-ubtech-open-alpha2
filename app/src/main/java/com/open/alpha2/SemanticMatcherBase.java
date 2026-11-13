@@ -13,54 +13,68 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * 中英西法日德意葡韓俄語意配對引擎的共用底層 - SemanticMatcherZh (中文)、
- * SemanticMatcherEn (英文)、SemanticMatcherEs (西文)、SemanticMatcherFr (法文)、
- * SemanticMatcherJa (日文)、SemanticMatcherDe (德文)、SemanticMatcherIt (意大利文)、
- * SemanticMatcherPt (葡萄牙文)、SemanticMatcherKo (韓文)、SemanticMatcherRu (俄文) 除了 TAG、assets 檔名、fallback 問法/動作組
- * 之外，載入/比對/分類 random 這幾層邏輯完全一致，2026-09 抽這一層共用 base
- * class，避免兩份逐字重複要同步改。子類只需要在 constructor 提供三樣東西：
- * log tag、問法 json 的 assets 路徑、"聽不懂" fallback 組 (問法句 + 對應
- * action id, 長度要相等)。
+ * Shared foundation of the semantic-pairing engine for Chinese/English/Spanish/
+ * French/Japanese/German/Italian/Portuguese/Korean/Russian. SemanticMatcherZh
+ * (Chinese), SemanticMatcherEn (English), SemanticMatcherEs (Spanish),
+ * SemanticMatcherFr (French), SemanticMatcherJa (Japanese), SemanticMatcherDe
+ * (German), SemanticMatcherIt (Italian), SemanticMatcherPt (Portuguese),
+ * SemanticMatcherKo (Korean), and SemanticMatcherRu (Russian) differ only in TAG,
+ * asset filename, and the fallback question/action groups. The load/compare/
+ * category-random layers are completely identical, so 2026-09 extracted this
+ * shared base class to avoid two word-for-word copies that must be changed in
+ * sync. A subclass only needs to provide three things in its constructor: the log
+ * tag, the asset path of the question json, and the "cannot understand" fallback
+ * group (question lines + matching action ids, equal length).
  *
- * MatchResult/Entry 都搬這裡做共用型別 - 之前中英文各自的 nested MatchResult
- * 結構一樣但屬於不同 class, SemanticCenter 要用 toZhResult() 手動轉接; 現在
- * 兩個子類共用同一個 SemanticMatcherBase.MatchResult, 呼叫方不用再轉。
+ * MatchResult/Entry were both moved here as shared types. Before, the Chinese and
+ * English each had a nested MatchResult with the same structure but belonging to
+ * different classes, and SemanticCenter had to convert manually with toZhResult().
+ * Now both subclasses share the same SemanticMatcherBase.MatchResult, so callers
+ * no longer convert.
  *
- * 資料來源/分類 random 機制等背景見 SemanticMatcherZh 的 class javadoc,
- * 不在這裡重複。
+ * For the background on the data source / category-random mechanism, see the
+ * SemanticMatcherZh class javadoc; not repeated here.
  *
- *  命名備註: 這幾個 class (這個 base + SemanticMatcherZh/En/Es/Fr/Ja/De/It/Pt/Ko/Ru) 2026-09 之前叫
- * IflytekSemanticMatcher(Base/En) - 個名純粹歷史原因 (問法資料最初由 iFlytek
- * APK 反編譯還原), 同機身已經永久不再用的 Nuance/iFlytek binder TTS/ASR 引擎
- * 完全沒有關係, 僅個名容易誤導 (這個功能本身是純本地 JSON 配對, 不經任何外部
- * 引擎)。2026-09 改名為 SemanticMatcher* 消除這個誤導。
+ *  Naming note: these classes (this base +
+ * SemanticMatcherZh/En/Es/Fr/Ja/De/It/Pt/Ko/Ru) were called
+ * IflytekSemanticMatcher(Base/En) before 2026-09. The name was purely historical
+ * (the question data was first restored by decompiling the iFlytek APK) and has
+ * nothing to do with the Nuance/iFlytek binder TTS/ASR engines on the same robot
+ * body, which are permanently retired. Only the name was misleading (this feature
+ * is pure local JSON pairing and goes through no external engine). 2026-09
+ * renamed them to SemanticMatcher* to remove that misleading impression.
  */
 public abstract class SemanticMatcherBase {
     private static final String ASSET_PATH_CATEGORIES = "semantic/action_category_pools.json";
     private static final String RANDOM_CATEGORY_PREFIX = "__RANDOM_CATEGORY__";
 
-    /** 十語共用的「聽不懂」fallback 動作組（5 個已驗證沒聲效動作；各子類之前各自複製同一份）。 */
+    /** "Cannot understand" fallback action group shared by all ten languages (5
+     *  actions verified to have no sound effect; each subclass previously copied
+     *  the same one on its own). */
     protected static final String[] DEFAULT_FALLBACK_ACTION_IDS = {
-            "1464835936013", // 搖頭 / Shake head
-            "1464835936026", // 思考 / Thinking
-            "1464835936043", // 眨眼 / Wink
-            "1509000313549", // 賣萌 / Cute
-            "1464835936087", // 點頭 / Nod
+            "1464835936013", // Shake head
+            "1464835936026", // Thinking
+            "1464835936043", // Wink
+            "1509000313549", // Cute
+            "1464835936087", // Nod
     };
 
-    /** 配對結果。type 和 MainActivity 已有的 asr_result event 格式對齊,
-     *  answer/actionId 可能是 null (例如 CHAT 類沒 actionId, 部分 FUNCTION 沒 answer)。
-     *  matched＝真命中問法庫／false＝fallback 亂答（主 matcher 聽唔明就用主嗰個 fallback）。
-     *  matchLayer＝命中邊一層（0 精確／1 包含／2 反包含／3 模糊／4 fallback）。 */
+    /** Pairing result. type is aligned with the existing asr_result event format
+     *  in MainActivity. answer/actionId may be null (for example the CHAT type has
+     *  no actionId, and some FUNCTION have no answer). matched = a real hit on the
+     *  question library / false = a fallback random answer (when the primary
+     *  matcher cannot understand, use the primary's own fallback).
+     *  matchLayer = which layer hit (0 exact / 1 contains / 2 reverse-contains /
+     *  3 fuzzy / 4 fallback). */
     public static final class MatchResult {
-        public final String question;   // 命中的原始問法 (debug 用)
+        public final String question;   // the original question form that hit (for debug)
         public final String type;       // "ACTION" | "FUNCTION" | "CHAT"
-        public final String operation;  // 悠聊 operation 代號, CHAT 類是 null
-        public final String slot;       // 方向/情緒 slot, 沒有就是 null
-        public final String answer;     // 隨機選一句的回覆句, 沒答案句就是 null
-        public final String actionId;   // 202動作清單裡面的 action id, 沒動作就是 null
-        public final boolean matched;   // 真命中／fallback
-        public final int matchLayer;    // 0 精確／1 包含／2 反包含／3 模糊／4 fallback
+        public final String operation;  // YouChat operation code; null for the CHAT type
+        public final String slot;       // direction/mood slot; null when absent
+        public final String answer;     // the reply line chosen at random; null when there is no answer line
+        public final String actionId;   // the action id from the 202-action list; null when there is no action
+        public final boolean matched;   // a real hit / fallback
+        public final int matchLayer;    // 0 exact / 1 contains / 2 reverse-contains / 3 fuzzy / 4 fallback
 
         public MatchResult(String question, String type, String operation, String slot,
                     String answer, String actionId, boolean matched, int matchLayer) {
@@ -75,8 +89,9 @@ public abstract class SemanticMatcherBase {
         }
     }
 
-    /** 內部記錄, 對應問法 json 裡面每一行。normQ 是比對用正規化問法
-     *  (見 normalizeForMatch, 載入時一次算好, match() 不用每次重算)。 */
+    /** Internal record, one per line of the question json. normQ is the
+     *  normalized question form used for matching (see normalizeForMatch;
+     *  computed once at load time so match() does not recompute it every time). */
     private static final class Entry {
         String q;
         String normQ;
@@ -95,21 +110,24 @@ public abstract class SemanticMatcherBase {
     protected final Context appContext;
     protected final Random random = new Random();
 
-    /** Lazily loaded on first match() call, cached afterwards - 全部載入在記憶體
-     *  都只是幾十 KB parsed 狀態, 完全負擔得起, 沒必要每次 match 都重新讀
-     *  assets。和 loadXiaozhiActions() 的 cache 風格一致。 */
+    /** Lazily loaded on the first match() call, cached afterwards. Loading it all
+     *  into memory is only a few tens of KB in parsed form, easily affordable;
+     *  there is no need to re-read the assets on every match. Consistent with the
+     *  cache style of loadXiaozhiActions(). */
     private List<Entry> cache;
 
-    /** Lazily loaded cache of action_category_pools.json: category key (例如
-     *  "DANCE_KIDS") -> 該分類全部 action id。和 cache 一致的 lazy-load 風格,
-     *  只有 __RANDOM_CATEGORY__ 命中才會讀, 不會拖慢正常 match() 流程。 */
+    /** Lazily loaded cache of action_category_pools.json: category key (for
+     *  example "DANCE_KIDS") -&gt; all action ids of that category. Same
+     *  lazy-load style as cache; read only when __RANDOM_CATEGORY__ hits, so it
+     *  does not slow down the normal match() flow. */
     private java.util.Map<String, List<String>> categoryPoolsCache;
 
-    /** @param tag 子類專屬的 Log tag
-     *  @param assetPath 問法 json 的 assets 路徑 (例如 "semantic/semantic_zh.json")
-     *  @param fallbackQuestions "聽不懂" 的候選回應句
-     *  @param fallbackActionIds 對應 fallbackQuestions 每一句的動作 id (長度要相等,
-     *         下標一一對應) */
+    /** @param tag the subclass-specific Log tag
+     *  @param assetPath the assets path of the question json (for example
+     *         "semantic/semantic_zh.json")
+     *  @param fallbackQuestions candidate reply lines for "cannot understand"
+     *  @param fallbackActionIds the action id for each fallbackQuestions line
+     *         (lengths must be equal, indices correspond one to one) */
     protected SemanticMatcherBase(Context context, String tag, String assetPath,
             String[] fallbackQuestions, String[] fallbackActionIds) {
         this.appContext = context.getApplicationContext();
@@ -119,20 +137,23 @@ public abstract class SemanticMatcherBase {
         this.fallbackActionIds = fallbackActionIds;
     }
 
-    /** 由 assets 讀入 + parse 問法記錄。讀取/parse 失敗就回傳空 list (不會拋出),
-     *  和 loadXiaozhiActions() 一致的「不崩潰、log 一次」哲學。
+    /** Read in and parse the question records from assets. On read/parse failure,
+     *  return an empty list (does not throw), following the same "do not crash,
+     *  log once" philosophy as loadXiaozhiActions().
      *
-     *  支援兩種格式 (2026-09 v2 起):
-     *   v1 legacy - 頂層 JSONArray, 每個 object 是一條問法:
+     *  Supports two formats (from 2026-09 v2 on):
+     *   v1 legacy - top-level JSONArray, each object is one question form:
      *     [{"q":"跳舞","a":[...],"type":"ACTION","op":"DANCE",...}, ...]
-     *   v2 grouped - 頂層 JSONObject, intents 陣列, 每個 intent 帶多條問法
-     *     (同 intent 共用同一組 a/type/op/slot/actionId, 免重複):
+     *   v2 grouped - top-level JSONObject, intents array, each intent carries
+     *     multiple question forms (the same intent shares the same
+     *     a/type/op/slot/actionId, to avoid repetition):
      *     {"version":2,"lang":"zh","intents":[
      *       {"id":"action.dance","type":"ACTION","op":"DANCE",
      *        "actionId":"...","a":[...],"qs":["跳舞","跳個舞",...]}, ...]}
-     *  v2 的問法鍵接受 "qs" (array) / "q" (array 或 string) / "patterns" (array,
-     *  將來多語言共用一檔時的別名) - 三者都沒有就跳過該 intent。v1 檔案不需改動,
-     *  新語言一律用 v2。 */
+     *  The v2 question key accepts "qs" (array) / "q" (array or string) /
+     *  "patterns" (array, an alias for when multiple languages share one file in
+     *  the future). If none of the three is present, skip that intent. v1 files
+     *  need no change; new languages always use v2. */
     private synchronized List<Entry> load() {
         if (cache != null) return cache;
         List<Entry> result = new ArrayList<>();
@@ -164,8 +185,9 @@ public abstract class SemanticMatcherBase {
         return result;
     }
 
-    /** v2 intent object 抽出全部問法: "qs" array 優先, 其次 "q" (array 或 string),
-     *  再次 "patterns" array。全部沒有/全空就回傳空 list (呼叫方跳過)。 */
+    /** Extract all question forms from a v2 intent object: the "qs" array takes
+     *  priority, then "q" (array or string), then the "patterns" array. When none
+     *  is present or all are empty, return an empty list (the caller skips it). */
     private static List<String> parseQuestions(JSONObject o) {
         List<String> out = new ArrayList<>();
         JSONArray qs = o.optJSONArray("qs");
@@ -190,7 +212,8 @@ public abstract class SemanticMatcherBase {
         return out;
     }
 
-    /** 由一個問法 object + 一條問法字串建成 Entry。q 為空就回傳 null (跳過)。 */
+    /** Build an Entry from one question object plus one question string. Return
+     *  null (skip) when q is empty. */
     private static Entry parseEntry(JSONObject o, String q) {
         if (q == null || q.isEmpty()) return null;
         Entry e = new Entry();
@@ -212,40 +235,51 @@ public abstract class SemanticMatcherBase {
         return e;
     }
 
-    /** 將一句 ASR 辨識出來的文字, 對照問法庫, 找出最貼近的一條。「由嚴到寬」
-     *  四層做法, 有哪層命中就立刻用那層:
-     *   1. 完全相等 (正規化後)
-     *   2. 命中問法完全包含在輸入裡面 (輸入夾雜其他字, 例如「阿爾法你好嗎」包含著
-     *      問法「你好嗎」) - 選當中最長那條問法, 減少短問法誤中夾在長句裡面的情況
-     *   3. 輸入完全包含在命中問法裡面 (ASR 漏了尾, 例如輸入「你好」、問法是
-     *      「你好嗎」) - 都是選最長那條問法
-     *   4. 模糊配對 (2026-09 新增, 專捉 ASR 同音錯別字/增減一字, 例如「跳武吧」
-     *      對「跳舞吧」) - OSA 編輯距離, 要求 d*2 < maxlen (嚴格過半相似),
-     *      過短 (maxlen<3) 不模糊以免誤中 (例如「跳樓」不會中「跳舞」)。
-     *      距離相同取檔案順序首條 (ACTION 意圖排先, 見 semantic_zh.json)。
-     *  四層都找不到就不再回傳 null - 隨機選一句 fallbackQuestions 做「聽不懂」
-     *  的回應, 保證用戶說的話在問法庫裡面找不到都還有反應, 不會啞口。空白輸入
-     *  (text 為 null 或者只有空白字元) 就真的沒東西好答, 依然回傳 null。
+    /** Take a line of text recognized by ASR, check it against the question
+     *  library, and find the closest one. A "strict to loose" four-layer approach;
+     *  use the layer that hits as soon as one hits:
+     *   1. Exact equality (after normalization)
+     *   2. The hit question form is fully contained in the input (the input mixes
+     *      in other characters, for example "阿爾法你好嗎" contains the question
+     *      form "你好嗎") - pick the longest question form among them, to reduce a
+     *      short question form falsely matching inside a long sentence
+     *   3. The input is fully contained in the hit question form (ASR dropped the
+     *      tail, for example input "你好", question form "你好嗎") - again pick the
+     *      longest question form
+     *   4. Fuzzy matching (added 2026-09, for ASR homophone typos / one character
+     *      added or dropped, for example "跳武吧" against "跳舞吧") - OSA edit
+     *      distance, requiring d*2 &lt; maxlen (strictly more than half similar);
+     *      too short (maxlen&lt;3) is not fuzzy, to avoid false hits (for example
+     *      "跳樓" will not hit "跳舞"). When distances are equal, take the first in
+     *      file order (ACTION intents come first, see semantic_zh.json).
+     *  When all four layers miss, no longer return null - randomly pick one
+     *  fallbackQuestions line as the "cannot understand" response, so whatever the
+     *  user says still gets a reaction even when it is not in the question library
+     *  (no silence). Blank input (text is null or only whitespace) really has
+     *  nothing to answer, so still return null.
      *
-     *  輸入文字先經 SimplifiedToTraditional.toTraditional() normalize 做繁體,
-     *  再經 normalizeForMatch() 去標點/空白/拉丁大小階 (ASR/Vosk/打字輸入的
-     *  「TFBOYS!」「tfboys」「你好嗎?」不應因標點大小階而配對不中) 才比對 -
-     *  兩層轉換只影響「用來比對」的 q, 不改動 MatchResult.question (依然是 e.q
-     *  的原文) - answer/actionId 一律來自 database 本身。 */
+     *  The input text is first normalized to Traditional via
+     *  SimplifiedToTraditional.toTraditional(), then passed through
+     *  normalizeForMatch() to strip punctuation/whitespace/Latin case (so that
+     *  "TFBOYS!", "tfboys", "你好嗎?" from ASR/Vosk/typed input do not fail to
+     *  match because of punctuation or case) before matching. The two conversions
+     *  only affect the q "used for matching"; they do not change
+     *  MatchResult.question (still the original e.q). answer/actionId always come
+     *  from the database itself. */
     public MatchResult match(String text) {
         List<Entry> entries = load();
         String raw = text == null ? "" : SimplifiedToTraditional.toTraditional(text.trim());
         if (raw.isEmpty()) return null;
         if (entries.isEmpty()) return fallback();
         String q = normalizeForMatch(raw);
-        if (q.isEmpty()) return fallback(); // 全是標點/空白 - 當聽不懂, 不靜音
+        if (q.isEmpty()) return fallback(); // all punctuation/whitespace - treat as cannot understand, do not stay silent
 
-        // 1) 完全相等
+        // 1) exact equality
         for (Entry e : entries) {
             if (q.equals(e.normQ)) return toResult(e, 0);
         }
 
-        // 2) 問法完全包含在輸入裡面 (選最長那條, 減少短問法誤中)
+        // 2) the question form is fully contained in the input (pick the longest, to reduce short-form false hits)
         Entry best = null;
         for (Entry e : entries) {
             if (!e.normQ.isEmpty() && q.contains(e.normQ)) {
@@ -254,7 +288,7 @@ public abstract class SemanticMatcherBase {
         }
         if (best != null) return toResult(best, 1);
 
-        // 3) 輸入完全包含在問法裡面 (ASR 漏字/縮短, 選最長那條問法)
+        // 3) the input is fully contained in the question form (ASR dropped characters / shortened, pick the longest question form)
         for (Entry e : entries) {
             if (!e.normQ.isEmpty() && e.normQ.contains(q)) {
                 if (best == null || e.normQ.length() > best.normQ.length()) best = e;
@@ -262,7 +296,7 @@ public abstract class SemanticMatcherBase {
         }
         if (best != null) return toResult(best, 2);
 
-        // 4) 模糊配對: ASR 同音錯別字/增減一字/相鄰換位。距離最小者勝。
+        // 4) fuzzy matching: ASR homophone typos / one character added or dropped / adjacent transposition. The smallest distance wins.
         best = null;
         int bestD = Integer.MAX_VALUE;
         for (Entry e : entries) {
@@ -282,15 +316,18 @@ public abstract class SemanticMatcherBase {
         return fallback();
     }
 
-    /** 比對用正規化: 去頭尾空白、拉丁轉小寫、拉丁重音拆掉 (NFD 去 Mn, 例如
-     *  í→i、ñ→n - Vosk 西文輸出同打字成日唔帶重音, 兩邊一齊拆先對得上;
-     *  中英文件本身冇重音字, 對佢哋零影響)、去掉所有標點/符號/空白
-     *  (Unicode P/S 類 + 空白, 含全形？。！，、；：「」『』《》…—)。
-     *  中英數字不受影響 (TFBOYS/OK/0.01公分照認)。null 回 ""。 */
+    /** Normalization for matching: trim leading/trailing whitespace, lowercase
+     *  Latin, strip Latin accents (NFD drops Mn, for example í→i, ñ→n - Vosk
+     *  Spanish output and typing often do not carry accents, so stripping both
+     *  sides is what makes them line up; the Chinese/English files themselves have
+     *  no accented characters, so this has zero effect on them), and remove all
+     *  punctuation/symbols/whitespace (Unicode P/S classes + whitespace, including
+     *  full-width ？。！，、；：「」『』《》…—). Chinese/English digits are not
+     *  affected (TFBOYS/OK/0.01公分 still recognized). null returns "". */
     static String normalizeForMatch(String s) {
         if (s == null) return "";
         String t = s.trim().toLowerCase(java.util.Locale.ROOT);
-        // NFD 拆重音 (e + ́), Mn 類即掉 - 只影響拉丁字母, CJK 照過。
+        // NFD strips accents (e + ́), the Mn class is dropped - only affects Latin letters, CJK passes through.
         t = java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFD)
                 .replaceAll("\\p{Mn}", "");
         StringBuilder sb = new StringBuilder(t.length());
@@ -319,8 +356,10 @@ public abstract class SemanticMatcherBase {
         return sb.toString();
     }
 
-    /** Restricted OSA 編輯距離 (相鄰換位計 1, 其餘增刪改各計 1)。
-     *  問法最長十餘字, 全 DP 完全負擔得起 (只在首三層不中才呼叫)。 */
+    /** Restricted OSA edit distance (an adjacent transposition counts as 1, the
+     *  other insert/delete/modify each count as 1). The question forms are at
+     *  most a dozen or so characters, so a full DP is easily affordable (only
+     *  called when the first three layers miss). */
     static int osaDistance(String a, String b) {
         int la = a.length(), lb = b.length();
         if (la == 0) return lb;
@@ -347,10 +386,12 @@ public abstract class SemanticMatcherBase {
         return prev[lb];
     }
 
-    /** 隨機選一句 fallbackQuestions/fallbackActionIds, 包裝做 MatchResult。
-     *  type 用 "CHAT" (純粹回應, 不屬於任何 operation), operation/slot 是 null。
-     *  空池 (骨架語言未填內容) 就回 null - 呼叫方當靜音處理, 唔 crash
-     *  (否則 random.nextInt(0) 即拋 IllegalArgumentException)。 */
+    /** Randomly pick one line from fallbackQuestions/fallbackActionIds and wrap it
+     *  into a MatchResult. type uses "CHAT" (a pure reply, belonging to no
+     *  operation); operation/slot are null. An empty pool (a skeleton language
+     *  with no content filled in) returns null - the caller treats it as silence,
+     *  no crash (otherwise random.nextInt(0) immediately throws
+     *  IllegalArgumentException). */
     private MatchResult fallback() {
         if (fallbackQuestions.length == 0 || fallbackActionIds.length == 0) return null;
         int i = random.nextInt(fallbackQuestions.length);
@@ -365,20 +406,23 @@ public abstract class SemanticMatcherBase {
         }
         String actionId = e.actionId;
         if ("__RANDOM__".equals(actionId)) {
-            // 這類 operation 在問法庫裡面沒對應固定動作, 跟著用戶決定: 隨機選一個
-            // 202 動作清單裡面的動作。實際隨機邏輯留給呼叫方做 (MainActivity 已經
-            // 有 loadXiaozhiActions(), 這個 class 不重複讀多一次 202 動作清單),
-            // 這裡回傳 "__RANDOM__" 標記給呼叫方識別。
+            // This kind of operation has no corresponding fixed action in the
+            // question library; it follows the user's decision: randomly pick one
+            // action from the 202-action list. The actual random logic is left to
+            // the caller (MainActivity already has loadXiaozhiActions(); this class
+            // does not read the 202-action list a second time). Here we return the
+            // "__RANDOM__" marker for the caller to recognize.
         }
         return new MatchResult(e.q, e.type, e.op, e.slot, answer, actionId, true, layer);
     }
 
-    /** debug/量度用: 已載入多少條記錄。 */
+    /** For debug/metrics: how many records have been loaded. */
     public int size() {
         return load().size();
     }
 
-    /** Vosk 限定文法用: 全部問法原文 (去重、去空)。 */
+    /** For the Vosk restricted grammar: the original text of all question forms
+     *  (deduplicated, empties removed). */
     public synchronized java.util.List<String> questions() {
         java.util.LinkedHashSet<String> set = new java.util.LinkedHashSet<>();
         for (Entry e : load()) {
@@ -387,9 +431,10 @@ public abstract class SemanticMatcherBase {
         return new java.util.ArrayList<>(set);
     }
 
-    /** 由 assets/semantic/action_category_pools.json 讀入 17 個分類 -> action id
-     *  pool 的對照表 (中英文共用同一份)。讀取/parse 失敗就回傳空 map (不會拋出),
-     *  和 load() 一致的「不崩潰、log 一次」哲學。 */
+    /** Read in from assets/semantic/action_category_pools.json the cross-reference
+     *  of 17 categories -&gt; action id pools (Chinese/English share the same one).
+     *  On read/parse failure, return an empty map (does not throw), following the
+     *  same "do not crash, log once" philosophy as load(). */
     private synchronized java.util.Map<String, List<String>> loadCategoryPools() {
         if (categoryPoolsCache != null) return categoryPoolsCache;
         java.util.Map<String, List<String>> result = new java.util.HashMap<>();
@@ -412,7 +457,8 @@ public abstract class SemanticMatcherBase {
         return result;
     }
 
-    /** 兩份 load 共用的 assets 讀檔（經 IOUtil，不再各自寫 4k loop）。 */
+    /** Asset reading shared by the two load methods (via IOUtil, no longer each
+     *  writing its own 4k loop). */
     private String readAssetString(String path) throws java.io.IOException {
         InputStream in = null;
         try {
@@ -425,15 +471,19 @@ public abstract class SemanticMatcherBase {
         }
     }
 
-    /** 若 actionId 是 "__RANDOM_CATEGORY__<key>" 格式, 解析出 <key> 並在對應分類
-     *  的 action id pool 裡面隨機選一個, 回傳真正的 action id; 不是這個格式就原樣
-     *  回傳。找不到對應分類、或者分類是空 pool, 回傳 null (呼叫方要自行 fallback,
-     *  例如 resolveRandomActionId() 隨機動作池)。
+    /** If actionId is in the "__RANDOM_CATEGORY__&lt;key&gt;" format, parse out
+     *  &lt;key&gt; and randomly pick one from the action id pool of the
+     *  corresponding category, returning the real action id. If it is not in this
+     *  format, return it as is. If the corresponding category cannot be found, or
+     *  the category is an empty pool, return null (the caller must fall back on
+     *  its own, for example to the resolveRandomActionId() random action pool).
      *
-     *  呼叫方 (SemanticCenter.handleSemanticMatch()) 應該在拿到 MatchResult
-     *  之後、真正 call robot.action_PlayActionName() 之前, 用這個方法將
-     *  actionId 解析成真實可播放的 id - 和 "__RANDOM__" 標記屬於同一種「延遲到
-     *  執行時才選」的設計, 但這是分類限定的隨機, 不是全部 202 個隨便選。 */
+     *  The caller (SemanticCenter.handleSemanticMatch()) should use this method,
+     *  after getting the MatchResult and before actually calling
+     *  robot.action_PlayActionName(), to resolve actionId into a real playable id.
+     *  This is the same "defer the choice until execution time" design as the
+     *  "__RANDOM__" marker, but it is category-limited random, not picking any of
+     *  all 202. */
     public String resolveCategoryRandomActionId(String actionId) {
         if (actionId == null || !actionId.startsWith(RANDOM_CATEGORY_PREFIX)) {
             return actionId;

@@ -3,37 +3,45 @@ package com.open.alpha2;
 import android.content.Context;
 
 /**
- * 德文語意配對引擎 - 和 SemanticMatcherZh (中文版)／SemanticMatcherEn
- * (英文版)／SemanticMatcherEs (西班牙文版)／SemanticMatcherFr (法文版)／
- * SemanticMatcherJa (日文版) 同一套語意配對機制, 專門處理德文。
+ * German semantic-pairing engine - the same semantic-pairing mechanism as
+ * SemanticMatcherZh (Chinese) / SemanticMatcherEn (English) /
+ * SemanticMatcherEs (Spanish) / SemanticMatcherFr (French) /
+ * SemanticMatcherJa (Japanese), specialized for German.
  *
- * 資料來源: assets/semantic/semantic_de.json (v2 grouped 格式, 同其他語言同一個
- * schema - 見 SemanticMatcherBase.load())。85 ACTION (id/op/slot/actionId 全同
- * 英文版；每組地道德文 5 問法＋5 答案) ＋200 日常 CHAT (de.daily.001-200，
- * 每組 5 問法＋5 答案：001-040 問候天氣、041-080 飲食、081-120 家庭家居寵物、
- * 121-160 工作學習健康、161-200 休閒旅行日常；動作全 __RANDOM__)。
- * de800（電影／名言／歌詞／潮語各 200）啱意境的已按意配入日常組答案
- * （每組最多加 3 句）；39 句粗口／暴力／陰暗／非德文剔除唔用；
- * 剩低 496 句全入下面 fallback，動作全 __RANDOM__（60 池）。
+ * Data source: assets/semantic/semantic_de.json (v2 grouped format, the same schema
+ * as the other languages - see SemanticMatcherBase.load()). 85 ACTION (id/op/slot/
+ * actionId all identical to the English version; each group has 5 localized German
+ * question forms + 5 answers) + 200 everyday CHAT (de.daily.001-200, each group has
+ * 5 question forms + 5 answers: 001-040 greetings/weather, 041-080 food and drink,
+ * 081-120 family/home/pets, 121-160 work/study/health, 161-200 leisure/travel/daily
+ * life; actions all __RANDOM__). From de800 (200 each of movies/quotes/lyrics/slang),
+ * the mood-fitting ones were matched by meaning into the everyday groups' answers
+ * (at most 3 lines added per group); 39 rude/violent/dark/non-German lines were
+ * excluded and not used; the remaining 496 lines all go into the fallback below,
+ * actions all __RANDOM__ (pool of 60).
  *
- * 這個 class 只負責「文字 -> 配對結果」, 不負責執行 TTS/動作 - 跟著這個 project
- * 一貫的分層方式，執行那一步留給呼叫方 (SemanticCenter 的 handleSemanticMatch)
- * 做, 方便測試和重用。
+ * This class is only responsible for "text -&gt; pairing result" and not for
+ * executing TTS/actions. Following this project's consistent layering, the execution
+ * step is left to the caller (SemanticCenter's handleSemanticMatch), for easier
+ * testing and reuse.
  *
- * 只做德文 - 和其他語言版各自獨立, 沒在這個 class 裡加 language 參數
- * (因為機身 ASR 引擎本身一次只能選到一種語言, matcher 不會同時用）。
- * SemanticCenter.handleSemanticMatch() 根據對話語言／文字判斷結果, 選用哪一個。
- * 載入/比對/分類 random 的實際邏輯全部在 SemanticMatcherBase, 這裡只提供
- * 德文專屬的 TAG/assets 路徑/fallback 問法組。
+ * German only - independent from the other language versions, and no language
+ * parameter was added to this class (the robot ASR engine itself can only select one
+ * language at a time, and the matchers are not used at the same time).
+ * SemanticCenter.handleSemanticMatch() picks which one to use based on the dialogue
+ * language / the text-detection result. The actual load/compare/category-random
+ * logic all lives in SemanticMatcherBase; here only the German-specific
+ * TAG/asset path/fallback question group is provided.
  *
- * Zero-third-party-dependency: 只用 org.json (Android 內建, 經 base class), 沒額外
- * library。
+ * Zero third-party dependency: only org.json is used (built into Android, via the
+ * base class), no extra library.
  */
 public class SemanticMatcherDe extends SemanticMatcherBase {
     private static final String TAG = "SemanticMatcherDe";
     private static final String ASSET_PATH = "semantic/semantic_de.json";
 
-    /** 骨架：fallback 空池（內容後加；base.fallback() 空池回 null，唔 crash）。 */
+    /** Skeleton: empty fallback pool (content added later; base.fallback() returns
+     *  null on an empty pool and does not crash). */
     private static final String[] FALLBACK_QUESTIONS = {
             "Das Leben ist wie eine Schachtel Pralinen, man weiß nie, was man kriegt.",
             "Möge die Macht mit dir sein.",
@@ -537,8 +545,9 @@ public class SemanticMatcherDe extends SemanticMatcherBase {
         super(context, TAG, ASSET_PATH, FALLBACK_QUESTIONS, randomActions());
     }
 
-    /** fallback 動作全部 __RANDOM__：幾多答句就幾多個位，SemanticCenter
-     *  見到呢個標記會即場隨機選動作 (見 ActionDirect.resolveRandomActionId())。 */
+    /** All fallback actions are __RANDOM__: one slot per answer line. When
+     *  SemanticCenter sees this marker it picks a random action on the spot (see
+     *  ActionDirect.resolveRandomActionId()). */
     private static String[] randomActions() {
         String[] a = new String[FALLBACK_QUESTIONS.length];
         for (int i = 0; i < a.length; i++) {
