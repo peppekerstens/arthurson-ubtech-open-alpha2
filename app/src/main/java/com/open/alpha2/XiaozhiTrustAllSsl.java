@@ -15,45 +15,53 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
 /**
- * 小智 (XiaoZhi) 專用的「全信任」SSL helper - 只給 XiaozhiClient (WebSocket) 和
- * XiaozhiOtaClient (OTA/認證碼 HTTP) 兩個類用, 不影響這個 app 裡面其他用
- * HttpsURLConnection/SSLSocketFactory 的地方 (例如 Radio Browser、camera vision)。
+ * A "trust-all" SSL helper dedicated to XiaoZhi. Only the two classes
+ * XiaozhiClient (WebSocket) and XiaozhiOtaClient (OTA/activation-code HTTP) use
+ * it. It does not affect other places in this app that use
+ * HttpsURLConnection/SSLSocketFactory (for example, Radio Browser and camera
+ * vision).
  *
- * 背景 (2026-08): Android 5.1 (API 22, 2015 年出廠) 的系統 CA store 是出廠時的
- * snapshot, 沒得 OTA 更新, 不同機因應廠商 build 時間/有沒有自己 patch 過,
- * 內建的根憑證清單可以完全不一樣 - 這不是「4.4 中招、5.1 一定不會中招」
- * 這樣和 Android 版本掛勾, 純粹是哪台機出廠那刻的 CA store 有沒有收錄
- * xiaozhi.me/api.tenclass.net 現在用的那條憑證鏈的根。沒收錄那台機連
- * TLS handshake 都過不了, 會撞上
- * java.security.cert.CertPathValidatorException: Trust anchor for
- * certification path not found (android.security.net.config.RootTrustManager
- * 拋出)。
+ * Background (2026-08): the system CA store of Android 5.1 (API 22, shipped in
+ * 2015) is a snapshot from the factory. It has no OTA update. Depending on the
+ * vendor build time and whether the vendor applied patches, the built-in root
+ * certificate list can differ completely from one device to another. This is not
+ * tied to the Android version. It is not a case of "4.4 is affected and 5.1 is
+ * never affected". It depends only on whether the CA store of a given device, at
+ * the moment it left the factory, includes the root of the certificate chain that
+ * xiaozhi.me/api.tenclass.net currently uses. A device that does not include it
+ * cannot even get past the TLS handshake. It hits
+ * java.security.cert.CertPathValidatorException: Trust anchor for certification
+ * path not found (thrown by android.security.net.config.RootTrustManager).
  *
- * 這個 class 提供一個永遠信任任何憑證鏈的 TrustManager + 一個永遠接受任何
- * hostname 的 HostnameVerifier, 讓小智連接 (OTA 拿認證碼 + WebSocket) 在
- * 這種舊機/CA store 不齊的情況下都連得到。代價: 這兩條連線的 TLS 層不再
- * 防中間人攻擊 - 對一個連官方 xiaozhi.me/Tenclass 帳戶的家用機械人來說,
- * 這個取捨是為了在 API 22 沒得補 CA store 的硬限制下都用得到這個功能,
- * 但不應該逼全域套用到這個 app 其他本身在驗證的 https 連線上。
+ * This class provides a TrustManager that always trusts any certificate chain and
+ * a HostnameVerifier that always accepts any hostname. This keeps the XiaoZhi
+ * connections (OTA activation code + WebSocket) working on such old devices with
+ * an incomplete CA store. The cost: the TLS layer of these two connections no
+ * longer defends against man-in-the-middle attacks. For a home robot that
+ * connects to the official xiaozhi.me/Tenclass account, this trade-off exists to
+ * keep the feature usable under the hard limit of API 22, where the CA store
+ * cannot be patched. It should not be applied globally to other https
+ * connections in this app that do perform verification.
  */
 final class XiaozhiTrustAllSsl {
     private static final String TAG = "XiaozhiTrustAllSsl";
 
     private XiaozhiTrustAllSsl() {}
 
-    /** 永遠信任任何憑證鏈的 TrustManager - checkClientTrusted/checkServerTrusted
-     *  兩個都特意留空 (也就是「什麼都不查, 一定通過」), getAcceptedIssuers()
-     *  按 javax.net.ssl.X509TrustManager 官方文件建議、在這種「不限制發行者」
-     *  的用法下回傳空 array。 */
+    /** A TrustManager that always trusts any certificate chain. Both
+     *  checkClientTrusted/checkServerTrusted are intentionally left empty (that
+     *  is, "check nothing, always pass"). Following the official
+     *  javax.net.ssl.X509TrustManager documentation, in this "unrestricted
+     *  issuer" use getAcceptedIssuers() returns an empty array. */
     private static final X509TrustManager TRUST_ALL_MANAGER = new X509TrustManager() {
         @Override
         public void checkClientTrusted(X509Certificate[] chain, String authType) {
-            // 特意留空: 不驗證, 全部信任。
+            // Intentionally empty: do not verify, trust everything.
         }
 
         @Override
         public void checkServerTrusted(X509Certificate[] chain, String authType) {
-            // 特意留空: 不驗證, 全部信任。
+            // Intentionally empty: do not verify, trust everything.
         }
 
         @Override
@@ -62,8 +70,10 @@ final class XiaozhiTrustAllSsl {
         }
     };
 
-    /** 永遠接受任何 hostname - 因為連憑證鏈都不驗證, 驗 hostname 對不上
-     *  那張不可信的證也沒意義, 保持和 checkServerTrusted() 一致的取捨。 */
+    /** Always accept any hostname. Because even the certificate chain is not
+     *  verified, checking whether the hostname matches that untrusted
+     *  certificate is meaningless. Keep the same trade-off as
+     *  checkServerTrusted(). */
     static final HostnameVerifier TRUST_ALL_HOSTNAME_VERIFIER = new HostnameVerifier() {
         @Override
         public boolean verify(String hostname, javax.net.ssl.SSLSession session) {
@@ -74,17 +84,19 @@ final class XiaozhiTrustAllSsl {
     private static volatile SSLSocketFactory cachedFactory;
     private static volatile boolean warned;
 
-    /** 取回一個已經裝了 TRUST_ALL_MANAGER 的 SSLSocketFactory - 給
-     *  XiaozhiClient.connect() 包裝 raw socket 用, 代替
-     *  SSLSocketFactory.getDefault() (跟系統 CA store, 在這個場景會撞
-     *  CertPathValidatorException)。Lazy + cache: SSLContext.init() 不算
-     *  重, 但沒必要每次連接都重新起一個。
-     *  警告：此 factory 不驗證憑證鏈/hostname，只可用於小智兩條連線；
-     *  同網段 MITM 可偷 token/voice，不要在不可信網絡用。 */
+    /** Return an SSLSocketFactory that already has TRUST_ALL_MANAGER installed.
+     *  XiaozhiClient.connect() uses it to wrap the raw socket, in place of
+     *  SSLSocketFactory.getDefault() (which follows the system CA store and hits
+     *  CertPathValidatorException in this scenario). Lazy + cache:
+     *  SSLContext.init() is not heavy, but there is no need to build a new one on
+     *  every connection.
+     *  Warning: this factory does not verify the certificate chain/hostname. It
+     *  can be used only for the two XiaoZhi connections. A same-segment MITM can
+     *  steal the token/voice. Do not use it on an untrusted network. */
     static SSLSocketFactory getTrustAllSocketFactory() {
         if (!warned) {
             warned = true;
-            Log.w(TAG, "trust-all TLS 生效中（不驗證憑證/hostname，僅限小智連線；不可信網絡勿用）");
+            Log.w(TAG, "trust-all TLS in effect (does not verify certificate/hostname, XiaoZhi connections only; do not use on untrusted network)");
         }
         SSLSocketFactory factory = cachedFactory;
         if (factory != null) return factory;
@@ -95,10 +107,12 @@ final class XiaozhiTrustAllSsl {
                     ctx.init(null, new TrustManager[]{TRUST_ALL_MANAGER}, new SecureRandom());
                     cachedFactory = ctx.getSocketFactory();
                 } catch (NoSuchAlgorithmException | KeyManagementException e) {
-                    // 理論上不應該發生 (TLS 這個 algorithm 名和 SSLContext API 在
-                    // 所有 Android 版本都有) - 出問題就 fallback 用回系統 default,
-                    // 至少行為退回「未改之前」, 不會讓 app 直接 crash 掉。
-                    Log.e(TAG, "建立 trust-all SSLContext 失敗, fallback 用回系統 default", e);
+                    // This should not happen in theory (the "TLS" algorithm name
+                    // and the SSLContext API exist on every Android version). If
+                    // it does happen, fall back to the system default. At least
+                    // the behavior reverts to "before the change". The app will
+                    // not crash directly.
+                    Log.e(TAG, "failed to create trust-all SSLContext, fall back to system default", e);
                     cachedFactory = (SSLSocketFactory) SSLSocketFactory.getDefault();
                 }
             }
@@ -106,11 +120,11 @@ final class XiaozhiTrustAllSsl {
         }
     }
 
-    /** 幫 HttpsURLConnection 裝上 trust-all 的 SSLSocketFactory +
-     *  HostnameVerifier - 給 XiaozhiOtaClient 在 openConnection() 拿到的
-     *  connection 是 HttpsURLConnection 的時候調用。如果傳入的不是
-     *  HttpsURLConnection (例如萬一 URL 打錯成了 http://), 什麼都不做,
-     *  不會拋 exception。 */
+    /** Install the trust-all SSLSocketFactory + HostnameVerifier on an
+     *  HttpsURLConnection. XiaozhiOtaClient calls it when the connection it got
+     *  from openConnection() is an HttpsURLConnection. If what is passed in is not
+     *  an HttpsURLConnection (for example, if the URL was mistyped as http://), it
+     *  does nothing and does not throw an exception. */
     static void applyTrustAll(java.net.HttpURLConnection conn) {
         if (conn instanceof HttpsURLConnection) {
             HttpsURLConnection httpsConn = (HttpsURLConnection) conn;
