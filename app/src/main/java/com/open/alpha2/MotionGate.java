@@ -1,5 +1,7 @@
 package com.open.alpha2;
 
+import com.ubtechinc.alpha.hardware.ChestSafety;
+
 import java.util.Map;
 
 /**
@@ -91,6 +93,72 @@ public final class MotionGate {
         return "Motion is refused: " + what + " moves more than the head, and the setting "
                 + SETTING_MOTION + " is off. The setting " + SETTING_HEAD_ONLY
                 + " does not allow it. Both motion settings are off by default and after each restart.";
+    }
+
+    /**
+     * The refusal text for a chest move command of debug/serial/send (alpha2-brain#130):
+     * cmd 0x03 (move one), 0x05 (move all) or 0x06 (read with release). The chest servos
+     * are body servos, so the head-only switch does not allow the call. Or null when the
+     * call can go on.
+     */
+    public String refusalForChestMove() {
+        if (motionEnabled) return null;
+        return "Motion is refused: the chest move command in debug/serial/send moves the body, and the setting "
+                + SETTING_MOTION + " is off. The setting " + SETTING_HEAD_ONLY
+                + " does not allow it. Both motion settings are off by default and after each restart.";
+    }
+
+    /**
+     * The refusal text for chest data of debug/serial/send that is not one or more
+     * complete frames (alpha2-brain#130): the scan for a move command skips a frame
+     * with a bad length, checksum or tail, and the chest could join the bytes into a
+     * frame that moves the body. The gate refuses the data while it does not allow a
+     * body move, whatever allow_sit_down says. Or null when the call can go on.
+     */
+    public String refusalForUnparseableChest() {
+        if (motionEnabled) return null;
+        return "Motion is refused: the chest data in debug/serial/send is not one or more"
+                + " complete frames, and the setting " + SETTING_MOTION + " is off. The chest"
+                + " could join the bytes into a frame that moves the body, and the setting"
+                + " " + SETTING_HEAD_ONLY + " does not allow it. Both motion settings are"
+                + " off by default and after each restart.";
+    }
+
+    /**
+     * The refusal text for the debug/serial/send route (alpha2-brain#130): on port=chest,
+     * a chest move command (cmd 0x03 move one, 0x05 move all, 0x06 read with release)
+     * needs the gate to allow a body move. While the gate does not allow a body move,
+     * chest data that is not one or more complete frames is refused too: a frame with a
+     * bad length, checksum or tail carries no complete command, and the chest could join
+     * the bytes into a move frame. That check does not look at allow_sit_down. Read
+     * commands (for example 0x17, 0x39, 0x0E) are not gated, and frames for port=head
+     * are not checked at all. Or null when the call can go on.
+     */
+    public String refusalForSerialSend(String port, byte[] data) {
+        if (!"chest".equals(port)) return null;
+        if (ChestSafety.findChestMoveCommand(data) >= 0) return refusalForChestMove();
+        if (refusalForChestMove() != null && ChestSafety.checkWholeFrames(data) != null) {
+            return refusalForUnparseableChest();
+        }
+        return null;
+    }
+
+    /**
+     * The refusal for debug/serial/send when no gate is wired up (the defensive
+     * fallback of LedCenter). It is as strict as a gate that allows nothing: it
+     * refuses a chest move command and chest data that is not one or more complete
+     * frames. Or null when the call can go on.
+     */
+    public static String refusalWithoutGate(String port, byte[] data) {
+        if (!"chest".equals(port)) return null;
+        if (ChestSafety.findChestMoveCommand(data) >= 0) {
+            return "Motion is refused: debug/serial/send has no motion gate.";
+        }
+        if (ChestSafety.checkWholeFrames(data) != null) {
+            return "Motion is refused: debug/serial/send has no motion gate, and the chest"
+                    + " data is not one or more complete frames.";
+        }
+        return null;
     }
 
     /** Run a call that moves the whole body only when the gate allows it. A refusal gives status 403. */

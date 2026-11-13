@@ -30,6 +30,13 @@ public final class LedCenter {
     private final Context appContext;
     private final Handler mainHandler;
     private final RingtoneCenter ringtoneCenter;
+    // The motion gate of the app (alpha2-brain#130). ApiDispatcher sets it. Without a gate
+    // a chest move command is refused: no gate means no approval (as in ActionDirect).
+    private volatile MotionGate motionGate;
+
+    public void setMotionGate(MotionGate gate) {
+        motionGate = gate;
+    }
 
     public LedCenter(Context context, Handler mainHandler, RingtoneCenter ringtoneCenter) {
         this.appContext = context.getApplicationContext();
@@ -1212,6 +1219,21 @@ public final class LedCenter {
         // alpha2-brain#24: chest cmd 0x19 [00] and cmd 0x40 [01 ..] start "Sit down".
         // 400 unless allow_sit_down=true.
         ApiValidator.checkSerialSendSitDown(query, port, data);
+        // alpha2-brain#130: a chest move command (cmd 0x03 move one, 0x05 move all,
+        // 0x06 read with release) moves the body: 403 unless the motion gate allows it.
+        // While the gate does not allow a body move, chest data that is not one or more
+        // complete frames is refused too, whatever allow_sit_down says: the chest could
+        // join the bytes into a move frame. Read commands are not gated, and head frames
+        // are not checked.
+        MotionGate g = motionGate;
+        String moveWhy = g == null
+                ? MotionGate.refusalWithoutGate(port, data)
+                : g.refusalForSerialSend(port, data);
+        if (moveWhy != null) {
+            Log.w("MotionGate", "refused: " + moveWhy);
+            return new HttpServer.ApiResponse(403, "application/json; charset=utf-8",
+                    JsonUtil.okFalse(moveWhy));
+        }
         // alpha2-brain#29: a cmd 0x17 reply for this client goes out as chest_rcv also while
         // the servo read stream runs.
         if ("chest".equals(port)) ServoReadStream.noteExternalReads(data);

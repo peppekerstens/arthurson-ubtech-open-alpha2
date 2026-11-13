@@ -81,6 +81,46 @@ public final class MotionGateTest {
         }, REFUSED);
     }
 
+    /** A long-form chest frame: F8 8F LEN 05 00 CMD PAYLOAD CHK ED (same layout as
+     *  ApiValidatorTest.frame). */
+    private static byte[] chestFrame(int cmd, int... payload) {
+        int len = 7 + payload.length;
+        byte[] out = new byte[len + 1];
+        out[0] = (byte) 0xF8; out[1] = (byte) 0x8F; out[2] = (byte) len; out[3] = 0x05; out[4] = 0x00;
+        out[5] = (byte) cmd;
+        for (int i = 0; i < payload.length; i++) out[6 + i] = (byte) payload[i];
+        int sum = 0;
+        for (int i = 2; i < len - 1; i++) sum += out[i] & 0xFF;
+        out[len - 1] = (byte) sum;
+        out[len] = (byte) 0xED;
+        return out;
+    }
+
+    /** A legacy short-form chest frame: F8 8F LEN CMD PAYLOAD.. CHK ED (total = LEN + 5,
+     *  payload length = LEN - 1). LEN is 7 here, the long-form minimum (D-22). */
+    private static byte[] shortChestFrame(int len, int cmd, int... payload) {
+        byte[] out = new byte[len + 5];
+        out[0] = (byte) 0xF8; out[1] = (byte) 0x8F; out[2] = (byte) len; out[3] = (byte) cmd;
+        for (int i = 0; i < payload.length; i++) out[4 + i] = (byte) payload[i];
+        int sum = 0;
+        for (int i = 2; i < len + 3; i++) sum += out[i] & 0xFF;
+        out[len + 3] = (byte) sum;
+        out[len + 4] = (byte) 0xED;
+        return out;
+    }
+
+    private static byte[] concat(byte[]... parts) {
+        int n = 0;
+        for (byte[] p : parts) n += p.length;
+        byte[] out = new byte[n];
+        int o = 0;
+        for (byte[] p : parts) {
+            System.arraycopy(p, 0, out, o, p.length);
+            o += p.length;
+        }
+        return out;
+    }
+
     private static Map<String, String> q(String... kv) {
         Map<String, String> m = new HashMap<String, String>();
         for (int i = 0; i + 1 < kv.length; i += 2) m.put(kv[i], kv[i + 1]);
@@ -182,6 +222,122 @@ public final class MotionGateTest {
         check(gate.refusalForServo(19) == null && gate.refusalForWholeBody("servo/angle-restore") != null,
                 "head only: servo/one 19 passes, servo/angle-restore does not");
         check(gate.refusalForWholeBody("x") != null && !gate.isMotionEnabled(), "refusal does not change a switch");
+
+        // 7. Chest move commands in debug/serial/send (alpha2-brain#130): cmd 0x03 (move
+        //    one), 0x05 (move all) and 0x06 (read with release) need the gate. Read
+        //    commands (for example 0x17, 0x39, 0x0E) are not gated, and head frames are
+        //    not checked at all.
+        final byte[] fMoveOne = chestFrame(0x03, 0x03);
+        final byte[] fMoveAll = chestFrame(0x05, 0x01, 0x2C);
+        final byte[] fReadRel = chestFrame(0x06, 0x03);
+        final byte[] fRead = chestFrame(0x17, 0x03);
+        gate = new MotionGate();
+        String why = gate.refusalForSerialSend("chest", fMoveAll);
+        check(why != null && why.contains("motion_enabled"), "gate off, chest cmd 0x05 refused, text names the setting");
+        why = gate.refusalForSerialSend("chest", fMoveOne);
+        check(why != null && why.contains("motion_enabled"), "gate off, chest cmd 0x03 refused");
+        why = gate.refusalForSerialSend("chest", fReadRel);
+        check(why != null && why.contains("motion_enabled"), "gate off, chest cmd 0x06 refused");
+        gate.setHeadOnlyEnabled(true);
+        why = gate.refusalForSerialSend("chest", fMoveAll);
+        check(why != null && why.contains("head_only_enabled"), "head only, chest cmd 0x05 refused, text names the head switch");
+        gate.setMotionEnabled(true);
+        check(gate.refusalForSerialSend("chest", fMoveAll) == null, "gate on, chest cmd 0x05 allowed");
+        check(gate.refusalForSerialSend("chest", fMoveOne) == null, "gate on, chest cmd 0x03 allowed");
+        check(gate.refusalForSerialSend("chest", fReadRel) == null, "gate on, chest cmd 0x06 allowed");
+        gate = new MotionGate();
+        check(gate.refusalForSerialSend("chest", fRead) == null, "gate off, chest cmd 0x17 (read) allowed");
+        check(gate.refusalForSerialSend("chest", chestFrame(0x39, 0x00)) == null, "gate off, chest cmd 0x39 (read) allowed");
+        check(gate.refusalForSerialSend("chest", chestFrame(0x0E, 0x00)) == null, "gate off, chest cmd 0x0E (read) allowed");
+        check(gate.refusalForSerialSend("head", fMoveAll) == null, "gate off, head frame not checked");
+        check(gate.refusalForSerialSend("chest", new byte[0]) == null, "gate off, empty data allowed");
+        // A move command inside a batch of frames is still refused.
+        final byte[] batch = new byte[fRead.length + fMoveAll.length];
+        System.arraycopy(fRead, 0, batch, 0, fRead.length);
+        System.arraycopy(fMoveAll, 0, batch, fRead.length, fMoveAll.length);
+        check(gate.refusalForSerialSend("chest", batch) != null, "gate off, a move command inside a batch refused");
+        // The sit-down check is unchanged (alpha2-brain#24): cmd 0x19 [00] and cmd 0x40 [01]
+        // still need allow_sit_down=true; the motion gate does not replace it.
+        check(com.ubtechinc.alpha.hardware.ChestSafety.checkChestFrames(chestFrame(0x19, 0x00), false)
+                == com.ubtechinc.alpha.hardware.ChestSafety.SIT_DOWN_19, "sit-down: cmd 0x19 [00] still refused");
+        check(com.ubtechinc.alpha.hardware.ChestSafety.checkChestFrames(chestFrame(0x40, 0x01), false)
+                == com.ubtechinc.alpha.hardware.ChestSafety.SIT_DOWN_40, "sit-down: cmd 0x40 [01] still refused");
+        check(com.ubtechinc.alpha.hardware.ChestSafety.checkChestFrames(chestFrame(0x19, 0x00), true) == null,
+                "sit-down: cmd 0x19 [00] allowed with allow_sit_down");
+        check(com.ubtechinc.alpha.hardware.ChestSafety.checkChestFrames(chestFrame(0x40, 0x01), true) == null,
+                "sit-down: cmd 0x40 [01] allowed with allow_sit_down");
+
+        // 8. Unparseable chest data while the gate does not allow a body move (the
+        //    review blocker of alpha2-brain#130): the scan for a move command skips a
+        //    frame with a bad length, checksum or tail, and with allow_sit_down=true the
+        //    sit-down check returns at once (ApiValidator.checkSerialSendSitDown calls
+        //    ChestSafety.checkChestFrames, which passes the opt-in straight through), so
+        //    the whole-frames rule never runs. The gate must refuse the data whatever
+        //    allow_sit_down says: the chest could join the bytes into a move frame.
+        final byte[] badChecksum = chestFrame(0x03, 0x03);
+        badChecksum[badChecksum.length - 2] ^= 0x01;
+        final byte[] badTail = chestFrame(0x03, 0x03);
+        badTail[badTail.length - 1] = (byte) 0xEE;
+        final byte[] badLength = chestFrame(0x03, 0x03);
+        badLength[2] = (byte) (badLength[2] + 1);
+        // A split frame: the first 7 bytes of a move frame. The checksum and tail go
+        // out in the next call and join the bytes again in the chest.
+        final byte[] split = new byte[7];
+        System.arraycopy(fMoveOne, 0, split, 0, 7);
+        final byte[][] unparseable = {badChecksum, badTail, badLength, split};
+        final String[] unparseableNames = {"bad checksum", "bad tail", "bad length", "split frame"};
+        for (int i = 0; i < unparseable.length; i++) {
+            byte[] u = unparseable[i];
+            String name = unparseableNames[i];
+            gate = new MotionGate();
+            check(com.ubtechinc.alpha.hardware.ChestSafety.findChestMoveCommand(u) < 0, name + ": the scan skips it");
+            check(com.ubtechinc.alpha.hardware.ChestSafety.checkChestFrames(u, true) == null,
+                    name + ": the sit-down check passes with allow_sit_down");
+            String whyU = gate.refusalForSerialSend("chest", u);
+            check(whyU != null && whyU.contains("motion_enabled"), "gate off, " + name + " refused, text names the setting");
+            check(whyU != null && whyU.contains("complete frames"), "gate off, " + name + ": the text names the incomplete frames");
+            gate.setHeadOnlyEnabled(true);
+            check(gate.refusalForSerialSend("chest", u) != null, "head only, " + name + " refused");
+            gate.setMotionEnabled(true);
+            check(gate.refusalForSerialSend("chest", u) == null, "gate on, " + name + " allowed");
+        }
+        check(new MotionGate().refusalForUnparseableChest() != null, "gate off, refusalForUnparseableChest refuses");
+        MotionGate gateOn = new MotionGate();
+        gateOn.setMotionEnabled(true);
+        check(gateOn.refusalForUnparseableChest() == null, "gate on, refusalForUnparseableChest passes");
+        // A move frame inside junk bytes is refused (the scan sees the complete frame).
+        gate = new MotionGate();
+        final byte[] junkMove = concat(new byte[]{0x01, 0x02, 0x03}, fMoveAll, new byte[]{0x04, 0x05});
+        check(gate.refusalForSerialSend("chest", junkMove) != null, "gate off, a move frame inside junk bytes refused");
+        // 0x00 padding before a frame does not hide it from the check (00 00 header).
+        final byte[] padSplit = concat(new byte[]{0x00, 0x00}, split);
+        check(gate.refusalForSerialSend("chest", padSplit) != null, "gate off, a split frame behind 00 00 padding refused");
+        final byte[] padRead = concat(new byte[]{0x00, 0x00}, fRead);
+        check(gate.refusalForSerialSend("chest", padRead) == null, "gate off, 00 00 padding before a read frame allowed");
+        // Legacy short form: F8 8F LEN CMD PAYLOAD.. CHK ED, total = LEN + 5.
+        final byte[] fShortMove = shortChestFrame(7, 0x03, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06);
+        gate = new MotionGate();
+        String whyS = gate.refusalForSerialSend("chest", fShortMove);
+        check(whyS != null && whyS.contains("motion_enabled"), "gate off, short-form move frame refused, text names the setting");
+        gate.setMotionEnabled(true);
+        check(gate.refusalForSerialSend("chest", fShortMove) == null, "gate on, short-form move frame allowed");
+        final byte[] fShortBad = shortChestFrame(7, 0x03, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06);
+        fShortBad[fShortBad.length - 2] ^= 0x01;
+        gate = new MotionGate();
+        check(com.ubtechinc.alpha.hardware.ChestSafety.findChestMoveCommand(fShortBad) < 0, "short form, bad checksum: the scan skips it");
+        check(com.ubtechinc.alpha.hardware.ChestSafety.checkChestFrames(fShortBad, true) == null,
+                "short form, bad checksum: the sit-down check passes with allow_sit_down");
+        check(gate.refusalForSerialSend("chest", fShortBad) != null, "gate off, a short-form frame with a bad checksum refused");
+        // The no-gate fallback (the defensive path of LedCenter): as strict as a gate
+        // that allows nothing.
+        check(MotionGate.refusalWithoutGate("chest", split) != null, "no gate, a split frame refused");
+        check(MotionGate.refusalWithoutGate("chest", badChecksum) != null, "no gate, a bad checksum refused");
+        check(MotionGate.refusalWithoutGate("chest", padSplit) != null, "no gate, a split frame behind 00 00 padding refused");
+        String noGate = MotionGate.refusalWithoutGate("chest", fMoveAll);
+        check(noGate != null && noGate.contains("no motion gate"), "no gate, a move command refused, text names the missing gate");
+        check(MotionGate.refusalWithoutGate("chest", fRead) == null, "no gate, a read frame allowed");
+        check(MotionGate.refusalWithoutGate("chest", new byte[0]) == null, "no gate, empty data allowed");
+        check(MotionGate.refusalWithoutGate("head", split) == null, "no gate, head frame not checked");
 
         System.out.println("MotionGateTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
