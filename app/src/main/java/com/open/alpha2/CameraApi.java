@@ -8,9 +8,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 /**
- * 相機拍照層：單幀快照／存檔／資訊（串流走 /stream/camera，不在這裡）。
- * 硬件經傳入的同一個 CameraController；存檔廣播經 Context；
- * 快門聲經 RingtoneCenter。
+ * Camera stills layer: single-frame snapshot/save/info (streaming goes via /stream/camera, not here).
+ * Hardware through the same passed-in CameraController; save broadcasts through Context;
+ * shutter sound through RingtoneCenter.
  */
 public final class CameraApi {
     private final Context appContext;
@@ -20,7 +20,7 @@ public final class CameraApi {
     private volatile ColorTrackCenter colorTrackCenter;
     private volatile VideoCenter videoCenter;
 
-    /** GamepadCenter 追蹤 toggle 共用：讀真態（唔經自記 flag，兩邊互斥都啱）。 */
+    /** Shared by the GamepadCenter track toggle: read the real state (no self-maintained flag, so mutual exclusion holds on both sides). */
     public boolean isFaceTrackRunning() {
         try {
             return faceTrackCenter != null && faceTrackCenter.isRunning();
@@ -29,7 +29,7 @@ public final class CameraApi {
         }
     }
 
-    /** GamepadCenter 追蹤 toggle 共用：讀真態。 */
+    /** Shared by the GamepadCenter track toggle: read the real state. */
     public boolean isColorTrackRunning() {
         try {
             return colorTrackCenter != null && colorTrackCenter.isRunning();
@@ -44,7 +44,7 @@ public final class CameraApi {
         this.ringtoneCenter = ringtoneCenter;
     }
 
-    /** MainActivity 接線用：注入人臉追蹤中心（未注入時 face/track/* 回清晰錯誤）。 */
+    /** For MainActivity wiring: inject the face-tracking center (before injection, face/track/* returns a clear error). */
     public void setFaceTrackCenter(FaceTrackCenter center) {
         this.faceTrackCenter = center;
     }
@@ -56,7 +56,7 @@ public final class CameraApi {
         return null;
     }
 
-    /** MainActivity 接線用：注入顏色追蹤中心（未注入時 color/track/* 回清晰錯誤）。 */
+    /** For MainActivity wiring: inject the color-tracking center (before injection, color/track/* returns a clear error). */
     public void setColorTrackCenter(ColorTrackCenter center) {
         this.colorTrackCenter = center;
     }
@@ -68,8 +68,8 @@ public final class CameraApi {
         return null;
     }
 
-    // -- 純 Java 顏色追蹤（見 ColorTrackCenter）：薄 delegate，不在這裡加 logic --
-    // 互斥：同人臉追蹤爭同一對頭舵機（19/20），start 一邊即停另一邊。
+    // -- Pure Java color tracking (see ColorTrackCenter): thin delegate, no logic added here --
+    // Mutual exclusion: competes with face tracking for the same head servos (19/20); starting one side stops the other.
     public HttpServer.ApiResponse colorTrackStart(Map<String, String> query) {
         HttpServer.ApiResponse err = colorOrError();
         if (err != null) return err;
@@ -97,7 +97,7 @@ public final class CameraApi {
         return colorTrackCenter.config(query);
     }
 
-    /** MainActivity 接線用：注入錄影中心（未注入時 camera/video/* 回清晰錯誤）。 */
+    /** For MainActivity wiring: inject the video center (before injection, camera/video/* returns a clear error). */
     public void setVideoCenter(VideoCenter center) {
         this.videoCenter = center;
     }
@@ -109,7 +109,7 @@ public final class CameraApi {
         return null;
     }
 
-    // -- 機端錄影 mp4（見 VideoCenter）：薄 delegate，不在這裡加 logic --
+    // -- On-device mp4 video (see VideoCenter): thin delegate, no logic added here --
     public HttpServer.ApiResponse videoStart(Map<String, String> query) {
         HttpServer.ApiResponse err = videoOrError();
         if (err != null) return err;
@@ -128,7 +128,7 @@ public final class CameraApi {
         return videoCenter.status();
     }
 
-    /** 錄影守衛共用：錄緊即真（拍照／改解像度調用方要先擋，否則打斷編碼器）。 */
+    /** Shared by the recording guard: true while recording (photo/resolution callers must block first, or they interrupt the encoder). */
     public boolean isVideoRecording() {
         try {
             return videoCenter != null && videoCenter.isRecording();
@@ -137,7 +137,7 @@ public final class CameraApi {
         }
     }
 
-    /** 調用方係咪 main thread（mapping 物理掣係，HTTP worker 唔係）。 */
+    /** Is the caller on the main thread (the mapped physical button is, the HTTP worker is not). */
     private static boolean onMainThread() {
         try {
             return android.os.Looper.myLooper() == android.os.Looper.getMainLooper();
@@ -146,9 +146,9 @@ public final class CameraApi {
         }
     }
 
-    /** GamepadCenter 映射共用：錄影單鍵 toggle（錄緊即停，閒置即錄）。
-     *  main thread 經物理掣入：放背景做（prepare／stop 會 block，ANR 死，見 traces），
-     *  回 true＝已接受。HTTP worker 照行同步版（回值照實）。 */
+    /** Shared by the GamepadCenter mapping: single-button video toggle (stop while recording, record while idle).
+     *  Main thread via the physical button: run it in the background (prepare/stop block, ANR death, see traces),
+     *  returns true = accepted. The HTTP worker uses the synchronous version (the return value is honest). */
     public boolean toggleVideoRecording() {
         if (onMainThread()) {
             new Thread(new Runnable() {
@@ -174,8 +174,8 @@ public final class CameraApi {
         }
     }
 
-    // -- Android 內置人臉追蹤（見 FaceTrackCenter）：薄 delegate，不在這裡加 logic --
-    // 互斥：同顏色追蹤爭同一對頭舵機（19/20），start 一邊即停另一邊。
+    // -- Android built-in face tracking (see FaceTrackCenter): thin delegate, no logic added here --
+    // Mutual exclusion: competes with color tracking for the same head servos (19/20); starting one side stops the other.
     public HttpServer.ApiResponse faceTrackStart(Map<String, String> query) {
         HttpServer.ApiResponse err = faceOrError();
         if (err != null) return err;
@@ -228,8 +228,8 @@ public final class CameraApi {
         return controller.getLastFrame();
     }
 
-    /** snapshot 系三 endpoint 共用起手式：start 相機，失敗即回現成 error response。
-     *  成功回 null。 */
+    /** Shared opening for the three snapshot endpoints: start the camera; on failure return the ready-made error response.
+     *  On success return null. */
     private HttpServer.ApiResponse startCameraOrError() {
         CameraController.StartResult started = cameraController.start(8000);
         if (started.error != null) {
@@ -238,17 +238,17 @@ public final class CameraApi {
         return null;
     }
 
-    /** snapshot／snapshotSave 共用：等 AE/AF 收斂＋對焦＋鎖 AE 才取幀（之前兩份逐字一樣；
-     *  takePhotoSave 不用——takePicture 內部自己行 AF/AE）。 */
+    /** Shared by snapshot/snapshotSave: wait for AE/AF convergence + focus + AE lock before taking the frame (the previous two copies were word-for-word identical;
+     *  takePhotoSave does not use it - takePicture runs AF/AE internally). */
     private void settleCameraForSnapshot() {
-        // 等 AE/AF 收斂 + 對焦 + 鎖 AE 才取幀，避免「未 ready 就按 shutter」糊/暗/過曝
+        // Wait for AE/AF convergence + focus + AE lock before taking the frame, to avoid a blurry/dark/overexposed shot from pressing the shutter before ready
         cameraController.waitForPreviewReady(2500);
         cameraController.triggerAutoFocusAndWait(2200);
         cameraController.lockAeAwbSync(700);
         try { Thread.sleep(150); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }
 
-    /** 軟件變焦 fallback（硬件不支援時拍照裁切放大；之前三份邏輯一樣，僅變量名不同）。 */
+    /** Software zoom fallback (when hardware is unsupported, crop-and-enlarge the photo; the previous three copies had identical logic, only variable names differed). */
     private byte[] maybeSoftwareZoom(byte[] jpeg) {
         float z = cameraController.getZoom();
         if (z > 1.01f) {
@@ -293,8 +293,8 @@ public final class CameraApi {
             return HttpServer.ApiResponse.ok(
                     "{\"ok\":false,\"error\":\"recording in progress, stop video first\"}");
         }
-        // 齊 9 檔影相並存入 Android：可選 w/h，未提供則用當前 preview 解像度；存至 /sdcard/DCIM/Alpha2
-        // 有給就要跟 spec 範圍驗。
+        // Batch of 9 photos, saved to Android: optional w/h; when not provided, use the current preview resolution; saved to /sdcard/DCIM/Alpha2
+        // When provided, validate against the spec ranges.
         Integer wOpt = ApiValidator.optionalIntegerRange(query, "w", 1, 4208);
         Integer hOpt = ApiValidator.optionalIntegerRange(query, "h", 1, 3120);
         int reqW = 0, reqH = 0;
@@ -323,17 +323,17 @@ public final class CameraApi {
             if (!dir.exists()) dir.mkdirs();
             String ts = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss_SSS", java.util.Locale.US).format(new java.util.Date());
             String name = "alpha2_" + jpegToSave.length + "_" + cameraController.getPreviewWidth() + "x" + cameraController.getPreviewHeight() + "_" + ts + ".jpg";
-            // 若有指定尺寸，用指定尺寸命名更直觀
+            // When a size is given, naming with the given size is more intuitive
             if (hasSize) name = "alpha2_" + reqW + "x" + reqH + "_" + ts + ".jpg";
             java.io.File outFile = new java.io.File(dir, name);
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(outFile)) { fos.write(jpegToSave); }
-            // 同時觸發媒體掃描，讓相簿即時可見
+            // Trigger a media scan at the same time so the album sees it immediately
             try { appContext.sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, android.net.Uri.fromFile(outFile))); } catch (Exception ignored) {}
-            // 恢復之前解像度（若有切換）
+            // Restore the previous resolution (if it was switched)
             if (hasSize && (prevW != reqW || prevH != reqH)) {
                 cameraController.setRequestedResolution(prevW, prevH);
                 cameraController.forceStopAndWait(2000);
-                // 不自動重開，讓前端按需再開，避免長時間佔用
+                // Do not reopen automatically; let the front end reopen on demand, to avoid long-term occupation
             }
             String b64 = android.util.Base64.encodeToString(jpegToSave, android.util.Base64.NO_WRAP);
             return HttpServer.ApiResponse.ok("{\"ok\":true,\"path\":\"" + MainActivity.jsonSafe(outFile.getAbsolutePath()) + "\",\"jpegBase64\":\"" + b64 + "\",\"width\":" + cameraController.getPreviewWidth() + ",\"height\":" + cameraController.getPreviewHeight() + "}");
@@ -347,8 +347,8 @@ public final class CameraApi {
             return HttpServer.ApiResponse.ok(
                     "{\"ok\":false,\"error\":\"recording in progress, stop video first\"}");
         }
-        // 真正單張拍攝（picture 尺寸，經 Camera.takePicture 完整 ISP），存入 Android
-        // 若未指定，用最大 picture 尺寸 (見 openapi default w=4208 h=3120)。
+        // A true single shot (picture size, through the full ISP of Camera.takePicture), saved to Android
+        // When not specified, use the largest picture size (see openapi defaults w=4208 h=3120).
         int reqW = ApiValidator.optionalIntRange(query, "w", 1, 4208, 4208);
         int reqH = ApiValidator.optionalIntRange(query, "h", 1, 3120, 3120);
         HttpServer.ApiResponse startErr = startCameraOrError();
@@ -357,7 +357,7 @@ public final class CameraApi {
         if (photo.error != null) {
             return HttpServer.ApiResponse.ok("{\"ok\":false,\"error\":\"" + MainActivity.jsonSafe(photo.error) + "\"}");
         }
-        // 軟件變焦 fallback（硬件不支援時，拍照裁切放大）
+        // Software zoom fallback (when hardware is unsupported, crop-and-enlarge the photo)
         byte[] outJpeg = maybeSoftwareZoom(photo.jpeg);
         try {
             java.io.File dir = new java.io.File("/sdcard/DCIM/Alpha2");
@@ -395,16 +395,16 @@ public final class CameraApi {
         return HttpServer.ApiResponse.ok("{\"ok\":true,\"fps\":" + fpsStr + ",\"streaming\":" + cameraController.isStreaming() + "}");
     }
 
-    // 數位變焦 x1-x5（硬件支援時映射到最接近 ratio，否則前端 CSS / 軟件裁切）
+    // Digital zoom x1-x5 (when hardware supports it, map to the nearest ratio; otherwise front-end CSS / software crop)
     public HttpServer.ApiResponse zoom(Map<String, String> query) {
-        // 支援兩種用法：無參數=查詢，帶 zoom=設定並回當前狀態
+        // Two usages: no parameter = query, with zoom = set and return the current state
         String zoomStr = query != null ? query.get("zoom") : null;
         if (zoomStr != null && !zoomStr.isEmpty()) {
             float z;
             try { z = Float.parseFloat(zoomStr.trim()); } catch (Exception e) { throw new IllegalArgumentException("parameter 'zoom' must be a number 1.0-5.0, got: " + zoomStr); }
             if (z < 1.0f || z > 5.0f) throw new IllegalArgumentException("parameter 'zoom' must be between 1.0 and 5.0, got: " + z);
             cameraController.setZoom(z);
-            // 稍等硬件生效（最多 200ms）
+            // Wait briefly for the hardware to take effect (up to 200ms)
             try { Thread.sleep(120); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
         }
         CameraController.ZoomInfo info = cameraController.getZoomInfoSync(1500);
@@ -463,7 +463,7 @@ public final class CameraApi {
             return HttpServer.ApiResponse.ok(
                     "{\"ok\":false,\"error\":\"recording in progress, stop video first\"}");
         }
-        // 跟 spec（w 1-4208，h 1-3120）顯式驗。
+        // Explicit validation against the spec (w 1-4208, h 1-3120).
         int w = ApiValidator.requireIntRange(query, "w", 1, 4208);
         int h = ApiValidator.requireIntRange(query, "h", 1, 3120);
         cameraController.setRequestedResolution(w, h);
