@@ -4,12 +4,12 @@ import android.content.Context;
 import android.util.Log;
 
 /**
- * 對上層 (MainActivity/HttpServer) 暴露的統一入口。pure-direct 模式：
- * 所有胸/頭硬件只走 /dev/ttyS1 + /dev/ttyS3 + libhead_led.so JNI，
- * 不再 bind com.ubtechinc.alpha2services（機身已無此 APK，無 fallback）。
+ * Unified entry point exposed to the upper layer (MainActivity/HttpServer). pure-direct mode:
+ * all chest/head hardware goes only over /dev/ttyS1 + /dev/ttyS3 + libhead_led.so JNI,
+ * and no longer binds com.ubtechinc.alpha2services (the APK is no longer on the device, no fallback).
  *
- * <p>實測本機 ttyS1/ttyS3 為 777，普通應用也可直接 open；若 open 失敗則
- * isDirectAvailable()=false，調用方直接報錯，不再嘗試任何 binder 回退。</p>
+ * <p>Measured local ttyS1/ttyS3 as 777, so a normal app can also open them directly. If open fails,
+ * isDirectAvailable()=false, the caller reports the error directly, and no binder fallback is tried at all.</p>
  */
 public final class HardwareDirectManager {
     private static final String TAG = "HardwareDirectManager";
@@ -32,11 +32,11 @@ public final class HardwareDirectManager {
         return sInstance;
     }
 
-    /** 嘗試打開直驅串口，返回是否成功。應在 MainActivity.onCreate 的後臺線程調用。 */
+    /** Try to open the direct serial ports and return whether it succeeded. Call it on a background thread in MainActivity.onCreate. */
     public synchronized boolean tryEnableDirect() {
         boolean c = chest.open();
         boolean h = head.open();
-        // 頭板失敗不影響胸板舵機，任一成功就算部分可用
+        // A head board failure does not affect the chest board servos. If either succeeds, it counts as partially available
         directReady = c || h;
         Log.i(TAG, "tryEnableDirect chest=" + c + " head=" + h + " directReady=" + directReady);
         if (!directReady) {
@@ -59,9 +59,9 @@ public final class HardwareDirectManager {
         }
     }
 
-    /** 便捷：舵機直驅發送（pure-direct，無 binder 回退，失敗直接返回 false）。
-     *  2026-09-09：查胸板自己，唔好查「任一板」（頭板獨活嗰陣胸發送必 false，
-     *  早啲回 false 好過落到 send 先死）。 */
+    /** Convenience: servo direct send (pure-direct, no binder fallback, failure returns false directly).
+     *  2026-09-09: check the chest board itself, not "any board" (when only the head board is alive, a chest send is always false.
+     *  Returning false early beats dying inside send). */
     public boolean chestSendSingle(byte id, int angle, short time) {
         if (!chest.isAvailable()) return false;
         return chest.setSingleServo(id, angle, time);
