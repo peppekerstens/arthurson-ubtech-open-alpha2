@@ -22,13 +22,13 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 裝置狀態直讀：WiFi／藍牙（標準 Android framework，不經機身服務）、
- * 電池 receiver（含低電量自動蹲下）+ battery/status、accelerometer set/get +
- * SensorEventListener、handleApi status 健康聚合 (statusResponse)。
- * 低電量蹲下經傳入的同一個 ActionDirect；synchronized 鎖用自己
- * (調用方全部經同一個 instance，互斥等價；見 AudioCenter 同例)。
- * reboot 無（App 無 REBOOT 權限，實機 verified 永遠 SecurityException)；
- * TtsCenter readiness 經傳入的同一個 instance 讀。
+ * Direct device-status reads: WiFi/Bluetooth (standard Android framework, not the body service),
+ * battery receiver (including low-battery auto-squat) + battery/status, accelerometer set/get +
+ * SensorEventListener, and the handleApi status health aggregate (statusResponse).
+ * The low-battery squat goes through the same passed-in ActionDirect; the synchronized lock is on this class
+ * (all callers share one instance, so mutual exclusion is equivalent; see AudioCenter for the same pattern).
+ * No reboot (the App has no REBOOT permission; verified on device, always SecurityException);
+ * TtsCenter readiness is read through the same passed-in instance.
  */
 public final class DeviceStatus implements SensorEventListener {
     private static final String TAG = "DeviceStatus";
@@ -46,8 +46,8 @@ public final class DeviceStatus implements SensorEventListener {
         this.actionDirect = actionDirect;
         this.ubxPlayer = ubxPlayer;
         this.ttsCenter = ttsCenter;
-        // 原 registerGestureController() 那兩行搬入：sensorManager 經 appContext
-        // 拿到的和 Activity 那個是同一個 service (audioManager 不動，留在手勢那邊)。
+        // Moved in from the original registerGestureController(): the sensorManager obtained via
+        // appContext is the same service as the Activity's (audioManager is unchanged, stays on the gesture side).
         sensorManager = (SensorManager) appContext.getSystemService(Context.SENSOR_SERVICE);
         accelerometerSensor = sensorManager != null
                 ? sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) : null;
@@ -75,7 +75,7 @@ public final class DeviceStatus implements SensorEventListener {
         try {
             BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
             if (adapter == null) {
-                // 形狀同有 adapter 一致（enabled/name 恒在），免調用方逐鍵判空。
+                // Same shape as with an adapter (enabled/name always present), so callers do not need per-key null checks.
                 return HttpServer.ApiResponse.ok("{\"ok\":true,\"available\":false,\"enabled\":false,\"name\":\"\"}");
             }
             boolean enabled = adapter.isEnabled();
@@ -87,9 +87,9 @@ public final class DeviceStatus implements SensorEventListener {
         }
     }
 
-    /** 語音 FUNCTION 共用：開/關藍牙（API22 經 BluetoothAdapter.enable()/disable()
-     *  仍有效；要 BLUETOOTH_ADMIN，見 Manifest）。回 true=已達目標狀態，
-     *  false=無 adapter 或系統拒絕。任意線程可調。 */
+    /** Shared by voice FUNCTION: turn Bluetooth on/off (on API22, BluetoothAdapter.enable()/disable()
+     *  still work; requires BLUETOOTH_ADMIN, see Manifest). Returns true=target state reached,
+     *  false=no adapter or the system refused. Safe to call from any thread. */
     public boolean setBluetoothEnabled(boolean on) {
         try {
             BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
@@ -105,9 +105,9 @@ public final class DeviceStatus implements SensorEventListener {
         }
     }
 
-    /** 語音 FUNCTION 共用：開/關無線網路（經 WifiManager.setWifiEnabled；
-     *  要 CHANGE_WIFI_STATE，見 Manifest）。回 true=已達目標狀態或調用成功，
-     *  false=無服務或系統拒絕。任意線程可調。 */
+    /** Shared by voice FUNCTION: turn WiFi on/off (via WifiManager.setWifiEnabled;
+     *  requires CHANGE_WIFI_STATE, see Manifest). Returns true=target state reached or the call succeeded,
+     *  false=no service or the system refused. Safe to call from any thread. */
     public boolean setWifiEnabled(boolean on) {
         try {
             WifiManager wm = (WifiManager) appContext.getSystemService(Context.WIFI_SERVICE);
@@ -124,7 +124,7 @@ public final class DeviceStatus implements SensorEventListener {
     }
 
     private BroadcastReceiver batteryReceiver;
-    /** 低電量蹲下 latch：10% 播過一次後不再重複，直到充過電或回升過 12% 才重置。 */
+    /** Low-battery squat latch: after squatting once at 10%, do not repeat until the battery has charged or recovered above 12%. */
     private boolean batteryLowSquatDone = false;
 
     private volatile int lastBatteryLevel = -1;
@@ -154,8 +154,9 @@ public final class DeviceStatus implements SensorEventListener {
                 lastBatteryStatus = batteryStatusName(status);
                 EventBus.get().publish("battery", "{\"level\":" + level + ",\"scale\":" + scale
                         + ",\"charging\":" + lastBatteryCharging + ",\"status\":\"" + lastBatteryStatus + "\"}");
-                // 用戶要求：電量跌到 10%（且不在充電）自動蹲下一次。ACTION_BATTERY_CHANGED
-                // 是 sticky broadcast，註冊即刻有一次，latch 防重複；正在充電/回升過 12% 重置。
+                // User requirement: when the battery drops to 10% (and is not charging), squat once automatically.
+                // ACTION_BATTERY_CHANGED is a sticky broadcast, so registration fires once immediately; the latch prevents repeats;
+                // charging or recovery above 12% resets it.
                 int pct = (level >= 0 && scale > 0) ? (level * 100 / scale) : -1;
                 if (lastBatteryCharging || pct > 12) {
                     batteryLowSquatDone = false;
@@ -175,7 +176,7 @@ public final class DeviceStatus implements SensorEventListener {
         appContext.registerReceiver(batteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
     }
 
-    /** onDestroy 共用：同 MainActivity 舊寫法一樣 guard (null + IllegalArgumentException)。 */
+    /** Shared by onDestroy: same guard as the old MainActivity style (null + IllegalArgumentException). */
     public void unregisterBatteryReceiver() {
         if (batteryReceiver != null) {
             try {
@@ -206,13 +207,13 @@ public final class DeviceStatus implements SensorEventListener {
                 + "\"status\":\"" + lastBatteryStatus + "\"}");
     }
 
-    /** system/status power 段用 (原直接讀 MainActivity field)。 */
+    /** Used by the system/status power section (originally read the MainActivity field directly). */
     public int getBatteryLevel() { return lastBatteryLevel; }
-    /** system/status power 段用 (原直接讀 MainActivity field)。 */
+    /** Used by the system/status power section (originally read the MainActivity field directly). */
     public int getBatteryScale() { return lastBatteryScale; }
-    /** system/status power 段用 (原直接讀 MainActivity field)。 */
+    /** Used by the system/status power section (originally read the MainActivity field directly). */
     public boolean isBatteryCharging() { return lastBatteryCharging; }
-    /** system/status power 段用 (原直接讀 MainActivity field)。 */
+    /** Used by the system/status power section (originally read the MainActivity field directly). */
     public String getBatteryStatus() { return lastBatteryStatus; }
 
     // -- Accelerometer (IMU): standard Android SensorManager, NOT the UBTECH AIDL SDK -
@@ -256,9 +257,9 @@ public final class DeviceStatus implements SensorEventListener {
 
     // -- SensorEventListener (accelerometer only - see setAccelerometerEnabled()) -------
     private long lastAccelLogMs = 0;
-    // WS 節流窗（實測呢部 gsensor ~100Hz 狂洗；逐幀 publish＝main thread JSON＋WS
-    // 直寫＋瀏覽器 DOM 齊塞，掣 event 排幾秒，ANR 死（見實機 InputDispatcher
-    // spent 2000ms＋ANR Killing logcat）。圖表 10Hz 足夠，用單調鐘量窗。
+    // WS throttle window (measured: this gsensor fires at ~100Hz; publishing per frame = main-thread JSON + WS
+    // direct write + browser DOM all jammed, button events queue for several seconds, ANR death (see on-device InputDispatcher
+    // spent 2000ms + ANR Killing logcat). 10Hz is enough for the chart; the window is measured with a monotonic clock.
     private long lastAccelPublishMs = 0;
     private static volatile float[] sLatestAccel = null;
     private static volatile long sLatestAccelAtMs = 0;
@@ -290,7 +291,7 @@ public final class DeviceStatus implements SensorEventListener {
         }
         // Published as-is (m/s^2, gravity-relative - see docs/capabilities.md). The
         // browser-side chart/UI is responsible for any smoothing/scaling it wants.
-        // 節流後先推（見上面 ANR 註解；用 elapsedRealtime，wall clock 會跳）。
+        // Push only after throttling (see the ANR note above; uses elapsedRealtime because wall clock can jump).
         long tick = android.os.SystemClock.elapsedRealtime();
         // Newest raw sample for the servo read stream (ServoReadStream, alpha2-rl#3), before the
         // 10 Hz throttle of the "accel" event.
@@ -333,7 +334,7 @@ public final class DeviceStatus implements SensorEventListener {
             Thread.currentThread().interrupt();
             done = false;
         }
-        // 等唔到即 main thread 塞住：回 ok:false 等面板撥返掣，唔好呃人話開咗。
+        // If the wait times out, the main thread is stuck: return ok:false so the panel can reset the button; do not claim it is on.
         if (!done) {
             return HttpServer.ApiResponse.ok(
                     "{\"ok\":false,\"error\":\"main thread busy, try again\"}");
@@ -350,7 +351,7 @@ public final class DeviceStatus implements SensorEventListener {
                 + ",\"available\":" + (accelerometerSensor != null) + "}");
     }
 
-    /** 調用方係咪 main thread（mapping 物理掣係，HTTP worker 唔係）。 */
+    /** Is the caller on the main thread (the mapped physical button is, the HTTP worker is not). */
     private static boolean onMainThread() {
         try {
             return android.os.Looper.myLooper() == android.os.Looper.getMainLooper();
@@ -359,15 +360,16 @@ public final class DeviceStatus implements SensorEventListener {
         }
     }
 
-    /** 映射事件／面板共用：讀加速度計實際開關（自記態）。 */
+    /** Shared by mapped events/panel: read the actual accelerometer on/off state (self-maintained). */
     public boolean isAccelerometerEnabled() {
         return accelerometerEnabled;
     }
 
-    /** 映射共用：加速度計單鍵 toggle（同 accelerometerSet 同一主線程＋latch 寫法）。
-     *  main thread 經物理掣入：post 即回 true，唔等 latch（等自己即 2 秒自塞，
-     *  taken 永遠 false 得嚟仲凍結掣事件，見 traces；狀態照翻）。
-     *  HTTP worker 照等（回值照實）。回 true＝硬件在且已翻轉（開／關都算做咗）。 */
+    /** Shared by mapping: accelerometer single-button toggle (same main-thread + latch style as accelerometerSet).
+     *  Main thread via the physical button: return true right after post, do not wait on the latch
+     *  (waiting on oneself deadlocks for 2 seconds,
+     *  taken stays false and button events freeze, see traces; the state still flips).
+     *  The HTTP worker does wait (the return value is honest). Returns true = the hardware exists and the state flipped (both on/off count as done). */
     public boolean toggleAccelerometer() {
         if (onMainThread()) {
             mainHandler.post(new Runnable() {
@@ -395,13 +397,13 @@ public final class DeviceStatus implements SensorEventListener {
             Thread.currentThread().interrupt();
             done = false;
         }
-        // 等唔到即 main thread 塞住：回 false 等 taken 照實，唔好呃人。
+        // If the wait times out, the main thread is stuck: return the honest value of taken; do not claim success.
         if (!done) return false;
         return flipped[0];
     }
 
-    // -- 健康狀態聚合 --
-    // chest/header readiness 薄 delegate（實現見 DirectProbes）。
+    // -- Health-status aggregate --
+    // Thin delegates for chest/header readiness (implementation in DirectProbes).
     private boolean directChestReady() {
         return DirectProbes.isChestReady(appContext);
     }
@@ -415,7 +417,7 @@ public final class DeviceStatus implements SensorEventListener {
         try {
             appVer = appContext.getPackageManager().getPackageInfo(appContext.getPackageName(), 0).versionName;
         } catch (Exception ignored) {}
-        // pure-direct: chest/header 可用性改由直驱串口报告，不再经 binder。
+        // pure-direct: chest/header availability is now reported by the direct serial port, no longer via binder.
         return HttpServer.ApiResponse.ok("{\"ok\":true,"
                 + "\"appVersion\":\"" + appVer + "\","
                 + "\"apiLevel\":" + android.os.Build.VERSION.SDK_INT + ","
@@ -424,11 +426,11 @@ public final class DeviceStatus implements SensorEventListener {
                 + "\"androidTtsReady\":" + ttsCenter.isReady() + "}");
     }
 
-    // 無 reboot：App 是第三方 sideload，無 REBOOT 權限 (signature|system)，實機回
-    // "Neither user 10020 nor current process has android.permission.REBOOT"，su
-    // 亦在 app context 拿不到 (Permission denied)——UUID 卡改做手動重開機提示。
+    // No reboot: the App is a third-party sideload with no REBOOT permission (signature|system); on device it returns
+    // "Neither user 10020 nor current process has android.permission.REBOOT", and su
+    // is also unreachable from the app context (Permission denied) - the UUID card now shows a manual-reboot hint.
 
-    // 面板 URL/顯示用本機 IP（updatePanelUrlDisplay/複製連結經這裡讀）。
+    // Local IP for the panel URL/display (updatePanelUrlDisplay/copy-link read it here).
     public String getWifiIp() {
         try {
             WifiManager wm = (WifiManager) appContext.getSystemService(Context.WIFI_SERVICE);
@@ -437,7 +439,7 @@ public final class DeviceStatus implements SensorEventListener {
             if (wifiIp != null && !wifiIp.equals("0.0.0.0") && !wifiIp.isEmpty()) {
                 return wifiIp;
             }
-            // 热点 AP 模式或未連接作 STA 時，WifiManager 回 0.0.0.0；改列舉網卡找 site-local
+            // In hotspot AP mode or when not connected as STA, WifiManager returns 0.0.0.0; enumerate the network interfaces to find a site-local one
             try {
                 java.util.Enumeration<java.net.NetworkInterface> en = java.net.NetworkInterface.getNetworkInterfaces();
                 while (en != null && en.hasMoreElements()) {
@@ -447,8 +449,8 @@ public final class DeviceStatus implements SensorEventListener {
                         java.net.InetAddress addr = addrs.nextElement();
                         if (!addr.isLoopbackAddress() && addr instanceof java.net.Inet4Address) {
                             String host = addr.getHostAddress();
-                            // 192.168/10./172.16/12 私網先算數；另見 isSiteLocal 註：fd00::/8
-                            // IPv6 ULA 這部機用不着，不判）。
+                            // Only the private ranges 192.168/10./172.16/12 count; see also the isSiteLocal note: fd00::/8
+                            // IPv6 ULA is not used by this device, so it is not checked).
                             if (host != null && (host.startsWith("192.168.") || host.startsWith("10.")
                                     || isPrivate172(host))) {
                                 return host;
@@ -463,7 +465,7 @@ public final class DeviceStatus implements SensorEventListener {
         }
     }
 
-    /** 172.16.0.0–172.31.255.255 私網段（RFC1918 172.16/12）。 */
+    /** 172.16.0.0–172.31.255.255 private range (RFC1918 172.16/12). */
     private static boolean isPrivate172(String host) {
         if (!host.startsWith("172.")) return false;
         int dot = host.indexOf('.', 4);
