@@ -108,12 +108,12 @@ public class HttpServer implements Runnable {
             return new ApiResponse(200, "application/json; charset=utf-8", json);
         }
 
-        /** {"ok":true} 快捷（之前 30+ 處各自寫全字面，經 JsonUtil.okTrue 單一來源）。 */
+        /** {"ok":true} shortcut (previously 30+ call sites wrote the full literal; now the single source JsonUtil.okTrue). */
         public static ApiResponse okTrue() {
             return ok(JsonUtil.okTrue());
         }
 
-        /** {"ok":<bool>} 快捷（okTrue 的動態版；之前 6 處各自砌字串）。 */
+        /** {"ok":<bool>} shortcut (the dynamic version of okTrue; previously 6 call sites built the string). */
         public static ApiResponse okBool(boolean ok) {
             return ok("{\"ok\":" + ok + "}");
         }
@@ -131,9 +131,9 @@ public class HttpServer implements Runnable {
             return of(400, message);
         }
 
-        /** 面板 token 閘口用（見 PanelAuth）：未帶／帶錯 token 即 401，不是 400/500。
-         *  附 WWW-Authenticate: Bearer realm="panel"（標準 401 語義，curl／Swagger
-         *  先至知要帶 Authorization: Bearer）。 */
+        /** For the panel token gate (see PanelAuth): a missing or wrong token is 401, not 400/500.
+         *  Adds WWW-Authenticate: Bearer realm="panel" (standard 401 semantics, so curl/Swagger
+         *  know to send Authorization: Bearer). */
         public static ApiResponse unauthorized(String message) {
             Map<String, String> h = new HashMap<String, String>();
             h.put("WWW-Authenticate", "Bearer realm=\"panel\"");
@@ -141,7 +141,7 @@ public class HttpServer implements Runnable {
                     JsonUtil.okFalse(String.valueOf(message)), h);
         }
 
-        /** 轉義單一實現見 JsonUtil（舊 comment 擔心的循環已不存在：JsonUtil 零依賴）。 */
+        /** The single escaping implementation lives in JsonUtil (the cycle the old comment worried about no longer exists: JsonUtil has zero dependencies). */
         private static String esc(String s) {
             return JsonUtil.esc(s);
         }
@@ -156,17 +156,18 @@ public class HttpServer implements Runnable {
     private volatile boolean running = false;
     private volatile IOException bindError;
     private final CountDownLatch bindLatch = new CountDownLatch(1);
-    /** /ws 升級前閘口（MainActivity 注入 PanelAuth 檢查；null＝不閘，向後兼容）。 */
+    /** Gate before the /ws upgrade (MainActivity injects the PanelAuth check; null = no gate, backward compatible). */
     private volatile WsAuthGate wsAuthGate;
 
-    /** 由 MainActivity 在 start() 前注入（見 PanelAuth.requireAuth，同 /api/* 同一邏輯）。 */
+    /** Injected by MainActivity before start() (see PanelAuth.requireAuth, the same logic as /api/*). */
     public void setWsAuthGate(WsAuthGate gate) {
         this.wsAuthGate = gate;
     }
 
     /**
-     * TLS 已移除，只剩 plain HTTP。之前瀏覽器對自簽 cert 反覆拒絕，且 walkie-talkie
-     * mic 在 UI 已永久關閉，TLS 不再需要。This is now the only constructor - plain HTTP only.
+     * TLS is removed; plain HTTP only. Browsers kept rejecting the self-signed cert,
+     * and the walkie-talkie mic is permanently off in the UI, so TLS is no longer needed.
+     * This is now the only constructor - plain HTTP only.
      */
     public HttpServer(AssetManager assets, ApiHandler apiHandler, StreamHandler streamHandler,
             RawUploadHandler rawUploadHandler) {
@@ -285,7 +286,7 @@ public class HttpServer implements Runnable {
 
         Map<String, String> headers = new HashMap<>();
         String line;
-        // header 上限 100 行。
+        // Header line cap of 100.
         int headerLines = 0;
         while ((line = readHttpLine(rawIn, 8192)) != null && !line.isEmpty()) {
             if (++headerLines > 100) return false;
@@ -361,9 +362,10 @@ public class HttpServer implements Runnable {
 
         OutputStream out = socket.getOutputStream();
 
-        // CORS preflight：Bearer header 令跨域 /api 變 non-simple request，瀏覽器會先送
-        // OPTIONS 探路——之前無 header 所以唔使理，而家要回 200＋Allow-Headers，
-        // 否則第三方跨域 panel 加咗 Authorization 即全炒（同機面板係同域，無影響）。
+        // CORS preflight: the Bearer header makes cross-origin /api a non-simple request, so the
+        // browser sends an OPTIONS probe first - before there was no header so this was ignored,
+        // now answer 200 + Allow-Headers, otherwise a third-party cross-origin panel with an
+        // Authorization header breaks entirely (the on-device panel is same-origin, unaffected).
         if ("OPTIONS".equalsIgnoreCase(method)) {
             Map<String, String> h = new HashMap<String, String>();
             h.put("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -390,7 +392,7 @@ public class HttpServer implements Runnable {
         String body = new String(rawBody, StandardCharsets.UTF_8);
 
         if (path.startsWith("/api/")) {
-            // response body 只 log 頭 200 字（ssid/uuid/vision token 不入 logcat）。
+            // Log only the first 200 chars of the response body (ssid/uuid/vision token must not land in logcat).
             Log.i(TAG, "API request: " + method + " " + path + (queryString.isEmpty() ? "" : "?" + redactQuery(queryString)));
             ApiResponse resp;
             try {
@@ -399,7 +401,7 @@ public class HttpServer implements Runnable {
                         ? resp.body.substring(0, 200) + "…(" + resp.body.length() + "B)" : resp.body;
                 Log.i(TAG, "API response [" + resp.status + "]: " + path + " -> " + bodyLog);
             } catch (IllegalArgumentException e) {
-                // 1+2 OpenAPI 校驗失敗 → 400 而非 500 (對應 ApiValidator 拋出的參數錯誤)
+                // OpenAPI validation failure -> 400, not 500 (the parameter errors thrown by ApiValidator)
                 Log.w(TAG, "API bad request for " + path + ": " + e.getMessage());
                 resp = ApiResponse.badRequest(String.valueOf(e.getMessage()));
             } catch (Exception e) {
@@ -417,7 +419,7 @@ public class HttpServer implements Runnable {
         if (path.equals("/") || path.isEmpty()) {
             path = "/index.html";
         }
-        // 擋 ..（AssetManager 是否會 normalize 未驗證，不冒險）。
+        // Block ".." (unverified whether AssetManager normalizes; do not take the risk).
         if (path.contains("..")) {
             byte[] msg = "Not found".getBytes(StandardCharsets.UTF_8);
             writeResponse(out, 404, "text/plain; charset=utf-8", msg, keepAlive, true);
@@ -428,7 +430,7 @@ public class HttpServer implements Runnable {
             path = "/docs/index.html";
         }
         if (path.startsWith("/.well-known/")) {
-            // dotfiles 會被 aapt strip：先試 dot path，不得即 fallback 無點版，一次 open 完成。
+            // dotfiles are stripped by aapt: try the dot path first, fall back to the dotless version on a miss, done in one open.
             String fallback = "web/well-known" + path.substring("/.well-known".length());
             try {
                 byte[] wellKnown = readAsset(fallback);
@@ -462,7 +464,7 @@ public class HttpServer implements Runnable {
         }
     }
 
-    /** assets 讀一次完成（不存在回 null，不拋，方便 fallback 鏈）。 */
+    /** Read an asset in one pass (a missing asset returns null, no exception, to ease the fallback chain). */
     private byte[] readAsset(String assetPath) {
         InputStream is = null;
         try {
@@ -477,7 +479,7 @@ public class HttpServer implements Runnable {
         }
     }
 
-    /** body 讀取（含上限）：正常回 byte[]，header 爛／超限回 null＝關線。 */
+    /** Read the body (with a limit): a normal body returns byte[], a broken header or an over-limit length returns null = close the connection. */
     private static byte[] readBody(InputStream rawIn, Map<String, String> headers, String path)
             throws IOException {
         String lenStr = headers.get("content-length");
@@ -491,10 +493,11 @@ public class HttpServer implements Runnable {
             // connection instead of trying to guess/recover.
             return null;
         }
-        // body 上限：len 來自客戶端 Content-Length，不設限會 OOM。正常 body
-        // 最大是 /upload/audio walkie-talkie PCM chunk (幾十 KB)，32MB 留有餘裕。
-        // 胸固件只收 ≤112KB app 小鏡像；仍給 1MB（/upload/chest 專用上限），等誤傳嘅 256KB 全鏡像
-        // 都能去到 handleChestUpload 攞明確 400 原因，唔好喺呢度靜靜斷線。
+        // Body limit: len comes from the client Content-Length; without a limit this OOMs. The
+        // largest normal body is a /upload/audio walkie-talkie PCM chunk (tens of KB), so 32MB
+        // leaves plenty of margin. The chest firmware only accepts a <=112KB app micro-image;
+        // /upload/chest still gets 1MB (its dedicated limit) so a wrongly sent 256KB full image
+        // reaches handleChestUpload for an explicit 400 reason instead of a silent drop here.
         final int maxBody = path.startsWith("/upload/chest") ? (1024 * 1024) : (32 * 1024 * 1024);
         if (len < 0 || len > maxBody) {
             Log.w(TAG, "Rejecting request with Content-Length=" + len + " (limit " + maxBody + ")");
@@ -541,7 +544,7 @@ public class HttpServer implements Runnable {
         writeResponse(out, status, contentType, body, keepAlive, false);
     }
 
-    /** ApiResponse 版：附帶 extra headers（401 自動補 WWW-Authenticate，防漏寫）。 */
+    /** ApiResponse version: also writes the extra headers (a 401 auto-adds WWW-Authenticate, guarding against a missed write). */
     static void writeResponse(OutputStream out, ApiResponse resp, boolean keepAlive)
             throws IOException {
         writeResponse(out, resp, keepAlive, false);
@@ -631,7 +634,7 @@ public class HttpServer implements Runnable {
         return new String(lineBuf.toByteArray(), StandardCharsets.ISO_8859_1);
     }
 
-    /** log 用 query 脫敏：token/uuid/value(xiaozhi token・UUID 寫入) 等不落 logcat。 */
+    /** Query redaction for logs: token/uuid/value (xiaozhi token, UUID writes) etc. must not land in logcat. */
     private static String redactQuery(String qs) {
         if (qs == null || qs.isEmpty()) return qs;
         StringBuilder sb = new StringBuilder();
@@ -642,7 +645,7 @@ public class HttpServer implements Runnable {
             String kl = k.toLowerCase(java.util.Locale.US);
             if (kl.contains("token") || kl.contains("uuid") || kl.equals("value")
                     || kl.contains("secret") || kl.contains("pass") || kl.contains("psk")
-                    // 實驗 tab 面板 token：panel_token 含 "token" 已中，current（舊值）要另加。
+                    // Experiments-tab panel token: panel_token already matches via "token"; current (the old value) needs its own entry.
                     || kl.equals("current") || kl.equals("panel_token")
                     || kl.equals("url") || kl.equals("wsurl") || kl.equals("deviceid")) {
                 sb.append(k).append('=').append("***");
@@ -668,7 +671,7 @@ public class HttpServer implements Runnable {
                     map.put(java.net.URLDecoder.decode(pair, "UTF-8"), "");
                 }
             } catch (Exception e) {
-                // 爛參數記一行 debug。
+                // Log one debug line for a malformed pair.
                 android.util.Log.d(TAG, "parseQuery dropped pair: " + pair);
             }
         }

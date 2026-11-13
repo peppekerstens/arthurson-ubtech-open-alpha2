@@ -9,18 +9,20 @@ import org.json.JSONObject;
 import java.util.Map;
 
 /**
- * 離線文法包：本地 BNF 文法生命週期 (doInit/doStart/doStop)＋
- * connectivity 觸發自動切換 (probe/apply/cooldown)＋wakeup probe＋
- * speech/offline_auto_switch、get_default_grammar 兩個 endpoint＋
- * CONNECTIVITY_ACTION receiver。
+ * Offline grammar package: the local BNF grammar lifecycle (doInit/doStart/
+ * doStop) + the connectivity-triggered auto switch (probe/apply/cooldown) +
+ * the wakeup probe + the speech/offline_auto_switch and get_default_grammar
+ * endpoints + the CONNECTIVITY_ACTION receiver.
  *
- * 注意：機身已無 alpha2services，robot.speech_*Grammar() 全部即時回 NOT_INIT
- * （見 RobotStub），listener 永遠不會 callback——state 機照行（latch/gate
- * 照守），只是永遠不會真正入離線模式。
- * 擁有關係：
- * - MainActivity 只留：triggerWakeupProbe static 薄 shim（RobotEventReceiver
- *   經它入）、接線（onCreate 建構＋register、onDestroy unregister）。
- * - ApiDispatcher 經下面 offlineAutoSwitch/getDefaultGrammar 直調。
+ * Note: the body no longer has alpha2services, so robot.speech_*Grammar()
+ * all return NOT_INIT immediately (see RobotStub) and the listener never
+ * callbacks - the state machine still runs (the latch/gate still guard), it
+ * just never truly enters offline mode.
+ * Ownership:
+ * - MainActivity keeps only: the triggerWakeupProbe static thin shim
+ *   (RobotEventReceiver enters through it) and the wiring (construct +
+ *   register in onCreate, unregister in onDestroy).
+ * - ApiDispatcher calls offlineAutoSwitch/getDefaultGrammar below directly.
  */
 public final class GrammarCenter {
     private static final String TAG = "GrammarCenter";
@@ -33,12 +35,12 @@ public final class GrammarCenter {
         this.appContext = context.getApplicationContext();
         this.robot = robot;
         this.xiaozhiBridge = xiaozhiBridge;
-        // 「自動跟網絡切換」偏好 (預設開)。
+        // "Auto-follow the network switch" preference (default on).
         offlineGrammarAutoSwitch = appContext.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(PREF_OFFLINE_AUTO, true);
     }
 
-    /** onDestroy 共用：guard (IllegalArgumentException)。 */
+    /** Shared by onDestroy: guard (IllegalArgumentException). */
     public void unregisterConnectivityReceiver() {
         try {
             appContext.unregisterReceiver(connectivityReceiver);
@@ -46,40 +48,48 @@ public final class GrammarCenter {
         }
     }
 
-    /** 離線文法辨識 (本地 BNF grammar) 模式現在開不開。
-     *  開了之後, 機身 alpha2services 會用 engine_type=local + APK 裡面的
-     *  assets/asr/common.jet 離線資源做本地文法辨識 (完全不用上網), 辨識結果
-     *  經 grammar listener 這條路徑回來。同時 onServerCallBack() 那條正常聽寫
-     *  路徑會被 gate 住 - 因為 mSpeechServiceUtil 和 mAsrServiceUtil 是兩個
-     *  獨立 binding, firmware 有機會將同一句結果派給兩邊, 如果兩邊都各自
-     *  觸發語意配對 + TTS, 就會重複答兩次。只有 grammar listener 一條路徑會觸發回應。 */
+    /** Whether offline grammar recognition (local BNF grammar) mode is on right now.
+     *  Once on, the body alpha2services would use engine_type=local + the
+     *  assets/asr/common.jet offline resources in the APK for local grammar
+     *  recognition (no network at all), and the recognition result comes back
+     *  through this grammar listener path. At the same time the normal dictation
+     *  path in onServerCallBack() is gated - because mSpeechServiceUtil and
+     *  mAsrServiceUtil are two independent bindings, the firmware may deliver
+     *  the same sentence result to both sides, and if both sides each trigger
+     *  semantic pairing + TTS, it would answer twice. Only the grammar listener
+     *  path triggers a response. */
     private volatile boolean offlineGrammarActive = false;
 
-    /** 最後一次 speech/init_grammar 的機身構建結果 - errorCode==0
-     *  才算成功。speech/start_grammar 會用它做 gate: 文法未構建成功就開始辨識,
-     *  機身會因為沒有本地 grammar 而將所有語音跌落雲端聽寫 fallback, 離線時變成
-     *  「說什麼都是網路錯誤」(實測 logcat: 10114/20002), 所以這裡早一步擋住。 */
+    /** The body build result of the last speech/init_grammar - only errorCode==0
+     *  counts as success. speech/start_grammar uses it as a gate: starting
+     *  recognition before the grammar built successfully makes the body fall all
+     *  speech to the cloud dictation fallback (no local grammar), which offline
+     *  becomes "everything is a network error" (measured logcat: 10114/20002), so
+     *  this blocks one step earlier. */
     private volatile boolean lastGrammarBuildOk = false;
 
-    /** 「自動跟網路切換」開關 - 開了的話, 沒網路時自動入離線文法
-     *  模式, 有網路時自動退出來走回雲端聽寫。偏好存 SharedPreferences (共用
-     *  頂頭那個 PREFS_NAME), 預設開。 */
+    /** "Auto-follow the network switch" - when on, a lost network enters offline
+     *  grammar mode automatically and a restored network exits it back to cloud
+     *  dictation. The preference is stored in SharedPreferences (shared
+     *  PREFS_NAME at the top), default on. */
     public static final String PREF_OFFLINE_AUTO = "offline_grammar_auto";
     private volatile boolean offlineGrammarAutoSwitch = true;
-    /** 離線文法構建中/剛構建完, 等著自動開始辨識的 pending flag - 由
-     *  grammar init callback 成功之後接手做 start。 */
+    /** Offline grammar building / just built, waiting to start recognition automatically - a pending flag
+     *  that the grammar init callback takes over to do the start after success. */
     private volatile boolean pendingOfflineEnable = false;
-    /** init_grammar 進行中的防重入鎖 - 開機那時 speech_ready
-     *  和 connectivity_change 兩個觸發可以幾乎同時到達, 疊兩次 buildGrammar
-     *  會讓 firmware destroyASR 再重建, 打壞剛起好的辨識 session。 */
+    /** Re-entrancy lock while init_grammar is in flight - at boot the speech_ready
+     *  and connectivity_change triggers can arrive almost at the same time, and two
+     *  stacked buildGrammar calls make the firmware destroyASR and rebuild, breaking
+     *  the recognition session just started. */
     private volatile boolean grammarInitInFlight = false;
-    /** 最後一次模式切換時間 (ms) - 防止網路飄忽讓模式不停翻轉 (每次翻轉都
-     *  會 stop/start 文法, 中間那段說話是沒反應的)。 */
+    /** Time (ms) of the last mode switch - prevents a flapping network from flipping
+     *  the mode constantly (each flip stop/starts the grammar, and speech in the
+     *  middle gets no response). */
     private volatile long lastModeSwitchMs = 0;
     private static final long MODE_SWITCH_MIN_INTERVAL_MS = 15000;
-    /** 監察網路連線狀態 - CONNECTIVITY_ACTION 在 API 22 (這台機器) 仍是標準做法。
-     *  收到廣播就在背景 thread 做真正網路探測再 applyConnectivityMode() - 探測
-     *  是 blocking call (TCP connect), 不可以放到 main thread。 */
+    /** Watches the network connection state - CONNECTIVITY_ACTION is still the standard way on API 22 (this machine).
+     *  On receiving the broadcast, run the real network probe on a background thread and then applyConnectivityMode() - the probe
+     *  is a blocking call (TCP connect) and must not go on the main thread. */
     private final android.content.BroadcastReceiver connectivityReceiver =
             new android.content.BroadcastReceiver() {
                 @Override

@@ -6,11 +6,11 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Stream 讀取共用實現。
+ * Shared stream-reading implementation.
  *
- * 之前 {@link MainActivity#readFully}、{@code XiaozhiOtaClient.readFully}、
- * {@link HttpServer} 的靜態檔案讀取 loop 是同一個 4k/8k chunk 迴圈各自複製。
- * 收斂到這裡，行為不變。
+ * {@link MainActivity#readFully}, {@code XiaozhiOtaClient.readFully} and the
+ * static file-read loop of {@link HttpServer} each copied the same 4k/8k chunk
+ * loop. This class holds that code in one place. Behavior is unchanged.
  */
 public final class IOUtil {
     private IOUtil() {}
@@ -29,7 +29,7 @@ public final class IOUtil {
         return new String(readAllBytes(in), StandardCharsets.UTF_8);
     }
 
-    /** 帶上限版：超限即掟 IOException，免客戶端 Content-Length 亂報 OOM。 */
+    /** Bounded version: throws IOException past the limit, so a lying client Content-Length cannot cause an OOM. */
     public static byte[] readAllBytes(InputStream in, int maxBytes) throws IOException {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         byte[] chunk = new byte[8192];
@@ -43,7 +43,7 @@ public final class IOUtil {
         return buf.toByteArray();
     }
 
-    /** 讀足 len bytes（短了就回實際讀到的，不拋）。 */
+    /** Read exactly len bytes (a short stream returns what was read, no exception). */
     public static byte[] readExactly(InputStream in, int len) throws IOException {
         byte[] out = new byte[len];
         int readTotal = 0;

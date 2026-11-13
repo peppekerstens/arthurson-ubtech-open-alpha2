@@ -12,35 +12,45 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Android 內置人臉追蹤：零額外依賴，只用 framework 自帶的
- * {@code android.media.FaceDetector}（API 1 起就有，API 19/22 安全，
- * 不用 Play Services、不下載模型，符合本專案 offline／framework-only 政策）。
+ * Built-in Android face tracking: zero extra dependencies, uses only the
+ * framework's own {@code android.media.FaceDetector} (present since API 1,
+ * safe on API 19/22, no Play Services, no model download; matches this
+ * project's offline/framework-only policy).
  *
- * 鏈路：{@link CameraController} 連續預覽 JPEG 幀 → 本類按 intervalMs 抽樣 →
- * 背景線程 downscale 解碼（4:3 預覽 → 320x240，16:9 → 320x180，RGB_565，
- * FaceDetector 硬性要求 RGB_565 且寬為偶數）→ findFaces 取最大一張 → 歸一化偏移
- * dx/dy → 死區＋比例步進驅動頭部 yaw(19)/pitch(20) 跟人（cmd05 單舵機，經 {@link UbxApi}，
- * 位姿追踪照記，天然不干擾其餘 19 軸）。
+ * Pipeline: {@link CameraController} continuous preview JPEG frames -> this
+ * class samples by intervalMs -> a background thread downscales and decodes
+ * (4:3 preview -> 320x240, 16:9 -> 320x180, RGB_565; FaceDetector requires
+ * RGB_565 and an even width) -> findFaces takes the largest face -> the
+ * normalized offset dx/dy -> a dead band plus a proportional step drive the
+ * head yaw(19)/pitch(20) to follow (cmd05 single-servo, via {@link UbxApi};
+ * pose tracking keeps its record and does not touch the other 19 axes).
  *
- * ROI 跟隨（roiEnabled，預設開）：全圖命中一次後，之後只裁上次臉框 2 倍大細框
- * （≥96px、唔夠全圖 8 成先裁）直接檢，唔放大像素——舊實測放大檢 recall 跌到 2%，
- * 直接檢先保 recall。ROI 單幀 ~20-30ms，320x240 長開 10fps 靠佢；連續 3 次掃唔到
- * 即回全圖。舵機指令另有 150ms 最小間隔，10fps 下唔 hammer 胸板串口。
+ * ROI follow (roiEnabled, default on): after one full-frame hit, later frames
+ * crop a box 2x the last face box (only when >=96px and smaller than 80% of
+ * the frame) and detect directly, without upsampling pixels - an earlier test
+ * showed upscaled detection dropped recall to 2%; direct detection keeps
+ * recall. One ROI frame takes ~20-30ms, which sustains 10fps at 320x240;
+ * three missed scans in a row fall back to full frame. Servo commands also
+ * have a 150ms minimum gap, so 10fps does not hammer the chest serial port.
  *
- * 安全／性能要點：
- * - 預設 600ms 檢一次（RK3288 上 320x180 FaceDetector 約 50-150ms），相機線程只做
- *   節流判斷＋post，絕不阻塞（見 CameraController.onPreviewFrame 註解）。
- * - 每次最多走一步 stepDeg（預設 5°），並 clamp 到前端同一份校準表
- *   （19: 75-165，20: 105-155，home 120，見 app-core.js SERVO_CALIBRATION），
- *   不會頂機械限位；播動作（UbxPlayer）時請先停追蹤，兩邊同搶 19/20 會打架。
- *   實機已驗證方向無誤，故不設反轉開關。
- * - 人臉 WS log 已 mute（實機要求）：一律唔經 EventBus，只留 HTTP status 輪詢＋前端 overlay；
- *   狀態經 face/track/status 輪詢。
+ * Safety/performance notes:
+ * - Default: detect every 600ms (a 320x180 FaceDetector takes about 50-150ms
+ *   on RK3288); the camera thread only does the throttle check and the post,
+ *   and never blocks (see the comment in CameraController.onPreviewFrame).
+ * - Each pass moves at most one stepDeg (default 5 degrees), clamped to the
+ *   same calibration table the frontend uses (19: 75-165, 20: 105-155, home
+ *   120, see SERVO_CALIBRATION in app-core.js), so it never hits the
+ *   mechanical limits; stop tracking before playing an action (UbxPlayer), or
+ *   both sides fight over 19/20. Direction was verified on real hardware, so
+ *   there is no invert switch.
+ * - Face WS logs are muted (real-hardware requirement): nothing goes through
+ *   EventBus; only HTTP status polling and the frontend overlay remain; state
+ *   is polled via face/track/status.
  */
 public final class FaceTrackCenter {
     private static final String TAG = "FaceTrackCenter";
 
-    /** 頭部舵機：19 yaw（左右）、20 pitch（上下），範圍與前端校準表一致。 */
+    /** Head servos: 19 yaw (left/right), 20 pitch (up/down). Ranges match the frontend calibration table. */
     public static final int PAN_ID = 19;
     public static final int TILT_ID = 20;
     public static final int PAN_MIN = 75;
@@ -59,24 +69,24 @@ public final class FaceTrackCenter {
     private final CameraController cameraController;
     private final UbxApi ubxApi;
 
-    // ── 可調參數（volatile，HTTP 線程寫、檢測線程讀）──
+    // -- Tunable parameters (volatile, written by the HTTP thread, read by the detect thread) --
     private volatile boolean running = false;
     private volatile int intervalMs = DEFAULT_INTERVAL_MS;
     private volatile int stepDeg = DEFAULT_STEP_DEG;
     private volatile float deadband = DEFAULT_DEADBAND;
     private volatile int timeMs = DEFAULT_TIME_MS;
     private volatile int maxFaces = DEFAULT_MAX_FACES;
-    /** 追頭總開關（實機要求：取代舊 pan/tilt 分軸開關）：關＝只偵測＋畫框，頭不動；開＝19/20 齊跟。 */
+    /** Master head-follow switch (real-hardware requirement: replaces the old per-axis pan/tilt switches). Off = detect and draw the box only, the head does not move. On = 19/20 both follow. */
     private volatile boolean headFollow = true;
-    /** ROI 跟隨開關：開＝檢到一次後只掃塊面附近細框（單幀 ~20-30ms，320x240 長開 10fps 用）；
-     *  關＝每幀全圖掃（慢但穩）。連續掃唔到超限即回全圖，見 ROI_MISS_LIMIT。 */
+    /** ROI follow switch: on = after one detection, scan only a small box near the face (one frame ~20-30ms, for 10fps at 320x240);
+     *  off = scan the full image every frame (slow but stable). Missing the face more than the limit falls back to full frame, see ROI_MISS_LIMIT. */
     private volatile boolean roiEnabled = true;
-    /** 自動間隔（預設開）：無臉／全圖搜用 intervalMs（慢，慳 CPU），ROI 跟到臉用
-     *  trackIntervalMs（快，跟得貼）；關＝一律用 intervalMs（舊手動行為）。 */
+    /** Automatic interval (default on): no face / full-frame search uses intervalMs (slow, saves CPU); ROI following a face uses
+     *  trackIntervalMs (fast, tracks closely). Off = always use intervalMs (old manual behavior). */
     private volatile boolean autoInterval = true;
     private volatile int trackIntervalMs = 100;
 
-    // ── 狀態／統計 ──
+    // -- State / statistics --
     private volatile int curPan = PAN_HOME;
     private volatile int curTilt = TILT_HOME;
     private volatile long framesSeen = 0;
@@ -91,7 +101,7 @@ public final class FaceTrackCenter {
     private volatile float lastConfidence = 0f;
     private volatile long lastMoveMs = 0;
     private volatile int lostStreak = 0;
-    /** 上一幀檢測耗時 ms（decode＋detect；調 fps 上限用嘅實測依據）。 */
+    /** Detect cost of the previous frame in ms (decode + detect; the measured basis for tuning the fps ceiling). */
     private volatile long lastCostMs = 0;
 
     private HandlerThread detectThread;
@@ -101,35 +111,35 @@ public final class FaceTrackCenter {
     private volatile long lastSampleMs = 0;
     private final java.util.concurrent.atomic.AtomicBoolean inFlight =
             new java.util.concurrent.atomic.AtomicBoolean(false);
-    /** FaceDetector 按（寬，高，cap）快取：native 初始化唔平，唔好每幀 new。
-     *  只經檢測 worker 線程讀寫，天然單線程，唔使同步。 */
+    /** FaceDetector cached by (width, height, cap): native init is not cheap; do not create one per frame.
+     *  Only read/written on the detect worker thread, inherently single-threaded, no synchronization needed. */
     private FaceDetector cachedDetector;
     private int cachedW = -1;
     private int cachedH = -1;
     private int cachedCap = -1;
-    /** ROI 專用第二快取（ROI 尺寸隨塊面郁而變，同主快取分開免互相踢走）。 */
+    /** Second cache for ROI only (the ROI size changes as the face moves; kept separate from the main cache to avoid evictions). */
     private FaceDetector cachedRoiDetector;
     private int cachedRoiW = -1;
     private int cachedRoiH = -1;
-    // ── ROI 跟隨狀態（roiHasTrack 會被相機線程讀（自動間隔用），其餘只經 worker 線程讀寫）──
-    /** 上次全圖命中嘅臉框（detect 圖歸一化），ROI 裁框基準。 */
+    // -- ROI follow state (roiHasTrack is read by the camera thread (for the auto interval); the rest is only read/written on the worker thread) --
+    /** Face box of the last full-frame hit (normalized to the detect image). Basis for the ROI crop box. */
     private volatile boolean roiHasTrack = false;
     private float roiFx = 0.5f;
     private float roiFy = 0.5f;
     private float roiFw = 0.3f;
     private float roiFh = 0.4f;
     private int roiMiss = 0;
-    /** 本幀係咪行緊 ROI（event／status 照報，調參可見）。 */
+    /** Whether this frame ran in ROI (still reported in event/status, visible when tuning). */
     private volatile boolean roiTracking = false;
-    /** 連續幾次 ROI 掃唔到就退回全圖（塊面可能走出框）。 */
+    /** After how many consecutive ROI misses to fall back to full frame (the face may have left the box). */
     private static final int ROI_MISS_LIMIT = 3;
-    /** ROI 框＝上次臉框放大幾多倍（直接檢，唔放大像素——舊實測放大檢 recall 跌到 2%）。 */
+    /** How many times the ROI box is the last face box (direct detection, no pixel upsampling - an earlier test showed upscaled detection dropped recall to 2%). */
     private static final float ROI_EXPAND = 2.0f;
-    /** ROI 細過呢個就唔裁（遠距離細面要全圖上下文，直接行全圖）。 */
+    /** Below this size, do not crop (a small distant face needs the full-frame context; run full frame directly). */
     private static final int ROI_MIN_PX = 96;
-    /** ROI 大到接近全圖就唔裁（慳唔到幾多，直接行全圖）。 */
+    /** If the ROI is nearly the full frame, do not crop (it saves little; run full frame directly). */
     private static final float ROI_MAX_FRACTION = 0.8f;
-    /** 舵機指令最小間隔 ms：10fps 下唔好每幀 hammer 胸板串口（見 UbxApi 連讀間隔註解）。 */
+    /** Minimum servo command gap in ms: at 10fps, do not hammer the chest serial port every frame (see the UbxApi read-gap comment). */
     private static final long SERVO_MIN_GAP_MS = 150;
     private volatile long lastServoSendMs = 0;
 
@@ -138,11 +148,11 @@ public final class FaceTrackCenter {
             if (!running) return;
             framesSeen++;
             long now = System.currentTimeMillis();
-            // 節流：相機線程只做時間判斷，檢測本體 post 去背景線程。
-            // 舊 FaceDetectCenter 實機教訓：RK3288 持續高負荷會系統層重啟（無 tombstone），
-            // 故無臉／全圖搜用慢速 intervalMs，ROI 跟到臉先用快速 trackIntervalMs
-            // （autoInterval 關即一律慢速）；inFlight 防止檢測慢過間隔時 post 堆積。
-            // （inner class 直讀 outer volatile／private 方法，合法。）
+            // Throttling: the camera thread only does the time check; the detect itself is posted to a background thread.
+            // Lesson from the old FaceDetectCenter on real hardware: sustained high load on the RK3288 reboots at the system level (no tombstone),
+            // so no-face / full-frame search uses the slow intervalMs and ROI face-following uses the fast trackIntervalMs
+            // (autoInterval off = always slow); inFlight prevents post pileup when detection is slower than the interval.
+            // (The inner class reads the outer volatile fields / private methods directly; that is legal.)
             long eff = effectiveIntervalMs();
             if (now - lastSampleMs < eff) return;
             if (inFlight.get()) return;
@@ -180,13 +190,13 @@ public final class FaceTrackCenter {
         return v;
     }
 
-    /** 當前生效間隔（sampler 同 status 共用；自動開＝跟到臉用快速，否則用慢速）。 */
+    /** Currently effective interval (shared by sampler and status; auto on = fast when following a face, otherwise slow). */
     private int effectiveIntervalMs() {
         if (autoInterval && roiHasTrack) return trackIntervalMs;
         return intervalMs;
     }
 
-    /** 從 query 讀可選追蹤參數並套用（start/config 共用；缺席即保留現值）。 */
+    /** Read and apply the optional tracking parameters from the query (shared by start/config; a missing key keeps the current value). */
     public void applyConfigFromQuery(Map<String, String> query) {
         if (query == null) return;
         intervalMs = ApiValidator.optionalIntRange(query, "intervalMs", 100, 3000, intervalMs);
@@ -210,7 +220,7 @@ public final class FaceTrackCenter {
         }
     }
 
-    /** 啟動追蹤：先確保相機開流，再訂閱抽樣。HTTP worker 線程調用（會 block 開相機）。 */
+    /** Start tracking: first make sure the camera is streaming, then subscribe to sampling. Called on an HTTP worker thread (blocks while the camera starts). */
     public synchronized HttpServer.ApiResponse start(Map<String, String> query) {
         applyConfigFromQuery(query);
         CameraController.StartResult sr = cameraController.start(8000);
@@ -231,7 +241,7 @@ public final class FaceTrackCenter {
         roiHasTrack = false;
         roiMiss = 0;
         roiTracking = false;
-        // 人臉 WS log 已 mute（實機要求）：啟停／每幀一律唔經 EventBus，只留 HTTP status 輪詢。
+        // Face WS logs are muted (real-hardware requirement): start/stop and per-frame events never go through EventBus; only HTTP status polling remains.
         return HttpServer.ApiResponse.ok(statusJson());
     }
 
@@ -257,9 +267,9 @@ public final class FaceTrackCenter {
         return HttpServer.ApiResponse.ok(statusJson());
     }
 
-    /** 硬件／軟件人臉偵測能力探測（只讀參數，不開追蹤迴圈）。
-     *  hardwareMaxFaces>0 ＝ HAL 支持 Camera.startFaceDetection（零 CPU 全速路，可做 10+fps）；
-     *  softwareAvailable ＝ framework FaceDetector 可 instantiate（現行軟件路）。 */
+    /** Probe the hardware / software face-detection capability (read-only, does not start the tracking loop).
+     *  hardwareMaxFaces>0 = the HAL supports Camera.startFaceDetection (zero-CPU full-speed path, can do 10+fps);
+     *  softwareAvailable = the framework FaceDetector can be instantiated (the current software path). */
     public HttpServer.ApiResponse probe() {
         int hw = -1;
         try { hw = cameraController.getMaxNumDetectedFacesSync(4000); }
@@ -287,7 +297,7 @@ public final class FaceTrackCenter {
 
     public boolean isRunning() { return running; }
 
-    /** 放開相機訂閱＋停背景線程（MainActivity.onDestroy 用）。 */
+    /** Release the camera subscription and stop the background thread (used by MainActivity.onDestroy). */
     public synchronized void shutdown() {
         running = false;
         synchronized (subLock) {
@@ -310,10 +320,10 @@ public final class FaceTrackCenter {
         try {
             int prevW = cameraController.getPreviewWidth();
             int prevH = cameraController.getPreviewHeight();
-            // 偵測輸入尺寸：寬鎖 320（舊實測上限，大過 recall 跌到 0%），高跟預覽比例——
-            // 4:3（800x600 等）→ 320x240，16:9（1280x720 等）→ 320x180，唔 squash、
-            // 唔 crop，塊面不變形。先 inSampleSize 粗解（2 的冪，解完 ≥目標即停）再
-            // createScaledBitmap 精縮到目標，一步到位。
+            // Detect input size: width locked at 320 (measured upper limit; larger drops recall to 0%), height follows the preview ratio -
+            // 4:3 (800x600 etc.) -> 320x240, 16:9 (1280x720 etc.) -> 320x180, no squash,
+            // no crop, the face does not distort. First a coarse decode with inSampleSize (a power of 2, stop once the decoded size >= target), then
+            // createScaledBitmap scales precisely to the target in one step.
             boolean fourThree = Math.abs(prevW * 3 - prevH * 4)
                     <= Math.abs(prevW * 9 - prevH * 16);
             int targetW = 320;
@@ -332,7 +342,7 @@ public final class FaceTrackCenter {
                 return;
             }
             if (bmp == null) return;
-            // FaceDetector 硬性要求 RGB_565。
+            // FaceDetector hard-requires RGB_565.
             if (bmp.getConfig() != Bitmap.Config.RGB_565) {
                 Bitmap converted = null;
                 try { converted = bmp.copy(Bitmap.Config.RGB_565, false); }
@@ -343,7 +353,7 @@ public final class FaceTrackCenter {
             }
             int bw = bmp.getWidth();
             int bh = bmp.getHeight();
-            // 精縮到目標尺寸（順手保證偶數寬，FaceDetector 硬性要求）。
+            // Scale to the target size (also guarantees an even width, which FaceDetector hard-requires).
             if (bw != targetW || bh != targetH) {
                 Bitmap scaled = null;
                 try { scaled = Bitmap.createScaledBitmap(bmp, targetW, targetH, true); }
@@ -355,7 +365,7 @@ public final class FaceTrackCenter {
                     bh = bmp.getHeight();
                 }
             }
-            // 寬須偶數（奇數裁 1px，免 findFaces 拋錯；正常經上面精縮已係偶數，呢度純 failsafe）。
+            // Width must be even (an odd width is cropped by 1px to keep findFaces from throwing; after the scaling above the width is normally even, this is a pure failsafe).
             if ((bw & 1) == 1 && bw > 2) {
                 Bitmap cropped = null;
                 try { cropped = Bitmap.createBitmap(bmp, 0, 0, bw - 1, bh); }
@@ -367,7 +377,7 @@ public final class FaceTrackCenter {
                     bh = bmp.getHeight();
                 }
             }
-            // ── ROI 裁框：有上次臉框＋開關開，先算 ROI 矩形 ──
+            // -- ROI crop: compute the ROI rectangle only when there is a previous face box and the switch is on --
             Bitmap work = bmp;
             boolean inRoi = false;
             int roiLeft = 0;
@@ -393,7 +403,7 @@ public final class FaceTrackCenter {
                     int cw = right - left;
                     int ch = bottom - top;
                     if (cw >= ROI_MIN_PX && ch >= ROI_MIN_PX && cw > 0 && ch > 0) {
-                        // 偶數對齊（FaceDetector 寬要求偶數）。
+                        // Even alignment (FaceDetector requires an even width).
                         if ((cw & 1) == 1) { if (left + cw < bw) cw++; else { left++; cw--; } }
                         if (cw >= ROI_MIN_PX && ch >= ROI_MIN_PX && left + cw <= bw && top + ch <= bh) {
                             Bitmap cropped = null;
@@ -414,7 +424,7 @@ public final class FaceTrackCenter {
             roiTracking = inRoi;
             int ww = work.getWidth();
             int wh = work.getHeight();
-            // ROI 只跟一張（追緊嗰張），cap=1 更快；全圖先用 maxFaces。
+            // ROI tracks only one face (the one being followed); cap=1 is faster. Full frame uses maxFaces.
             int cap = inRoi ? 1 : Math.max(1, Math.min(5, maxFaces));
             FaceDetector fd;
             if (inRoi) {
@@ -453,7 +463,7 @@ public final class FaceTrackCenter {
                 if (inRoi) { try { work.recycle(); } catch (Throwable ignored) {} }
                 return;
             }
-            // ROI 框要回收（全圖嗰張 bmp 留返 finally 收）。
+            // The ROI crop must be recycled (the full-frame bmp is kept for the finally block).
             if (inRoi) { try { work.recycle(); } catch (Throwable ignored) {} }
             framesProcessed++;
             lastDetectMs = System.currentTimeMillis();
@@ -467,7 +477,7 @@ public final class FaceTrackCenter {
                 }
                 return;
             }
-            // 取眼睛距離最大（最大張）且 confidence 較高者。
+            // Take the face with the largest eye distance (the biggest face) and a higher confidence.
             FaceDetector.Face best = null;
             float bestScore = -1f;
             for (int i = 0; i < found; i++) {
@@ -485,7 +495,7 @@ public final class FaceTrackCenter {
             best.getMidPoint(mid);
             float eyes = best.eyesDistance();
             float conf = best.confidence();
-            // 過濾極低 confidence 誤檢（FaceDetector confidence 約 0-1）。
+            // Filter out false detections with very low confidence (FaceDetector confidence is about 0-1).
             if (conf < 0.15f) {
                 lastFaces = 0;
                 lostStreak++;
@@ -495,12 +505,12 @@ public final class FaceTrackCenter {
                 }
                 return;
             }
-            // ROI 座標映射返全圖（detect 圖像素；eyes 本身已經係像素，無需縮放——裁框唔放大）。
+            // Map the ROI coordinates back to the full image (pixels of the detect image; eyesDistance is already in pixels, no rescaling - the crop does not upsample).
             float fullMx = inRoi ? roiLeft + mid.x : mid.x;
             float fullMy = inRoi ? roiTop + mid.y : mid.y;
             float fx = fullMx / Math.max(1, bw);
             float fy = fullMy / Math.max(1, bh);
-            // 人臉框估算：寬 ≈ eyes*2.2，高等比放大（overlay 用，歸一化）。
+            // Estimated face box: width ~= eyes*2.2, height scaled proportionally (for the overlay, normalized).
             float fw = (eyes * 2.2f) / Math.max(1, bw);
             float fh = fw * bw / Math.max(1, bh) * 1.25f;
             if (fw > 1f) fw = 1f;
@@ -512,7 +522,7 @@ public final class FaceTrackCenter {
             lastFh = fh;
             lastConfidence = conf;
             lostStreak = 0;
-            // ROI 軌更新：命中即以今次框為下次基準（跟得贴）；掃唔到嗰陣上面已累積 roiMiss。
+            // ROI track update: on a hit, this box becomes the basis for the next frame (tracks closely); on a miss, roiMiss already accumulated above.
             roiHasTrack = true;
             roiMiss = 0;
             roiFx = Math.max(0f, Math.min(1f, fx));
@@ -520,8 +530,8 @@ public final class FaceTrackCenter {
             roiFw = Math.max(0.05f, Math.min(1f, fw));
             roiFh = Math.max(0.05f, Math.min(1f, fh));
 
-            float dx = (fx - 0.5f) * 2f; // -1 左 … +1 右
-            float dy = (fy - 0.5f) * 2f; // -1 上 … +1 下
+            float dx = (fx - 0.5f) * 2f; // -1 left ... +1 right
+            float dy = (fy - 0.5f) * 2f; // -1 up ... +1 down
             if (dx < -1f) dx = -1f;
             if (dx > 1f) dx = 1f;
             if (dy < -1f) dy = -1f;
@@ -531,7 +541,7 @@ public final class FaceTrackCenter {
             int newPan = curPan;
             int newTilt = curTilt;
             float db = deadband;
-            // 追頭總開關：關＝只偵測＋畫框，兩軸都不動（調試／展示用人臉框時用）。
+            // Master head-follow switch: off = detect and draw the box only, neither axis moves (for debugging / showing the face box).
             if (headFollow && Math.abs(dx) > db) {
                 float mag = (Math.abs(dx) - db) / Math.max(0.001f, 1f - db);
                 int delta = Math.max(1, Math.round(mag * stepDeg));
@@ -544,8 +554,8 @@ public final class FaceTrackCenter {
                 if (dy < 0) delta = -delta;
                 newTilt = clamp(curTilt + delta, TILT_MIN, TILT_MAX);
             }
-            // 只有角度真變＋同上次發送隔夠 SERVO_MIN_GAP_MS 先發舵機：
-            // 10fps 下唔好每幀 hammer 胸板串口（見 UbxApi 連讀間隔註解）。
+            // Send a servo command only when the angle really changed and enough time passed since the last send (SERVO_MIN_GAP_MS):
+            // at 10fps, do not hammer the chest serial port every frame (see the UbxApi read-gap comment).
             long nowMs = System.currentTimeMillis();
             boolean servoDue = nowMs - lastServoSendMs >= SERVO_MIN_GAP_MS;
             if (headFollow && servoDue && newPan != curPan) {
@@ -582,7 +592,7 @@ public final class FaceTrackCenter {
         return String.format(Locale.US, "%.3f", v);
     }
 
-    /** face/track/status 回包本體（start/stop/config 亦回同一形狀，前端一次解析）。 */
+    /** Body of the face/track/status response (start/stop/config return the same shape; the frontend parses it once). */
     public String statusJson() {
         StringBuilder sb = new StringBuilder("{\"ok\":true,");
         sb.append("\"running\":").append(running).append(",");
