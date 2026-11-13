@@ -11,7 +11,7 @@ import com.ubtechinc.alpha.hardware.ubx.UbxPlayer;
 import java.util.Map;
 
 /**
- * Ubx 直播 + 單舵機直驅共用實現。
+ * Shared implementation of Ubx playback and single-servo direct drive.
  */
 public final class UbxApi {
     private static final String TAG = "UbxApi";
@@ -45,7 +45,7 @@ public final class UbxApi {
         return HttpServer.ApiResponse.ok(sb.toString());
     }
 
-    /** 只准 /sdcard/actions 內 .ubx（防 LAN 經 path/name 讀任意檔）。 */
+    /** Allow only .ubx files under /sdcard/actions (blocks LAN reads of arbitrary files via path/name). */
     private static boolean isAllowedUbxFile(java.io.File f) {
         if (f == null) return false;
         try {
@@ -65,7 +65,7 @@ public final class UbxApi {
             f = new java.io.File(p);
             if (!isAllowedUbxFile(f)) return HttpServer.ApiResponse.error("path must be a .ubx under /sdcard/actions");
         } else if (name != null) {
-            // name 只准是檔名，不准帶路徑（../../、/、\ 一律拒）。
+            // name must be a file name only; any path (../../, /, \) is rejected.
             if (name.isEmpty() || name.contains("/") || name.contains("\\") || name.contains("..")) {
                 return HttpServer.ApiResponse.error("invalid name");
             }
@@ -81,7 +81,7 @@ public final class UbxApi {
         } catch (Exception e) {
             return HttpServer.ApiResponse.error("parse failed: " + e.getMessage());
         }
-        ubxPlayer.stop(); // 抢占：停旧播新
+        ubxPlayer.stop(); // preempt: stop the old file, play the new one
         boolean started = ubxPlayer.play(ubx, f.getName(), dm.chest(), f);
         if (!started) return HttpServer.ApiResponse.error("cannot start: " + ubxPlayer.lastError());
         actionDirect.setLastPlayedFile(f);
@@ -94,7 +94,7 @@ public final class UbxApi {
         if (!ubxPlayer.setSpeed(f)) {
             throw new IllegalArgumentException("parameter 'value' must be one of [0.5, 0.67, 1, 1.5, 2], got: " + v);
         }
-        // 正在播時即時生效：用新速度由頭重播同一文件（内部快照隔离，旧计划安全交接）。
+        // Take effect immediately during playback: replay the same file from the start at the new speed (internal snapshot isolation; the old plan hands over safely).
         boolean restarted = false;
         java.io.File last = actionDirect.getLastPlayedFile();
         if (ubxPlayer.isPlaying() && last != null && last.isFile()) {
@@ -123,13 +123,16 @@ public final class UbxApi {
         return HttpServer.ApiResponse.ok(ubxPlayer.statusJson());
     }
 
-    // -- Servo 單舵機直發（cmd05）--------------------------------------------------
-    // 官方 PC tuner 實測證實 cmd05
-    //（05 00 頭）正常驅動本機舵機，用戶目視確認。舊 cmd03 全幀寫法有安全問題：
-    // 它用位姿追踪（dead reckoning）補齊其餘 19 軸，追踪值一過時（重啟/跳舞後）
-    // 就會一次過將 19 粒舵機扯去錯位姿——即「一寫入就發狂」。cmd05 只動目標
-    // 一粒，其他軸完全不碰，天然安全；亦不再需要 pose 已知先動得。
-    /** 單舵機經 cmd05 直發；只在串口不可用時 FAILED。 */
+    // -- Servo single-servo direct send (cmd05) ----------------------------------------------
+    // The official PC tuner test proved that cmd05 (05 00 header) drives this
+    // robot's servos correctly; the user confirmed by eye. The old full-frame
+    // cmd03 write has a safety problem: it fills the other 19 axes from pose
+    // tracking (dead reckoning). Once the tracked values go stale (after a
+    // restart or a dance), all 19 servos jump to a wrong pose at once --
+    // "write it and it goes crazy". cmd05 moves only the target servo and
+    // never touches the other axes, so it is safe by design. It also no longer
+    // requires a known pose before moving.
+    /** Send one servo directly via cmd05; FAILED only when the serial port is unavailable. */
     public UbxErrorCode.API_ERROR_CODE servoSendOneCode(int id, int angle, int timeMs) {
         if (id < ApiValidator.SERVO_ID_MIN || id > ApiValidator.SERVO_ID_MAX) return UbxErrorCode.API_ERROR_CODE.API_ERROR_FAILED;
         if (angle < ApiValidator.SERVO_ANGLE_MIN) angle = ApiValidator.SERVO_ANGLE_MIN;
@@ -138,7 +141,7 @@ public final class UbxApi {
         boolean sent = HardwareDirectManager.get(appContext).chest()
                 .setSingleServo((byte) id, angle, (short) timeMs);
         if (!sent) return UbxErrorCode.API_ERROR_CODE.API_ERROR_FAILED;
-        // 位姿追踪：記下這一軸命令值（逐軸 known；命令位姿榜／commanded 回讀用）。
+        // Pose tracking: record this axis' commanded value (per-axis known; used by the commanded-pose board / commanded readback).
         ubxPlayer.notePoseOne(id, angle & 0xFF);
         return UbxErrorCode.API_ERROR_CODE.API_ERROR_SUCCEED;
     }
@@ -151,19 +154,21 @@ public final class UbxApi {
         return HttpServer.ApiResponse.ok("{\"ok\":true,\"id\":" + id + ",\"angle\":" + (angle & 0xFF) + "}");
     }
 
-    // -- Servo endpoint 回應層 --
-    // directChestReady() 薄 delegate（實現見 DirectProbes）。
+    // -- Servo endpoint response layer --
+    // directChestReady() is a thin delegate (implementation in DirectProbes).
     private boolean directChestReady() {
         return DirectProbes.isChestReady(appContext);
     }
 
     public HttpServer.ApiResponse servoOneResponse(Map<String, String> query) {
-        // pure-direct: 單舵機經 cmd05 直發。
-        // 可選 trim 參數——有帶就接著經 cmd12 寫入 chest EEPROM
-        //（官方 tuner 同款持久化；掉電保持，亂寫會改出廠校準，用戶明確先好用）。
+        // pure-direct: single servo sent directly via cmd05.
+        // Optional trim parameter -- when present, also write the chest EEPROM
+        // via cmd12 (the same persistence the official tuner uses; it survives
+        // a power cut. A wrong write changes the factory calibration, so use
+        // it only when you know what you are doing).
         int id = ApiValidator.requireIntRange(query, "id", ApiValidator.SERVO_ID_MIN, ApiValidator.SERVO_ID_MAX);
-        // 跟 spec/MCP（angle 0-255，time 20-32767）顯式驗，
-        // 超限即 400。
+        // Validate explicitly against the spec/MCP (angle 0-255, time
+        // 20-32767); out of range returns 400.
         int angle = ApiValidator.requireIntRange(query, "angle", ApiValidator.SERVO_ANGLE_MIN, ApiValidator.SERVO_ANGLE_MAX);
         int time = ApiValidator.optionalIntRange(query, "time", ApiValidator.SERVO_TIME_MIN_MS, ApiValidator.SERVO_TIME_MAX_MS, 1000);
         Integer trim = null;
@@ -186,8 +191,9 @@ public final class UbxApi {
         sb.append(",\"bindReady\":").append(directChestReady());
         sb.append(",\"id\":").append(id).append(",\"angle\":").append(angle & 0xFF);
         sb.append(",\"trim\":").append(trim);
-        // written==null（回覆被官方 service 搶食完）不等於
-        // 寫失敗——id2 實測零 ACK 照存入。報 unknown 不報失敗，叫前端重新掃描驗證。
+        // written==null (the official service ate the whole reply) is not the
+        // same as a failed write -- id2 stores the value even with zero ACK.
+        // Report unknown, not failure, and let the frontend rescan to verify.
         sb.append(",\"trimWritten\":").append(written != null && written);
         sb.append(",\"trimUnknown\":").append(written == null);
         sb.append('}');
@@ -197,19 +203,23 @@ public final class UbxApi {
     public HttpServer.ApiResponse servoAllResponse(Map<String, String> query) {
         int[] angles = ApiValidator.requireAngles20(query);
         int time = ApiValidator.optionalIntRange(query, "time", ApiValidator.SERVO_TIME_MIN_MS, ApiValidator.SERVO_TIME_MAX_MS, 1000);
-        // setAllServos 内部已转 cmd03（cmd52 有 ACK 无动作）。
+        // setAllServos already converts to cmd03 internally (cmd52 gives an ACK but no motion).
         boolean sent = HardwareDirectManager.get(appContext).chest().setAllServos(angles, (short) time);
         if (sent) ubxPlayer.notePose(angles);
         return MainActivity.sentReadyResponse(sent, directChestReady());
     }
 
     public HttpServer.ApiResponse servoReadResponse(Map<String, String> query) {
-        // 單粒 live 實際讀取 (cmd 13)：官方 PC tuner 同款問法。注意回的是
-        // chest 存住的 trim（偏差，官方角:偏 = 1:3），<b>不是</b>絕對角度——8 號
-        // 例子：位姿 65 不變，橫跨幾次動作都是讀回 -33（見官方 session logcat
-        // 比較）。trim 即 offset 原值，前端照 show，不用再減 home。
-        // 讀不到（超時／舵機回 01 error，如本機 5/6 號硬件壞；17/18 號手指
-        // 天生無回授）如實報 ok:false，不編 0。
+        // Live read of one servo (cmd 13): the same query the official PC
+        // tuner sends. Note: the reply is the trim stored in the chest (an
+        // offset; the official ratio is angle:offset = 1:3), <b>not</b> an
+        // absolute angle. Example: servo 8 keeps pose 65 and reads back -33
+        // across several actions (see the official session logcat comparison).
+        // trim is the raw offset value; the frontend shows it as-is, no need
+        // to subtract home again.
+        // When no read is possible (timeout, or the servo returns a 01 error,
+        // e.g. servo 5/6 hardware fault on this robot; finger servos 17/18
+        // have no feedback by design), report ok:false as-is, never invent 0.
         int idInt = ApiValidator.requireIntRange(query, "id", ApiValidator.SERVO_ID_MIN, ApiValidator.SERVO_ID_MAX);
         Integer live = readServoLive(idInt);
         Integer commanded = ubxPlayer.poseBoxed()[idInt - 1];
@@ -226,13 +236,13 @@ public final class UbxApi {
                 + ",\"known\":" + (commanded != null) + "}");
     }
 
-    /** 22 連讀粒間隔 100ms（servoReadAll／servoAngleAll 逐字一樣；被打斷回 false 給 caller break）。 */
+    /** 100ms gap between the 22 consecutive reads (identical in servoReadAll / servoAngleAll; an interruption returns false so the caller breaks). */
     private static boolean sleepBetweenServos() {
         try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
         return true;
     }
 
-    /** 20 連讀 failed 串接（兩處逐字一樣）：逗號分隔＋記位。恆回 false，caller 掟返入 firstFail。 */
+    /** Build the failed list for the 20 consecutive reads (identical in both places): comma-separated with positions. Always returns false; the caller puts it back into firstFail. */
     private static boolean appendFailed(StringBuilder failed, boolean firstFail, int i) {
         if (!firstFail) failed.append(',');
         failed.append(i);
@@ -240,10 +250,14 @@ public final class UbxApi {
     }
 
     public HttpServer.ApiResponse servoReadAllResponse() {
-        // 22 連讀 trim（官方 tuner 節奏：逐顆約十幾 ms 間隔）。
-        // trims[i] = 該軸 chest 存住的偏差原值，讀不到那顆記 null 並列入 failed。
-        // 注意：這裡不是絕對角度，不要拿去填 angle 輸入格。
-        // 逐顆之間一律等 100ms（成功失敗都等）。
+        // Read the trim of all 22 servos in a row (the official tuner's
+        // pace: roughly a dozen ms apart per servo).
+        // trims[i] = the raw offset stored in the chest for that axis. A
+        // servo that cannot be read is recorded as null and listed in
+        // failed.
+        // Note: this is not an absolute angle; do not paste it into the
+        // angle input box.
+        // Always wait 100ms between servos (success or failure).
         Integer[] trims = new Integer[ApiValidator.SERVO_COUNT];
         StringBuilder failed = new StringBuilder("[");
         boolean firstFail = true;
@@ -268,11 +282,14 @@ public final class UbxApi {
     }
 
     public HttpServer.ApiResponse servoAngleResponse(Map<String, String> query) {
-        // 單舵機絕對角度實際讀取 (cmd 6)。同 servo/one 同單位，
-        // 跟位實測誤差約 1°——注意不是 servo/read 那個 trim/偏差。
-        // 讀不到（超時）如實報 ok:false，不編 0。
-        // 注意：讀本身會令那顆鬆力（firmware 行為，兩部機證實），要重新上力就行
-        // servo/angle-restore（讀寫原子）或隨便動它一動。
+        // Live read of one servo's absolute angle (cmd 6). Same unit as
+        // servo/one; measured tracking error about 1 degree. Note: this is
+        // not the trim/offset from servo/read.
+        // When no read is possible (timeout), report ok:false as-is, never
+        // invent 0.
+        // Note: the read itself drops the torque of that servo (firmware
+        // behavior, confirmed on two robots). To re-engage torque, call
+        // servo/angle-restore (atomic read-write) or simply move it.
         int idInt = ApiValidator.requireIntRange(query, "id", ApiValidator.SERVO_ID_MIN, ApiValidator.SERVO_ID_MAX);
         Integer angle = readServoAbsLive(idInt);
         if (angle == null) {
@@ -284,10 +301,14 @@ public final class UbxApi {
     }
 
     public HttpServer.ApiResponse servoAngleRestoreResponse(Map<String, String> query) {
-        // 讀＋即寫回原子操作。cmd6 讀會鬆開那顆（見上），
-        // 這裡讀到即用 servo/one（cmd05）寫回同一個位上力，全程後端內完成、
-        // 不經瀏覽器來回——鬆力窗口得幾十毫秒，跌都未跌得切，肉眼不覺動。
-        // time 用最細 20ms：純粹為快趣上力，不是為動。
+        // Atomic read plus immediate write-back. The cmd6 read drops the
+        // torque of that servo (see above); right after the read, write the
+        // same position back with servo/one (cmd05) to re-engage torque.
+        // Everything happens inside the backend, with no round trip through
+        // the browser: the torque-free window is only a few tens of
+        // milliseconds, too short to fall, and the motion is invisible.
+        // time uses the minimum 20ms: purely to re-engage torque fast, not
+        // to move.
         int idInt = ApiValidator.requireIntRange(query, "id", ApiValidator.SERVO_ID_MIN, ApiValidator.SERVO_ID_MAX);
         Integer angle = readServoAbsLive(idInt);
         if (angle == null) {
@@ -301,10 +322,14 @@ public final class UbxApi {
     }
 
     public HttpServer.ApiResponse servoBackAngleResponse(Map<String, String> query) {
-        // 單舵機回讀角度實際讀取 (cmd 23 / 0x17，PC 工具「讀角度 6」同款)。
-        // 同 servo/one 同單位。注意不是 servo/read 那個 trim/偏差。
-        // 讀不到（超時）如實報 ok:false，不編 0。
-        // 注意：0x17 讀會唔會鬆力未知（0x06 會）——首版純讀唔寫回，實測睇住部機先。
+        // Live read of one servo's readback angle (cmd 23 / 0x17, the same
+        // as the PC tool's "read angle 6"). Same unit as servo/one. Note:
+        // this is not the trim/offset from servo/read.
+        // When no read is possible (timeout), report ok:false as-is, never
+        // invent 0.
+        // Note: it is unknown whether the 0x17 read drops torque (0x06 does).
+        // The first version is a pure read without write-back; watch the
+        // robot during testing before deciding.
         int idInt = ApiValidator.requireIntRange(query, "id", ApiValidator.SERVO_ID_MIN, ApiValidator.SERVO_ID_MAX);
         Integer angle = readServoBackLive(idInt);
         if (angle == null) {
@@ -607,11 +632,15 @@ public final class UbxApi {
     }
 
     public HttpServer.ApiResponse servoBackAngleAllResponse() {
-        // 22 連讀回讀角度 (cmd 23 / 0x17)：逐顆單發、無間隔、唔重試、唔寫回。
-        // 實測 20 粒 230ms 全中（16 有數＋5/6/17/18 短 error 幀），唔使等；
-        // 真機 2026-10-14 證實 21/22 都有回授（51/5），故連 21/22 一齊讀。
-        // 讀不到那顆記 null 入 failed。
-        // 讀取時請固定好機械人（0x17 會唔會鬆力未知，首版純讀）。
+        // Read the readback angle of all 22 servos in a row (cmd 23 / 0x17):
+        // one shot per servo, no gap, no retry, no write-back.
+        // Measured: 20 servos answered within 230ms (16 with values +
+        // 5/6/17/18 with short error frames); no waiting needed. Real-device
+        // test on 2026-10-14 confirmed that 21/22 also have feedback (51/5),
+        // so read 21/22 as well.
+        // A servo that cannot be read is recorded as null in failed.
+        // Hold the robot steady while reading (it is unknown whether 0x17
+        // drops torque; the first version is a pure read).
         final int n = ApiValidator.SERVO_COUNT;
         Integer[] angles = new Integer[n];
         StringBuilder failed = new StringBuilder("[");
@@ -634,10 +663,16 @@ public final class UbxApi {
     }
 
     public HttpServer.ApiResponse servoAngleAllResponse() {
-        // 22 連讀＋逐顆即寫回（每粒讀寫原子，粒與粒之間隔 100ms）。
-        // 背景：純連讀（不寫回）已被兩部機證實會逐顆弄垮出力；但單粒讀＋即寫回
-        // 已證實無鬆無動，故連讀版都是同一個原子操作逐顆做。讀不到那顆不寫回、
-        // 記 null 入 failed。未知能否全程站穩——實測中。
+        // Read all 22 servos in a row plus an immediate write-back per servo
+        // (each read-write pair is atomic; 100ms between servos).
+        // Background: a pure consecutive read (without write-back) was
+        // confirmed on two robots to break the output of servos one by one.
+        // A single-servo read plus immediate write-back was confirmed to
+        // cause no torque drop and no motion, so the consecutive version
+        // performs the same atomic operation per servo. A servo that cannot
+        // be read is not written back and is recorded as null in failed.
+        // Unknown whether it can stay standing the whole time -- under
+        // testing.
         Integer[] angles = new Integer[ApiValidator.SERVO_COUNT];
         boolean[] restored = new boolean[ApiValidator.SERVO_COUNT];
         StringBuilder failed = new StringBuilder("[");
@@ -671,8 +706,10 @@ public final class UbxApi {
     }
 
     /**
-     * 帶重試的單粒絕對角度實際讀取（3 次 × 250ms；重試之間隔 100ms，同連讀同級，
-     * 不要密 hammer 胸板——見 servoAngleAllResponse 事故 comment）。
+     * Live read of one servo's absolute angle with retry (3 attempts x 250ms;
+     * 100ms between retries, the same level as the consecutive reads. Do not
+     * hammer the chest serial port densely -- see the incident comment in
+     * servoAngleAllResponse).
      */
     private Integer readServoAbsLive(final int id) {
         return retryServoLive(100, new ServoRetry<Integer>() {
@@ -681,8 +718,9 @@ public final class UbxApi {
     }
 
     /**
-     * 帶重試的單粒回讀角度實際讀取（cmd 23 / 0x17，3 次 × 250ms；重試之間隔
-     * 100ms，同連讀同級，不要密 hammer 胸板）。
+     * Live read of one servo's readback angle with retry (cmd 23 / 0x17, 3
+     * attempts x 250ms; 100ms between retries, the same level as the
+     * consecutive reads. Do not hammer the chest serial port densely).
      */
     private Integer readServoBackLive(final int id) {
         return retryServoLive(100, new ServoRetry<Integer>() {
@@ -690,8 +728,10 @@ public final class UbxApi {
         });
     }
 
-    /** 重試骨架共用形（上面三個 live* 方法之前逐字一樣，僅 query call／重試間隔不同；
-     *  3 次、attempt==2 即停、打斷回 null，全部保留）。成功回值，全部超時／發送失敗回 null。 */
+    /** Shared retry skeleton (the three live* methods above were identical in
+     *  wording before; only the query call / retry gap differs. All kept: 3
+     *  attempts, stop at attempt==2, an interruption returns null). Returns
+     *  the value on success, null on all-timeout / send-failure. */
     private interface ServoRetry<T> { T attempt(); }
 
     private <T> T retryServoLive(int sleepMs, ServoRetry<T> op) {
@@ -706,9 +746,11 @@ public final class UbxApi {
     }
 
     /**
-     * 帶重試的單粒實際讀取。機身還有官方 alpha2services 還佔用 ttyS1，回覆 bytes
-     * 會被搶食，偶發超時屬預期之內，故重試 3 次（官方 ACK 約 10-15ms，
-     * 250ms timeout 好闊綽；重試之間隔 100ms，不要密 hammer 胸板）。
+     * Live read of one servo with retry. The official alpha2services on the
+     * robot still holds ttyS1 and can eat the reply bytes, so occasional
+     * timeouts are expected. Hence 3 retries (the official ACK takes about
+     * 10-15ms, so a 250ms timeout is generous; 100ms between retries. Do not
+     * hammer the chest serial port densely).
      */
     private Integer readServoLive(final int id) {
         return retryServoLive(100, new ServoRetry<Integer>() {
@@ -717,8 +759,10 @@ public final class UbxApi {
     }
 
     /**
-     * 帶重試的 trim 寫入（3 次 × 250ms，與實際讀取同級——官方 service 爭食回覆
-     * bytes 時超時常見）。回 TRUE/FALSE（ACK 語意）；全部超時／發送失敗回 null。
+     * Trim write with retry (3 attempts x 250ms, the same level as the live
+     * reads -- timeouts are common when the official service competes for
+     * the reply bytes). Returns TRUE/FALSE (ACK semantics); null on
+     * all-timeout / send-failure.
      */
     private Boolean writeServoTrimLive(final int id, final int trim) {
         return retryServoLive(30, new ServoRetry<Boolean>() {

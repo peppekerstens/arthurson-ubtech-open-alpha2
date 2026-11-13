@@ -11,21 +11,30 @@ import java.io.File;
 import java.util.Map;
 
 /**
- * 機端錄影（mp4，legacy Camera1＋MediaRecorder；同 CameraController 交接相機）。
+ * On-robot video recording (mp4, legacy Camera1 + MediaRecorder; shares the
+ * camera handoff with CameraController).
  *
- * 流程（見 start）：開鏡（CameraController.start）→ 掛 dummy listener 頂住
- * stopIfIdle 誤放 → beginRecorderHandoff（拆預覽回調＋unlock）→ 配 MediaRecorder
- * （先試 MIC 有聲，prepare／start 炸即 reset 重配純畫面，唔會成單失敗）→ start。
- * 收尾（見 stop）：recorder.stop／reset／release → endRecorderHandoff（lock＋
- * 重掛預覽回調）→ 媒體掃描。用家撳停為止，不設時長上限。
+ * Flow (see start): open the camera (CameraController.start) -> attach a dummy
+ * listener to hold off a mistaken release by stopIfIdle -> beginRecorderHandoff
+ * (detach the preview callback + unlock) -> configure MediaRecorder (try the
+ * mic with audio first; if prepare/start fails, reset and reconfigure video
+ * only, so the recording does not fail outright) -> start.
+ * Wrap-up (see stop): recorder.stop/reset/release -> endRecorderHandoff (lock
+ * + re-attach the preview callback) -> media scan. Recording runs until the
+ * user presses stop; no length limit.
  *
- * 並發約束：
- * - 錄影期間預覽回調已拆：MJPEG 訂閱者收唔到新幀（10 秒超時自斷，見 CameraApi），
- *   人臉／顏色追蹤訂閱仲在但收唔到幀（唔郁，唔會用 stale 幀郁頭）。
- * - takePhoto／snapshot／snapshotSave／resolution 錄影期間直接拒（CameraApi 守衛），
- *   否則 takePicture 停預覽會打斷編碼器。
- * - onDestroy 經 stopIfRecording() 先停錄影先放相機（見 MainActivity）。
- * - 全部方法 synchronized（HTTP worker 線程調用，stop 會 block 約 1 秒）。
+ * Concurrency constraints:
+ * - During recording the preview callback is detached: MJPEG subscribers get
+ *   no new frames (they time out and disconnect after 10 seconds, see
+ *   CameraApi). Face/color tracking subscribers are still there but get no
+ *   frames (they stay put; no motion from stale frames).
+ * - takePhoto/snapshot/snapshotSave/resolution are rejected outright during
+ *   recording (the CameraApi guard); otherwise takePicture would stop the
+ *   preview and break the encoder.
+ * - onDestroy first stops recording via stopIfRecording() before releasing
+ *   the camera (see MainActivity).
+ * - All methods synchronized (called from HTTP worker threads; stop blocks
+ *   for about 1 second).
  */
 public final class VideoCenter {
     private static final String TAG = "VideoCenter";
@@ -35,7 +44,7 @@ public final class VideoCenter {
     private static final int VIDEO_FPS = 30;
     private static final int VIDEO_BITRATE = 2000000;
     private static final int AUDIO_SAMPLERATE = 44100;
-    // 剩餘空間少過呢個數即拒錄（爛尾 mp4 寫一半無意義）。
+    // Reject recording when free space is below this value (a half-written mp4 is useless).
     private static final long MIN_FREE_BYTES = 50L * 1024 * 1024;
 
     private final Context appContext;
@@ -53,8 +62,10 @@ public final class VideoCenter {
     private long lastBytes;
     private boolean lastHasAudio;
 
-    // stopIfIdle 誤放頂：錄影期間預覽回調已拆，listeners 隨時可能清空
-    //（MJPEG 超時自斷＋追蹤無新幀），呢個空訂閱令 stopIfIdle 永遠見到非空。
+    // Guard against a mistaken release by stopIfIdle: during recording the
+    // preview callback is detached and listeners can empty out at any time
+    // (MJPEG timeout disconnect + tracking getting no new frames); this empty
+    // subscription makes stopIfIdle always see a non-empty list.
     private final CameraController.FrameListener keepAlive =
             new CameraController.FrameListener() {
                 @Override public void onFrame(CameraController.Frame frame) {
@@ -71,7 +82,7 @@ public final class VideoCenter {
         return recording;
     }
 
-    /** 存檔目錄（同相片同一目錄，相簿即見）。 */
+    /** Save directory (the same directory as photos, so it shows up in the album right away). */
     private static File videoDir() {
         File dir = new File("/sdcard/DCIM/Alpha2");
         if (!dir.exists()) dir.mkdirs();
@@ -84,7 +95,7 @@ public final class VideoCenter {
         return new File(dir, "alpha2_vid_" + ts + ".mp4").getAbsolutePath();
     }
 
-    /** 單次配＋錄（withAudio＝配唔配 MIC；回 null＝錄緊，否則回錯）。 */
+    /** Single configure + record (withAudio = whether the mic is configured; null returned = already recording, otherwise returns an error). */
     private String tryStart(CameraController.RecorderHandoff h, String path, boolean withAudio) {
         MediaRecorder rec = new MediaRecorder();
         Surface surface = null;
@@ -126,7 +137,7 @@ public final class VideoCenter {
         return null;
     }
 
-    /** 開始錄影（query 暫無參數，留 dispatcher 一致性）。有聲優先，搶唔到咪自動轉純畫面。 */
+    /** Start recording (the query has no parameters for now, kept for dispatcher consistency). Audio takes priority; if the mic cannot be acquired, fall back to video only. */
     public synchronized HttpServer.ApiResponse start(Map<String, String> query) {
         if (recording) {
             return HttpServer.ApiResponse.error("already recording: " + outPath);
@@ -186,7 +197,7 @@ public final class VideoCenter {
                 + MainActivity.jsonSafe(path) + "\",\"hasAudio\":" + audio + "}");
     }
 
-    /** 停錄影（唔係錄緊即報錯；stop 炸即刪爛檔回錯）。 */
+    /** Stop recording (error if not recording; if stop throws, delete the broken file and return an error). */
     public synchronized HttpServer.ApiResponse stop() {
         if (!recording) {
             return HttpServer.ApiResponse.error("not recording");
@@ -257,7 +268,7 @@ public final class VideoCenter {
                 + ",\"bytes\":" + f.length() + ",\"hasAudio\":" + audio + "}");
     }
 
-    /** 錄影狀態（錄緊回經過時間，閒置回上次成品）。 */
+    /** Recording status (while recording, returns the elapsed time; while idle, returns the previous finished file). */
     public synchronized HttpServer.ApiResponse status() {
         if (recording) {
             long elapsed = SystemClock.elapsedRealtime() - startElapsedMs;
@@ -270,7 +281,7 @@ public final class VideoCenter {
                 + ",\"lastBytes\":" + lastBytes + ",\"lastHasAudio\":" + lastHasAudio + "}");
     }
 
-    /** onDestroy 共用：錄緊即停（唔掟錯，免 camera shutdown 同編碼器打架）。 */
+    /** Shared by onDestroy: stop immediately while recording (does not throw, so the camera shutdown does not clash with the encoder). */
     public void stopIfRecording() {
         try {
             if (isRecording()) stop();
