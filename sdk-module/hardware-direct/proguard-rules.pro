@@ -1,2 +1,2 @@
-# hardware-direct release 配置（build.gradle 引用；minifyEnabled=false，內容為空即可）。
-# 2026-09-09 新增：之前引用咗但檔案唔存在，assembleRelease 會死（debug 唔用所以一直匿埋）。
+# hardware-direct release config (referenced by build.gradle; minifyEnabled=false, so the content can be empty).
+# Added 2026-09-09: it was referenced before but the file did not exist, so assembleRelease would fail (debug does not use it, so the problem stayed hidden).
