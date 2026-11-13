@@ -3,15 +3,16 @@ package com.ubtechinc.alpha.hardware;
 import java.io.ByteArrayOutputStream;
 
 /**
- * 2026-09: 由 sdk-module/ubtechalpha2robot 的 DeveloperPacketData 搬入（脫離
- * Alpha2OpenSdk 的一部分）。Small append-only buffer for building the payload
+ * 2026-09: moved in from DeveloperPacketData in sdk-module/ubtechalpha2robot
+ * (part of the move away from Alpha2OpenSdk). Small append-only buffer for
+ * building the payload
  * of a serial command frame.
  *
  * <p>Multi-byte values are written big-endian (high byte first), which is the byte order
  * the robot's chest / head microcontrollers expect. The initial-capacity argument is only
  * a hint; the buffer grows as needed.
  *
- * <p>註：原版嘅 putBytes(byte[]) 從無 caller，已刪除。
+ * <p>Note: the original putBytes(byte[]) had no caller, so it was removed.
  */
 public class DeveloperPacketData {
    private final ByteArrayOutputStream buffer;
