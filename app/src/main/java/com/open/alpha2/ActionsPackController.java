@@ -8,24 +8,24 @@ import android.util.Log;
 import java.io.File;
 
 /**
- * 動作包下載＋替換（實驗 tab 動作包卡用）。
+ * Action pack download + replace (used by the action pack card of the experiments tab).
  *
- * <p>固定單一 URL（allowlist，不收任意 URL，防 SSRF）：
- * {@code https://github.com/arthurson/ubtech-open-alpha2/releases/download/beta/actions.zip}。
- * 流程：後端直落 zip 到 sdcard 頂層 → 舊 {@code /sdcard/actions} 改名
- * {@code /sdcard/actions-backup}（舊 backup 先成個刪走）→ unzip 到 sdcard
- * （staging 先解再搬，兼容 zip 內有／無頂層 {@code actions/} 兩種打法）→
- * 驗收 {@code actions/actionInfo.txt} → 清 {@link ActionDirect} 緩存。
+ * <p>Fixed single URL (allowlist; no arbitrary URL, SSRF prevention):
+ * {@code https://github.com/arthurson/ubtech-open-alpha2/releases/download/beta/actions.zip}.
+ * Flow: the backend drops the zip directly into the sdcard root -> rename the old {@code /sdcard/actions}
+ * to {@code /sdcard/actions-backup} (the old backup is first deleted in whole) -> unzip into sdcard
+ * (extract into staging first, then move; compatible with zips with or without a top-level {@code actions/}) ->
+ * verify {@code actions/actionInfo.txt} -> clear the {@link ActionDirect} cache.
  *
- * <p>狀態機同 {@link VoskController} 下載那套一致（idle／downloading／unzipping／
- * done／error／cancelled），前端 poll {@code action/pack/status}（或聽
- * {@code actions_pack} event）顯示進度。heavy 工自己開 thread，public 方法
- * thread-safe。
+ * <p>The state machine matches the {@link VoskController} download set (idle/downloading/unzipping/
+ * done/error/cancelled); the frontend polls {@code action/pack/status} (or listens for the
+ * {@code actions_pack} event) to show progress. The heavy work opens its own thread; public methods
+ * are thread-safe.
  */
 public final class ActionsPackController {
     private static final String TAG = "ActionsPackController";
 
-    /** 固定下載連結（唯一合法來源；要換 release 先改這裡＋spec 描述）。 */
+    /** Fixed download link (the only legal source; to switch releases, change here + the spec description first). */
     public static final String PACK_URL =
             "https://github.com/arthurson/ubtech-open-alpha2/releases/download/beta/actions.zip";
 
@@ -38,9 +38,9 @@ public final class ActionsPackController {
     private final Context appContext;
     private final ActionDirect actionDirect;
 
-    // 下載狀態機（同 VoskController DL 那套獨立：下載中其他功能照行，不干擾）。
+    // Download state machine (independent of the VoskController DL set: other functions keep running during a download).
     private volatile String packState = "idle";
-    private volatile int packProgress = -1; // 0-100，-1＝未知（unzip 中／長度不明）
+    private volatile int packProgress = -1; // 0-100, -1 = unknown (unzipping / length unknown)
     private volatile long packBytes = 0;
     private volatile long packTotal = -1;
     private volatile String packError;
@@ -52,7 +52,7 @@ public final class ActionsPackController {
         this.actionDirect = actionDirect;
     }
 
-    /** 下載根＝sdcard 頂層（同 VoskController.downloadRoot 一致）。 */
+    /** Download root = sdcard top level (same as VoskController.downloadRoot). */
     private static File downloadRoot() {
         File ext = null;
         try {
@@ -62,7 +62,7 @@ public final class ActionsPackController {
         if (ext != null) {
             try {
                 if (ext.exists() ? ext.canWrite() : ext.mkdirs()) return ext;
-                // exists 但不肯定寫得入也照樣嘗試（舊機 canWrite 誤報），寫不入後面會再錯。
+                // It exists but writing is not certain; try anyway (older devices misreport canWrite); if it cannot be written, it errors later.
                 return ext;
             } catch (Throwable ignore) {
             }
@@ -70,12 +70,12 @@ public final class ActionsPackController {
         return new File("/mnt/internal_sd");
     }
 
-    /** 開始下載＋替換。return null＝已開始，否則即時錯誤字串。 */
+    /** Start the download + replace. return null = started, otherwise an immediate error string. */
     public synchronized String startDownload() {
         if ("downloading".equals(packState) || "unzipping".equals(packState)) {
             return "already downloading (" + packProgress + "%)";
         }
-        // 單通道：Vosk 模型下載緊就唔開得（見 DownloadGate，實驗 tab 資源下載卡）。
+        // Single channel: cannot start while the Vosk model is downloading (see DownloadGate, experiments tab resource download card).
         if (!DownloadGate.tryAcquire("actions", "actions.zip")) {
             return "another download in progress (" + DownloadGate.describe() + ")";
         }
@@ -108,7 +108,7 @@ public final class ActionsPackController {
         if ("downloading".equals(packState) || "unzipping".equals(packState)) packCancel = true;
     }
 
-    /** action/pack/status endpoint 用（透傳 JSON，不經 ApiResponse 包多層）。 */
+    /** For the action/pack/status endpoint (pass-through JSON, not wrapped in an extra ApiResponse layer). */
     public String statusJson() {
         String st;
         int prog;
@@ -169,14 +169,14 @@ public final class ActionsPackController {
         File staging = new File(root, STAGING_DIR_NAME);
         File actionsDir = new File(root, ACTIONS_DIR_NAME);
         File backupDir = new File(root, BACKUP_DIR_NAME);
-        // 是否已經將舊 actions 搬去 backup（失敗還原用）。
+        // Whether the old actions have already been moved to backup (used for the failure rollback).
         boolean renamedToBackup = false;
         try {
             try {
                 root.mkdirs();
             } catch (Throwable ignore) {
             }
-            // --- 下載 ---
+            // --- download ---
             java.net.HttpURLConnection conn = null;
             java.io.InputStream in = null;
             java.io.OutputStream out = null;
@@ -196,9 +196,9 @@ public final class ActionsPackController {
                 if (code < 200 || code >= 300) {
                     throw new java.io.IOException("HTTP " + code);
                 }
-                // 用 int 版 getContentLength（API 1 已有）：actions.zip 遠細過 2GB；
-                // getContentLengthLong 要 API 24+，這個 APK 要行 API 21/22，
-                // 直接 call 會拋 NoSuchMethodError（同 vosk 熔斷保 API 19 同一類）。
+                // Use the int version of getContentLength (available since API 1): actions.zip is far smaller than 2GB;
+                // getContentLengthLong needs API 24+, but this APK must run on API 21/22;
+                // a direct call throws NoSuchMethodError (same class as the vosk circuit breaker that keeps API 19).
                 long total = -1;
                 try {
                     total = conn.getContentLength();
@@ -252,21 +252,21 @@ public final class ActionsPackController {
             synchronized (this) {
                 if (packCancel) throw new java.io.IOException("cancelled");
             }
-            // --- unzip（staging 先解再搬，兼容兩種 zip 打法）---
+            // --- unzip (extract into staging first, then move; compatible with both zip layouts) ---
             setPack("unzipping", 100, null);
             try {
                 zipTmp.renameTo(zipDone);
             } catch (Throwable ignore) {
             }
             File src = zipDone.exists() ? zipDone : zipTmp;
-            // staging 清場重建。
+            // Clear and rebuild staging.
             deleteRecursive(staging);
             try {
                 staging.mkdirs();
             } catch (Throwable ignore) {
             }
             unzipToDir(src, staging);
-            // 驗 staging：有頂層 actions/ 就用佢，否則 staging 本身要有 actionInfo.txt。
+            // Verify staging: use the top-level actions/ if present; otherwise staging itself must have actionInfo.txt.
             File nested = new File(staging, ACTIONS_DIR_NAME);
             File srcDir;
             if (nested.isDirectory()
@@ -278,7 +278,7 @@ public final class ActionsPackController {
                 throw new java.io.IOException("unzip ok but actionInfo.txt not found"
                         + " (need actions/actionInfo.txt in zip)");
             }
-            // 舊 actions 改名 backup（舊 backup 先成個刪走；改名失敗即死，不再 unzip 覆蓋）。
+            // Rename the old actions to backup (the old backup is first deleted in whole; a rename failure dies here, no unzip overwrite).
             if (actionsDir.exists()) {
                 deleteRecursive(backupDir);
                 boolean renamed;
@@ -293,16 +293,16 @@ public final class ActionsPackController {
                 }
                 renamedToBackup = true;
             } else {
-                // 舊 actions 本來就無，殘留 backup 照留，不刪（唔關今次事）。
+                // The old actions were not present; the leftover backup stays, not deleted (unrelated to this run).
                 renamedToBackup = false;
             }
-            // staging 搬去 actions。
+            // Move staging to actions.
             boolean moved;
             try {
                 if (srcDir == staging) {
                     moved = staging.renameTo(actionsDir);
                     if (!moved) {
-                        // rename 跨卷失敗就逐個搬（舊機 sdcard 偶有此問題）。
+                        // A cross-volume rename failure moves file by file (older device sdcard occasionally has this issue).
                         moved = moveDirContents(staging, actionsDir);
                         deleteRecursive(staging);
                     }
@@ -328,7 +328,7 @@ public final class ActionsPackController {
                 if (zipTmp.exists()) zipTmp.delete();
             } catch (Throwable ignore) {
             }
-            // 新包生效：清 ActionDirect 緩存（下次 action/list 即讀新 actionInfo.txt）。
+            // The new pack is in effect: clear the ActionDirect cache (the next action/list reads the new actionInfo.txt).
             try {
                 if (actionDirect != null) actionDirect.invalidateCache();
             } catch (Throwable e) {
@@ -348,8 +348,9 @@ public final class ActionsPackController {
                 zipTmp.delete();
             } catch (Throwable ignore) {
             }
-            // 失敗還原：已經搬走舊 actions 但新包爛／搬唔到，就搬返 backup 轉頭，
-            // 免動作 tab 無嘢播（backup 本身搬唔返就如實報錯）。
+            // Failure rollback: the old actions were moved away but the new pack is corrupt or cannot be moved,
+            // so move the backup back, otherwise the action tab has nothing to play (if the backup itself
+            // cannot be restored, report the error as-is).
             if (renamedToBackup) {
                 try {
                     if (!actionsDir.exists()
@@ -379,7 +380,7 @@ public final class ActionsPackController {
         }
     }
 
-    /** staging 搬唔到（rename 跨卷失敗）先逐個搬：建目錄＋rename／copy。 */
+    /** Only when staging cannot be moved (a cross-volume rename failure), move file by file: create directories + rename/copy. */
     private static boolean moveDirContents(File from, File to) {
         try {
             if (!to.exists() && !to.mkdirs()) return false;
@@ -402,7 +403,7 @@ public final class ActionsPackController {
                         ok = false;
                     }
                     if (!ok) {
-                        // rename 唔到就 copy＋刪（同卷內應該唔會行到呢度）。
+                        // A failed rename does copy + delete (within the same volume this should not be reached).
                         java.io.InputStream in = null;
                         java.io.OutputStream out = null;
                         try {
@@ -464,7 +465,7 @@ public final class ActionsPackController {
         }
     }
 
-    /** zip-slip safe：entry 必須解到 dir 之內，否則跳過。 */
+    /** Zip-slip safe: an entry must extract inside dir, otherwise skip it. */
     private void unzipToDir(File zip, File dir) throws java.io.IOException {
         String dirCanon = dir.getCanonicalPath();
         java.util.zip.ZipInputStream zis = null;
@@ -478,7 +479,7 @@ public final class ActionsPackController {
                     if (packCancel) throw new java.io.IOException("cancelled");
                 }
                 String name = e.getName();
-                // 擋絕對路徑／.. 跳出（外來 zip 不信）。
+                // Block absolute paths / .. escapes (do not trust an outside zip).
                 File f = new File(dir, name);
                 String canon = f.getCanonicalPath();
                 if (!canon.equals(dirCanon) && !canon.startsWith(dirCanon + File.separator)) {
