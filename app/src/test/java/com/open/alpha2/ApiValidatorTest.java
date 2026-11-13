@@ -4,15 +4,17 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * ApiValidator 單元測試 (零依賴，不用 JUnit)。
+ * ApiValidator unit tests (zero dependencies, no JUnit).
  *
- * 點解唔用 JUnit：本專案離線編譯 (`--offline`)，gradle cache 入面冇 junit，
- * 加 `testImplementation 'junit:...'` 會整斷每個人嘅 offline build。
- * 呢個 file 係純 Java + `main()` runner，經 `scripts/test-apivalidator.py`
- * 用 `javac`/`java` + SDK 嘅 `android.jar` 直接編譯執行 (CI 同本機都得)，
- * `./gradlew assembleDebug` 完全唔受影響 (唔喺 main sourceSet)。
+ * Why not use JUnit: this project compiles offline (`--offline`). The gradle
+ * cache has no junit, and adding `testImplementation 'junit:...'` would break
+ * everyone's offline build. This file is pure Java + a `main()` runner,
+ * compiled and executed directly by `scripts/test-apivalidator.py` using
+ * `javac`/`java` + the SDK `android.jar` (works in both CI and locally).
+ * `./gradlew assembleDebug` is completely unaffected (it is not in the main
+ * sourceSet).
  *
- * 執行：`python scripts/test-apivalidator.py`
+ * Run: `python scripts/test-apivalidator.py`
  */
 public final class ApiValidatorTest {
     private static int passed = 0;
@@ -111,7 +113,7 @@ public final class ApiValidatorTest {
     }
 
     public static void main(String[] args) {
-        // ── 基礎 ──
+        // ── basic ──
         eq("v", ApiValidator.require(q("k", "v"), "k"), "require.ok");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.require(q(), "k"); } }, "require.missing");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.require(q("k", ""), "k"); } }, "require.empty");
@@ -119,7 +121,7 @@ public final class ApiValidatorTest {
         eq("d", ApiValidator.optional(q(), "k", "d"), "optional.missing");
         eq("d", ApiValidator.optional(q("k", ""), "k", "d"), "optional.empty");
 
-        // ── 整數 ──
+        // ── integer ──
         eq(42, ApiValidator.requireInt(q("k", "42"), "k"), "requireInt.ok");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireInt(q("k", "abc"), "k"); } }, "requireInt.bad");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireInt(q(), "k"); } }, "requireInt.missing");
@@ -133,12 +135,12 @@ public final class ApiValidatorTest {
         eq(1, ApiValidator.optionalIntRange(q(), "k", 1, 20, 1), "optionalIntRange.missing");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalIntRange(q("k", "99"), "k", 1, 20, 1); } }, "optionalIntRange.high");
 
-        // ── 長整數 ──
+        // ── long ──
         eq(Long.valueOf(1500L), Long.valueOf(ApiValidator.requireLong(q("k", "1500"), "k")), "requireLong.ok");
         eq(Long.valueOf(1500L), Long.valueOf(ApiValidator.optionalLong(q(), "k", 1500L)), "optionalLong.missing");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalLong(q("k", "1.5"), "k", 0L); } }, "optionalLong.bad");
 
-        // ── 浮點 ──
+        // ── float ──
         eq(0.5f, ApiValidator.requireFloat(q("k", "0.5"), "k"), "requireFloat.ok");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireFloat(q("k", "abc"), "k"); } }, "requireFloat.bad");
         eq(Float.NaN, ApiValidator.optionalFloat(q(), "k", Float.NaN), "optionalFloat.nanDefault");
@@ -159,7 +161,7 @@ public final class ApiValidatorTest {
         eq(null, ApiValidator.optionalNullable(q(), "k"), "optionalNullable.missing");
         eq("x", ApiValidator.optionalNullable(q("k", "x"), "k"), "optionalNullable.present");
 
-        // ── 枚舉 ──
+        // ── enum ──
         final String[] ab = new String[]{"a", "b"};
         eq("a", ApiValidator.requireEnum(q("k", "a"), "k", ab), "requireEnum.ok");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireEnum(q("k", "c"), "k", ab); } }, "requireEnum.bad");
@@ -178,7 +180,7 @@ public final class ApiValidatorTest {
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireBoolean(q(), "k"); } }, "requireBoolean.missing");
         eq(true, ApiValidator.optionalBoolean(q(), "k", true), "optionalBoolean.default");
 
-        // ── 常用組合 ──
+        // ── common combinations ──
         eq(3, ApiValidator.requireColor(q("color", "3")), "color.ok");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireColor(q("color", "8")); } }, "color.high");
         eq(9, ApiValidator.requireBrightness(q("brightness", "9")), "brightness.ok");
@@ -193,9 +195,11 @@ public final class ApiValidatorTest {
         eq(150, ApiValidator.requireMouthSpeed(q("speed", "150")), "mouthSpeed.present");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireMouthSpeed(q("speed", "1001")); } }, "mouthSpeed.high");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireMouthSpeed(q("speed", "99")); } }, "mouthSpeed.low");
-        // P0 行為：speech/tts 只准 android (唯一會出聲)；nuance/iflytek 已經永久
-        // 唔再用 (機身無 alpha2services, binder 已死)，2026-09 由「照收但回
-        // NOT_INIT」改做徹底唔准 (invalid-parameter)。
+        // P0 behavior: speech/tts only allows android (the only one that
+        // produces sound). nuance/iflytek are permanently no longer used (the
+        // body has no alpha2services, the binder is dead). From 2026-09,
+        // changed from "accept it but return NOT_INIT" to "forbid it strictly
+        // (invalid-parameter)".
         eq("android", ApiValidator.requireSpeechEngine(q()), "speechEngine.defaultAndroid");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireSpeechEngine(q("engine", "iflytek")); } }, "speechEngine.iflytekGone");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireSpeechEngine(q("engine", "nuance")); } }, "speechEngine.nuanceGone");
@@ -234,7 +238,8 @@ public final class ApiValidatorTest {
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireUbxSpeed(q()); } }, "ubxSpeed.missing");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.parseUbxSpeedValue(null); } }, "ubxSpeed.null");
 
-        // speech/tts、speech/tts_prosody/set: pitch／rate 0.5..2.0，可選 (null＝無帶)
+        // speech/tts, speech/tts_prosody/set: pitch/rate 0.5..2.0, optional
+        // (null = not sent)
         eq(null, ApiValidator.optionalTtsProsody(q(), "pitch"), "ttsProsody.missing");
         eq(null, ApiValidator.optionalTtsProsody(q("pitch", ""), "pitch"), "ttsProsody.empty");
         eq(0.7f, ApiValidator.optionalTtsProsody(q("pitch", "0.7"), "pitch").floatValue(), "ttsProsody.pitch");
@@ -263,8 +268,9 @@ public final class ApiValidatorTest {
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireAngles20(q("angles", "90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90")); } }, "angles21.bad");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireAngles20(q()); } }, "angles20.missing");
 
-        // ── 舵機校準 clamp（同 app-core.js SERVO_CALIBRATION 一字不差；
-        // 手柄 jog／搖桿／觸控板共用，頂限位唔會再頂過龍）──
+        // ── servo calibration clamp (identical to app-core.js SERVO_CALIBRATION;
+        // shared by the handle jog / stick / touchpad, so the upper limit is
+        // never exceeded) ──
         eq(5, ApiValidator.servoCalMin(1), "cal.min1");
         eq(235, ApiValidator.servoCalMax(1), "cal.max1");
         eq(65, ApiValidator.servoCalHome(8), "cal.home8");
@@ -401,7 +407,7 @@ public final class ApiValidatorTest {
         eq(com.ubtechinc.alpha.hardware.ChestSafety.SIT_DOWN_40,
                 com.ubtechinc.alpha.hardware.ChestSafety.checkCommand(0x40, new byte[]{1, 0}), "sit.cmd.40enter");
 
-        // ── 回應 helpers ──
+        // ── response helpers ──
         eq(true, ApiValidator.okTrue().body.contains("\"ok\":true"), "okTrue.body");
         eq(200, ApiValidator.ok("{\"ok\":true}").status, "ok.status");
         eq(true, ApiValidator.error("boom").body.contains("boom"), "error.body");
