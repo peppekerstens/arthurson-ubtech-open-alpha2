@@ -3,7 +3,8 @@ plugins {
 }
 
 android {
-    // AGP 4.2.2 無 namespace DSL（7.0+ 先有）；package 由 src/main/AndroidManifest.xml 提供。
+    // AGP 4.2.2 has no namespace DSL (added in 7.0+); package is provided by
+    // src/main/AndroidManifest.xml.
     compileSdkVersion 25
 
     buildFeatures {
@@ -35,6 +36,7 @@ android {
 }
 
 dependencies {
-    // 2026-09: 對 ubtechalpha2robot 的依賴已移除 (module 已刪除；StaticValue/
-    // DeveloperPacketData 搬入本 module)。零 project 依賴。
+    // 2026-09: the dependency on ubtechalpha2robot has been removed (the module
+    // has been deleted; StaticValue/DeveloperPacketData has been moved into this
+    // module). Zero project dependencies.
 }

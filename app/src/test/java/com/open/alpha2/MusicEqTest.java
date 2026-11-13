@@ -1,10 +1,11 @@
 package com.open.alpha2;
 
 /**
- * MusicEq 單元測試 (零依賴，不用 JUnit)。
+ * MusicEq unit test (zero dependencies, no JUnit).
  *
- * 同 ApiValidatorTest／ColorTrackTest 一樣經 `scripts/test-apivalidator.py`
- * 純 javac/java 跑。`./gradlew assembleDebug` 完全唔受影響。
+ * Same as ApiValidatorTest / ColorTrackTest, run via `scripts/
+ * test-apivalidator.py` using pure javac/java. `./gradlew assembleDebug` is
+ * completely unaffected.
  */
 public final class MusicEqTest {
     private static int passed = 0;
@@ -69,7 +70,7 @@ public final class MusicEqTest {
     }
 
     public static void main(String[] args) {
-        // ── preset 表 ──
+        // ── preset table ──
         eq(true, MusicEq.isPreset("rock"), "preset.known");
         eq(true, MusicEq.isPreset("custom"), "preset.custom");
         eq(false, MusicEq.isPreset("metal"), "preset.unknown");
@@ -79,7 +80,8 @@ public final class MusicEqTest {
         eq(5, MusicEq.presetDb("rock").length, "table.len");
         eq(true, MusicEq.presetDb("custom") == null, "table.customNull");
         eq(true, MusicEq.presetDb("nope") == null, "table.unknownNull");
-        // 表唔可以俾出面改（回 clone）：改完再攞要一樣。
+        // The table must not be modified from outside (it returns a clone):
+        // after modifying a copy, fetch it again and it must be the same.
         int[] a = MusicEq.presetDb("bass");
         a[0] = 999;
         eq(6, MusicEq.presetDb("bass")[0], "table.clone");
@@ -88,14 +90,14 @@ public final class MusicEqTest {
         eqArr(new int[] { 0, 0, 0, 0, 0 }, MusicEq.resampleDb(new int[] { 0, 0, 0, 0, 0 }, 5), "rs.identity");
         int[] rsId = MusicEq.resampleDb(new int[] { 1, 2, 3, 4, 5 }, 5);
         eq(true, rsId != null && rsId.length == 5 && rsId[2] == 3, "rs.sameLen");
-        // 5→3：頭尾照抄，中間插值。
+        // 5 to 3: head and tail are copied, the middle is interpolated.
         eqArr(new int[] { 0, 10, 20 }, MusicEq.resampleDb(new int[] { 0, 5, 10, 15, 20 }, 3), "rs.down");
-        // 5→7 首尾保。
+        // 5 to 7, head and tail preserved.
         int[] up = MusicEq.resampleDb(new int[] { 0, 0, 0, 0, 10 }, 7);
         eq(7, up.length, "rs.upLen");
         eq(0, up[0], "rs.upFirst");
         eq(10, up[6], "rs.upLast");
-        // 1 band＝平均。
+        // 1 band = the average.
         eqArr(new int[] { 3 }, MusicEq.resampleDb(new int[] { 1, 2, 3, 4, 5 }, 1), "rs.one");
         eq(true, MusicEq.resampleDb(null, 5) == null, "rs.null");
         eq(true, MusicEq.resampleDb(new int[] { 1 }, 0) == null, "rs.zero");
@@ -108,7 +110,7 @@ public final class MusicEqTest {
         throwsIllegal(new Runnable() { public void run() { MusicEq.parseLevelsMb("0,1,2,3,4,5", 5, 5); } }, "parse.count");
         throwsIllegal(new Runnable() { public void run() { MusicEq.parseLevelsMb("0,x,2", 1, 16); } }, "parse.nan");
 
-        // ── clamp／換算 ──
+        // ── clamp / conversion ──
         eq(-1500, MusicEq.clampMb(-9999, -1500, 1500), "clamp.lo");
         eq(1500, MusicEq.clampMb(9999, -1500, 1500), "clamp.hi");
         eq(300, MusicEq.clampMb(300, -1500, 1500), "clamp.mid");
