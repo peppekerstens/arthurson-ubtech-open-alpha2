@@ -10,7 +10,6 @@ import android.net.wifi.WifiManager;
 import android.os.Handler;
 import android.util.Log;
 
-import com.ubtechinc.alpha.hardware.ChestSafety;
 import com.ubtechinc.alpha.hardware.DirectLedController;
 import com.ubtechinc.alpha.hardware.HardwareDirectManager;
 import com.ubtechinc.alpha.hardware.MouthLedData;
@@ -1222,12 +1221,13 @@ public final class LedCenter {
         ApiValidator.checkSerialSendSitDown(query, port, data);
         // alpha2-brain#130: a chest move command (cmd 0x03 move one, 0x05 move all,
         // 0x06 read with release) moves the body: 403 unless the motion gate allows it.
-        // Read commands are not gated, and head frames are not checked.
+        // While the gate does not allow a body move, chest data that is not one or more
+        // complete frames is refused too, whatever allow_sit_down says: the chest could
+        // join the bytes into a move frame. Read commands are not gated, and head frames
+        // are not checked.
         MotionGate g = motionGate;
         String moveWhy = g == null
-                ? ("chest".equals(port) && ChestSafety.findChestMoveCommand(data) >= 0
-                        ? "Motion is refused: debug/serial/send has no motion gate."
-                        : null)
+                ? MotionGate.refusalWithoutGate(port, data)
                 : g.refusalForSerialSend(port, data);
         if (moveWhy != null) {
             Log.w("MotionGate", "refused: " + moveWhy);
