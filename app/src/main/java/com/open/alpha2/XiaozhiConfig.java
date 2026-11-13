@@ -10,42 +10,48 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 小智設定層：OTA 自架 server / MCP 開關 / TTS 引擎 / 自動連接。
+ * Xiaozhi config layer: self-hosted OTA server / MCP switch / TTS engine / auto-connect.
  */
 public final class XiaozhiConfig {
     private static final String TAG = "XiaozhiConfig";
 
-    /** 自訂小智 server 設定 - 開關開了才用 PREF_XIAOZHI_OTA_URL, 關了就跟回
-     *  XiaozhiOtaClient.DEFAULT_OTA_URL (官方 api.tenclass.net)。見
-     *  handleXiaozhiApi() 的 "ota_config/get"/"ota_config/set" case 和
-     *  runXiaozhiActivationFlow() 怎麼讀這個設定。 */
+    /** Custom Xiaozhi server config. Use PREF_XIAOZHI_OTA_URL when the switch is on.
+     *  When off, use XiaozhiOtaClient.DEFAULT_OTA_URL (the official api.tenclass.net).
+     *  See the "ota_config/get"/"ota_config/set" case in handleXiaozhiApi() and how
+     *  runXiaozhiActivationFlow() reads this config. */
     public static final String PREF_XIAOZHI_OTA_CUSTOM_ENABLED = "xiaozhi_ota_custom_enabled";
     public static final String PREF_XIAOZHI_OTA_URL = "xiaozhi_ota_url";
-    // 自架 server 未必跟足官方協議形狀 (OTA response 夾著
-    // websocket url/token 一起送回來) - 有些自架方案要用戶自己手動填這幾樣東西。
-    // 全部留空 = 跟回自動流程 (由 OTA response 拿); 有填就用來覆寫對應的自動值。
-    // 只有在 PREF_XIAOZHI_OTA_CUSTOM_ENABLED 開了的時候才讀這幾個, 和 OTA URL
-    // 本身一起收在同一個「自訂小智 server」開關底下。
+    // A self-hosted server may not match the shape of the official protocol (the OTA
+    // response returns the websocket url and token together). Some self-hosted setups
+    // require the user to enter these values manually. All empty = keep the automatic
+    // flow (the OTA response supplies the values). Filled values override the matching
+    // automatic values. Read these only when PREF_XIAOZHI_OTA_CUSTOM_ENABLED is on,
+    // and group them under the same "custom Xiaozhi server" switch as the OTA URL.
     public static final String PREF_XIAOZHI_WS_URL_OVERRIDE = "xiaozhi_ws_url_override";
     public static final String PREF_XIAOZHI_DEVICE_ID_OVERRIDE = "xiaozhi_device_id_override";
     public static final String PREF_XIAOZHI_TOKEN_OVERRIDE = "xiaozhi_token_override";
-    // MCP tool 個別 enable/disable 設定。總開關預設 true (保持現有
-    // 行為 - 已經在用的人不應該因為這個功能上線而工具突然全部消失)。
-    // disabled tool 清單預設空 (也就是全部 enabled), 用逗號分隔的 tool name 儲存
-    // 在同一個 SharedPreferences, 用 name 不用 index 是因為 tool 清單本身會隨版本
-    // 增減, index 會漂移, name 才是穩定的 identity。
+    // Individual enable/disable config for each MCP tool. The master switch defaults
+    // to true (preserve the existing behavior - users who already use this should not
+    // suddenly lose all tools when the feature ships). The disabled-tool list defaults
+    // to empty (that is, all enabled). Store the comma-separated tool names in the
+    // same SharedPreferences. Use the name, not the index, because the tool list
+    // changes between versions. The index drifts, but the name is a stable identity.
     public static final String PREF_XIAOZHI_MCP_ENABLED = "xiaozhi_mcp_enabled";
     public static final String PREF_XIAOZHI_MCP_DISABLED_TOOLS = "xiaozhi_mcp_disabled_tools";
-    // 見 getTtsEngine() 的 javadoc。
+    // See the javadoc of getTtsEngine().
     public static final String PREF_XIAOZHI_TTS_ENGINE = "xiaozhi_tts_engine";
-    /** 開機語音模式三選一（實驗 tab 卡，見 boot_voice/get|set）：off＝什麼都不自動起、
-     *  xiaozhi＝開app自動連接小智、vosk＝開app自動載 model 起 Vosk 聆聽。預設 off。 */
+    /** Boot voice mode, one of three (experimental tab card, see boot_voice/get|set):
+     *  off = start nothing automatically; xiaozhi = connect to Xiaozhi when the app
+     *  opens; vosk = load the model and start Vosk listening when the app opens.
+     *  Default off. */
     public static final String PREF_BOOT_VOICE_MODE = "boot_voice_mode";
     public static final String BOOT_VOICE_OFF = "off";
     public static final String BOOT_VOICE_XIAOZHI = "xiaozhi";
     public static final String BOOT_VOICE_VOSK = "vosk";
-    /** 舊版小智 tab「開app自動連接」boolean（已由上面三態取代）。key 保留只為
-     *  開機遷移：未存過新值、舊值是 true 就當 xiaozhi 並寫回去，之後不再讀。 */
+    /** Legacy Xiaozhi tab "auto-connect when the app opens" boolean (replaced by the
+     *  three states above). Keep the key only for boot migration: if no new value is
+     *  stored and the old value is true, treat it as xiaozhi and write it back. Do not
+     *  read it after that. */
     public static final String PREF_XIAOZHI_AUTO_CONNECT = "xiaozhi_auto_connect";
     /** Random filler gesture at XiaoZhi TTS "start" (see XiaozhiBridge
      *  TtsStateListener). Default true keeps the old behaviour. false = the TTS
@@ -57,7 +63,8 @@ public final class XiaozhiConfig {
      *  0aa89ed (release ignored, no uplink gate, no push to talk). */
     public static final String PREF_XIAOZHI_PUSH_TO_TALK_ENABLED = "xiaozhi_push_to_talk_enabled";
 
-    /** OTA 自架設定快照 (activation / vision 讀一次取齊，不用逐個 key 查)。 */
+    /** Snapshot of the self-hosted OTA config (activation / vision reads it all at
+     *  once, no per-key lookup). */
     public static final class OtaConfig {
         public final boolean customEnabled;
         public final String otaUrl;
@@ -74,19 +81,23 @@ public final class XiaozhiConfig {
     }
 
     private final Context appContext;
-    // 小智 tab 的 TTS 輸出引擎選擇 - "xiaozhi" (預設) 也就是維持原本行為 (server
-    // 送 opus 過來, XiaozhiAudioController 解碼播放); 選 "android" 就完全靜音
-    // 那段 opus, 改用本地 speech/tts (Android 內置) 逐句讀出小智回覆。
-    // 用 SharedPreferences 持久化, 跨重啟記得住選了哪個。
-    // 舊值 "iflytek"/"nuance" 已移除 (機身已無此兩引擎, 選中只會靜音) -
-    // 開機讀到舊值會遷移到 "xiaozhi", tts_config/set 會直接拒收舊值。
+    // TTS output engine selection for the Xiaozhi tab. "xiaozhi" (the default) keeps
+    // the original behavior (the server sends opus, and XiaozhiAudioController decodes
+    // and plays it). Selecting "android" mutes that opus entirely and reads the
+    // Xiaozhi reply sentence by sentence with the local speech/tts (the built-in
+    // Android TTS). Persist with SharedPreferences so the selection survives a reboot.
+    // The old values "iflytek"/"nuance" are removed (the device no longer has those
+    // two engines, and selecting one only mutes the audio). Reading an old value at
+    // boot migrates it to "xiaozhi". tts_config/set rejects the old values directly.
     private volatile String xiaozhiTtsEngine = "xiaozhi";
 
     public XiaozhiConfig(Context context) {
         this.appContext = context.getApplicationContext();
-        // 讀取上次選定的 TTS 引擎, 如果沒有存過就用預設值 "xiaozhi" (原本行為,
-        // 不靜音)。舊版本存落的 "iflytek"/"nuance" 已無對應引擎, 一律遷移到
-        // "xiaozhi" 並寫回去, 不是隊列會經 speech/tts 打去死 binder 全程靜音。
+        // Read the previously selected TTS engine. If none is stored, use the default
+        // "xiaozhi" (the original behavior, no mute). The old values "iflytek"/"nuance"
+        // stored by an earlier version no longer map to an engine. Migrate them all to
+        // "xiaozhi" and write the result back. Otherwise the queue would go through
+        // speech/tts to a dead binder and stay muted the whole time.
         xiaozhiTtsEngine = prefs().getString(PREF_XIAOZHI_TTS_ENGINE, "xiaozhi");
         if (!"xiaozhi".equals(xiaozhiTtsEngine) && !"android".equals(xiaozhiTtsEngine)) {
             Log.i(TAG, "migrate legacy xiaozhiTtsEngine " + xiaozhiTtsEngine + " -> xiaozhi");
@@ -123,7 +134,8 @@ public final class XiaozhiConfig {
         }
     }
 
-    /** 開機語音模式（off/xiaozhi/vosk），帶舊 boolean 遷移，未存過一律 off。 */
+    /** Boot voice mode (off/xiaozhi/vosk), with migration of the old boolean. If
+     *  nothing is stored, the value is off. */
     public String getBootVoiceMode() {
         try {
             String mode = prefs().getString(PREF_BOOT_VOICE_MODE, null);
@@ -164,14 +176,16 @@ public final class XiaozhiConfig {
         return BOOT_VOICE_XIAOZHI.equals(getBootVoiceMode());
     }
 
-    /** MCP tool enable/disable 設定的讀寫 helper - 逗號分隔的 disabled tool name
-     *  清單。isMcpToolEnabled() 供 listTools()/callTool() 共用: listTools() 用來
-     *  過濾哪些 tool 出現在回應中, callTool() 用來擋下一個已經 disabled 但 LLM
-     *  手上還持有舊 tool 清單、嘗試照樣呼叫的情況。
-     *  這台機器永遠對外暴露 MCP 工具 (逐項 enable/disable 不變), isMcpEnabled() 恆常
-     *  回傳 true。PREF_XIAOZHI_MCP_ENABLED 這個 pref key 保留在常數和
-     *  mcp_config/set 的寫入路徑裡沒有拆掉, 純粹是為了相容舊有經由 query string
-     *  直接打 API 的呼叫方式, 但不會再影響實際行為。 */
+    /** Read/write helper for MCP tool enable/disable config - a comma-separated list
+     *  of disabled tool names. Both listTools()/callTool() share isMcpToolEnabled():
+     *  listTools() uses it to filter which tools appear in the response. callTool()
+     *  uses it to block a tool that is already disabled while the LLM still holds the
+     *  old tool list and tries to call it as before. This device always exposes MCP
+     *  tools to the outside (the per-item enable/disable is unchanged), and
+     *  isMcpEnabled() always returns true. Keep the PREF_XIAOZHI_MCP_ENABLED pref key
+     *  in the constant and in the mcp_config/set write path, without removing it,
+     *  purely for compatibility with the old call style that hit the API directly
+     *  through a query string. It no longer affects the actual behavior. */
     public boolean isMcpEnabled() {
         return true;
     }
@@ -213,8 +227,9 @@ public final class XiaozhiConfig {
     }
 
     public HttpServer.ApiResponse otaConfigSet(Map<String, String> query, boolean connected) {
-        // 自架 server 未必跟足官方協議形狀：開放 wsUrl/deviceId/token 三個可選 override，
-        // 留空就繼續走原本「只有 OTA URL, 其餘自動」那條路。
+        // A self-hosted server may not match the shape of the official protocol: open
+        // three optional overrides, wsUrl/deviceId/token. Leave one empty to keep the
+        // original "only the OTA URL, the rest is automatic" path.
         boolean enabled = ApiValidator.requireBoolean(query, "enabled");
         String url = ApiValidator.optionalNullable(query, "url");
         String wsUrlOverride = ApiValidator.optionalNullable(query, "wsUrl");
@@ -228,9 +243,10 @@ public final class XiaozhiConfig {
             if (!url.startsWith("http://") && !url.startsWith("https://")) {
                 throw new IllegalArgumentException("url must start with http:// or https://");
             }
-            // 自訂 http 明文會送 token 明文，留警告（不擋：LAN 自架 server 合理）。
+            // A custom http URL sends the token in plain text. Keep a warning (do not
+            // block: a self-hosted LAN server is reasonable).
             if (url.startsWith("http://")) {
-                android.util.Log.w("XiaozhiConfig", "custom OTA url is plain http (token 明文，限可信 LAN)");
+                android.util.Log.w("XiaozhiConfig", "custom OTA url is plain http (token in plain text, trusted LAN only)");
             }
             if (wsUrlOverride != null) {
                 String trimmed = wsUrlOverride.trim();
@@ -272,9 +288,9 @@ public final class XiaozhiConfig {
     }
 
     public HttpServer.ApiResponse mcpConfigSet(Map<String, String> query) {
-        // 兩種用法, 依 query 帶的參數而定:
-        //   ?enabled=true|false                  -> 設總開關
-        //   ?tool=<name>&enabled=true|false       -> 設單一 tool
+        // Two usage forms, depending on the query parameters:
+        //   ?enabled=true|false                  -> set the master switch
+        //   ?tool=<name>&enabled=true|false       -> set a single tool
         String toolName = ApiValidator.optionalNullable(query, "tool");
         boolean enabled = ApiValidator.requireBoolean(query, "enabled");
         SharedPreferences.Editor mcpEditor = prefs().edit();
@@ -294,9 +310,9 @@ public final class XiaozhiConfig {
         return HttpServer.ApiResponse.okTrue();
     }
 
-    // 見 getTtsEngine() 的 javadoc。engine 值: "xiaozhi" (預設,
-    // server 送 opus 播放) | "android" (靜音 opus, 改用本地 Android TTS
-    // 讀出)。"iflytek"/"nuance" 已移除, 直接拒收。
+    // See the javadoc of getTtsEngine(). engine values: "xiaozhi" (the default, the
+    // server sends opus for playback) | "android" (mute the opus, read with the local
+    // Android TTS instead). "iflytek"/"nuance" are removed and rejected directly.
     public HttpServer.ApiResponse ttsConfigGet() {
         return HttpServer.ApiResponse.ok("{\"ok\":true,\"engine\":\""
                 + MainActivity.jsonSafe(xiaozhiTtsEngine) + "\"}");

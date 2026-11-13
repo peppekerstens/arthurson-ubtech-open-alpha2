@@ -15,7 +15,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Implements the 小智 (XiaoZhi) OTA/device-activation HTTP protocol - the step that
+ * Implements the XiaoZhi OTA/device-activation HTTP protocol - the step that
  * happens *before* XiaozhiClient's WebSocket connection, not a replacement for it.
  *
  * On a genuine ESP32 device running the official firmware, the very first thing it does
@@ -155,21 +155,28 @@ public class XiaozhiOtaClient {
         String activateUrl = otaUrl.endsWith("/") ? otaUrl + "activate" : otaUrl + "/activate";
         long deadline = System.currentTimeMillis() + timeoutMs;
         int attempt = 0;
-        // 2026-08 修正: 真機證實的 bug - 之前單次 postJsonWithStatus() 拋出的
-        // IOException (包括這裡最常見的 java.net.SocketTimeoutException: Read
-        // timed out) 會直接向上拋出, 讓整個 pollActivation() 立刻失敗, 即使
-        // deadline (由 server 告訴我們的整個配對流程總時限, 通常是幾分鐘, 用來
-        // 等用戶有時間去 xiaozhi.me 打開網頁、登入、輸入配對碼) 還有大把時間未到。
-        // 單次 HTTP request 用的 HTTP_TIMEOUT_MS (10 秒) 本來是設計給一般 request
-        // (checkVersion 這類) 用的合理逾時值, 但輪詢期間網路短暫波動/server 這次
-        // response 慢了一點 (10 秒都常見, 尤其是 mobile network) 就完全有可能觸發
-        // 這個逾時 - 真機 logcat 見到配對碼剛出現 10 秒左右就 "Read timed out",
-        // 用戶連打開 xiaozhi.me 網站的時間都還不夠就已經失敗了, 讓用戶感覺「binding
-        // 不到」。這裡將暫時性的網路 IOException 在 loop 裡面捕捉、log 下來、當一次
-        // 「這輪沒拿到結果」處理, 跟著正常流程 sleep 完再試試一輪, 只有在
-        // deadline 真正到了都還是拿不到結果才真正失敗。4xx/5xx fatal error (見
-        // 下面 result.statusCode >= 400 那個 branch) 不受這個改動影響, 依然是
-        // 立刻失敗, 因為那些代表 server 明確拒絕了, 重試也沒用。
+        // 2026-08 fix: a bug confirmed on the real device. Before, an IOException
+        // thrown by a single postJsonWithStatus() call (most often here,
+        // java.net.SocketTimeoutException: Read timed out) was re-thrown upward
+        // directly. That made pollActivation() fail right away, even though the
+        // deadline (the total time the server gives for the whole pairing flow,
+        // usually a few minutes, used to wait for the user to open the xiaozhi.me
+        // page, log in, and type the pairing code) still had plenty of time left.
+        // HTTP_TIMEOUT_MS (10 seconds), used by a single HTTP request, is a
+        // reasonable timeout designed for a normal request (such as checkVersion).
+        // But a brief network hiccup during polling, or a slow response from the
+        // server this time (10 seconds is common, especially on a mobile network),
+        // can easily trigger this timeout. The real-device logcat shows "Read timed
+        // out" about 10 seconds after the pairing code appears. The user has not
+        // even had time to open the xiaozhi.me site when it has already failed, and
+        // the user feels the binding "does not work". Here, a temporary network
+        // IOException is caught inside the loop, logged, and treated as "this round
+        // got no result". Then the normal flow sleeps and tries another round. It
+        // really fails only when the deadline truly arrives with still no result.
+        // The 4xx/5xx fatal errors (see the result.statusCode >= 400 branch below)
+        // are not affected by this change. They still fail right away, because they
+        // mean the server rejected the request explicitly, and retrying does not
+        // help.
         IOException lastTransientError = null;
 
         while (System.currentTimeMillis() < deadline) {
@@ -273,13 +280,14 @@ public class XiaozhiOtaClient {
             URL url = new URL(urlStr);
             NetLog.out("xiaozhi-ota", urlStr);
             conn = (HttpURLConnection) url.openConnection();
-            // 部份 Android 5.1 機出廠 CA store 沒收錄 api.tenclass.net 現用那條
-            // 憑證鏈的根, 會在這句 openConnection() 之後、實際發送 request 的時候
-            // 撞 CertPathValidatorException - 用 XiaozhiTrustAllSsl 幫這個
-            // HttpsURLConnection 裝回一個全信任的 SSLSocketFactory (詳見那個
-            // class 的 javadoc)。如果 urlStr 不是 https:// (例如自訂 OTA URL
-            // 打了 http://), applyTrustAll() 見到不是 HttpsURLConnection 會
-            // 什麼都不做。
+            // Some Android 5.1 devices ship with a factory CA store that does not
+            // include the root of the certificate chain that api.tenclass.net
+            // currently uses. After this openConnection() call, when the request
+            // actually goes out, the code hits a CertPathValidatorException. Use
+            // XiaozhiTrustAllSsl to install a trust-all SSLSocketFactory on this
+            // HttpsURLConnection (see that class's javadoc). If urlStr is not
+            // https:// (for example, a custom OTA URL typed as http://),
+            // applyTrustAll() sees it is not an HttpsURLConnection and does nothing.
             XiaozhiTrustAllSsl.applyTrustAll(conn);
             conn.setRequestMethod("POST");
             conn.setConnectTimeout(HTTP_TIMEOUT_MS);

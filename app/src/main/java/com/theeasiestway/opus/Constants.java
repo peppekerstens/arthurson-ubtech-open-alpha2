@@ -1,33 +1,36 @@
 package com.theeasiestway.opus;
 
 /**
- * 取代 theeasiestway/android-opus-codec 的 opus.aar 裡面, 由 Kotlin 編譯出來的
- * com.theeasiestway.opus.Constants class - 純 Java 版, 沒有任何 Kotlin runtime
- * 依賴 (原本 aar 版本的 SampleRate/Channels/Application/FrameSize 等都是
- * Kotlin inline value class, 內部用一個 int 字段 "v" 包住, 這裡直接攤平做
- * plain int, 效果完全一樣但不用 kotlin-stdlib)。
+ * A pure Java replacement for the Constants class
+ * (com.theeasiestway.opus.Constants) that the Kotlin compiler produces inside the
+ * opus.aar of theeasiestway/android-opus-codec. It has no dependency on the Kotlin
+ * runtime (in the original aar version, SampleRate/Channels/Application/FrameSize
+ * and the like are all Kotlin inline value classes, each internally wrapping a
+ * single int field "v". Here they are flattened to plain int. The effect is exactly
+ * the same, but kotlin-stdlib is not needed).
  *
- * 2026-08: 這個 project 徹底移除了 opus.aar, 改用 easyopus-jni-src 源碼
- * 自己 CMake 編譯 (見 app/src/main/cpp/CMakeLists.txt)。原本 aar 的
- * classes.jar 沒有源碼, 只有編譯過的 bytecode, 所以這個 class 是根據
- * classes.jar 的 constant-pool / method signature 逆出來的, 再對照
- * XiaozhiAudioController.java 實際用到的 5 個 factory call
+ * 2026-08: this project fully removed opus.aar and switched to compiling the
+ * easyopus-jni-src source code itself with CMake (see app/src/main/cpp/
+ * CMakeLists.txt). The classes.jar of the original aar had no source code, only
+ * compiled bytecode. So this class was reverse-engineered from the constant-pool /
+ * method signatures of classes.jar, and then cross-checked against the five
+ * factory calls actually used in XiaozhiAudioController.java
  * (SampleRate._16000() / Channels.mono() / Application.voip() /
- * FrameSize._960()) 校對過。
+ * FrameSize._960()).
  *
- * 各個值的來源:
- *   - SampleRate: opus_encoder_init()/opus_decoder_init() 直接收的 raw Hz
- *     值 (opus.h: 必須是 8000/12000/16000/24000/48000 之一)。
- *   - Channels: 1 = mono, 2 = stereo (opus.h 標準)。
- *   - Application: OPUS_APPLICATION_* 宏值, 來自官方 opus_defines.h
- *     (VOIP=2048, AUDIO=2049, RESTRICTED_LOWDELAY=2051)。
- *   - FrameSize: samples per frame (非 ms), 由 XiaozhiAudioController 的
- *     SAMPLES_PER_FRAME = 16000Hz * 60ms / 1000 = 960 反推。
+ * Source of each value:
+ *   - SampleRate: the raw Hz value directly accepted by opus_encoder_init()/
+ *     opus_decoder_init() (opus.h: it must be one of 8000/12000/16000/24000/48000).
+ *   - Channels: 1 = mono, 2 = stereo (the opus.h standard).
+ *   - Application: the OPUS_APPLICATION_* macro values, from the official
+ *     opus_defines.h (VOIP=2048, AUDIO=2049, RESTRICTED_LOWDELAY=2051).
+ *   - FrameSize: samples per frame (not ms), back-calculated from
+ *     SAMPLES_PER_FRAME = 16000Hz * 60ms / 1000 = 960 in XiaozhiAudioController.
  *
- * 這個 project 只用到 SampleRate/Channels/Application/FrameSize 四種, 沒用
- * Bitrate/Complexity 的 factory (XiaozhiAudioController 沒 call
- * encoderSetBitrate()/encoderSetComplexity()), 但為了保持和原 API 形狀
- * 一致, 這兩個都補齊。
+ * This project uses only the four kinds SampleRate/Channels/Application/FrameSize,
+ * and does not use the Bitrate/Complexity factories (XiaozhiAudioController does
+ * not call encoderSetBitrate()/encoderSetComplexity()). But to keep the shape of
+ * the original API consistent, both of these are filled in as well.
  */
 public final class Constants {
 
@@ -45,9 +48,9 @@ public final class Constants {
         public static SampleRate _24000() { return new SampleRate(24000); }
         public static SampleRate _48000() { return new SampleRate(48000); }
 
-        /** 保留 ".Companion" 這一層, 為了和舊 call site
-         *  (Constants.SampleRate.Companion._16000()) 兼容, 不用改
-         *  XiaozhiAudioController.java 的 call 寫法。 */
+        /** Keep the ".Companion" layer, to stay compatible with the old call site
+         *  (Constants.SampleRate.Companion._16000()), without having to change the
+         *  way calls are written in XiaozhiAudioController.java. */
         public static final class Companion {
             private Companion() {}
             public static SampleRate _8000() { return SampleRate._8000(); }
@@ -82,12 +85,13 @@ public final class Constants {
         public final int v;
         private Application(int v) { this.v = v; }
 
-        /** OPUS_APPLICATION_VOIP - 語音優化, 呢個 project (小智語音助理)
-         *  用緊呢個。 */
+        /** OPUS_APPLICATION_VOIP - optimized for voice. This project (the XiaoZhi
+         *  voice assistant) uses this. */
         public static Application voip() { return new Application(2048); }
-        /** OPUS_APPLICATION_AUDIO - 音樂/一般音訊優化。 */
+        /** OPUS_APPLICATION_AUDIO - optimized for music/general audio. */
         public static Application audio() { return new Application(2049); }
-        /** OPUS_APPLICATION_RESTRICTED_LOWDELAY - 最低延遲, 犧牲語音優化。 */
+        /** OPUS_APPLICATION_RESTRICTED_LOWDELAY - the lowest latency, at the cost
+         *  of voice optimization. */
         public static Application restrictedLowdelay() { return new Application(2051); }
 
         public static final class Companion {
@@ -100,10 +104,11 @@ public final class Constants {
     }
 
     // ================= FrameSize =================
-    // 值是 samples per frame (單聲道每 channel 的 sample 數), 不是 ms。
-    // 這些是 60ms 分別在不同 sample rate 下的換算, 也包括常見的 2.5/5/10/
-    // 20/40ms 檔位 (opus.h 定義的合法 frame duration)。這個 project 只
-    // 用 _960() (16kHz * 60ms), 其餘為了保持 API 形狀完整而補上。
+    // The values are samples per frame (the number of samples per channel), not ms.
+    // These are 60 ms converted at different sample rates, and they also include
+    // the common 2.5/5/10/20/40 ms steps (the legal frame durations defined in
+    // opus.h). This project uses only _960() (16kHz * 60ms). The rest are filled in
+    // to keep the shape of the API complete.
 
     public static final class FrameSize {
         public final int v;
@@ -135,8 +140,9 @@ public final class Constants {
     }
 
     // ================= Bitrate =================
-    // 這個 project 沒用到 (XiaozhiAudioController 沒 call
-    // encoderSetBitrate()), 補齊只是為了 API 形狀完整。
+    // This project does not use it (XiaozhiAudioController does not call
+    // encoderSetBitrate()). It is filled in only to make the shape of the API
+    // complete.
 
     public static final class Bitrate {
         public final int v;
@@ -158,7 +164,8 @@ public final class Constants {
     }
 
     // ================= Complexity =================
-    // 這個 project 沒用到, 補齊只是為了 API 形狀完整。
+    // This project does not use it. It is filled in only to make the shape of the
+    // API complete.
 
     public static final class Complexity {
         public final int v;

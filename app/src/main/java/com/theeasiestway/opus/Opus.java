@@ -1,27 +1,30 @@
 package com.theeasiestway.opus;
 
 /**
- * 取代 theeasiestway/android-opus-codec 嘅 opus.aar 入面, 由 Kotlin 編譯出嚟嘅
- * com.theeasiestway.opus.Opus class - 純 Java 版, native method 簽名逐個對照
- * app/src/main/cpp/easyopus.cpp 嘅 JNI 函數名/簽名 (Java_com_theeasiestway_
- * opus_Opus_xxx), 一個字都冇改, 保證 JNI binding 對得上。
+ * A pure Java replacement for the com.theeasiestway.opus.Opus class that the
+ * Kotlin compiler produces inside the opus.aar of theeasiestway/android-opus-codec.
+ * The native method signatures are checked one by one against the JNI function
+ * names/signatures (Java_com_theeasiestway_opus_Opus_xxx) in
+ * app/src/main/cpp/easyopus.cpp. Not a single character has been changed, so the
+ * JNI binding is guaranteed to line up.
  *
- * 呢個 project 用 easyopus-jni-src 源碼自己
- * CMake 編譯出 libeasyopus.so (見 app/src/main/cpp/CMakeLists.txt), 呢個
- * class 就係嗰個 native library 對應嘅 Java 入口。
+ * This project compiles the easyopus-jni-src source code itself with CMake to
+ * produce libeasyopus.so (see app/src/main/cpp/CMakeLists.txt). This class is the
+ * Java entry point corresponding to that native library.
  *
- * 呢度直接暴露晒兩組 public overload (byte[] 版同 short[] 版) 嘅
- * encode()/decode(), 因為根據呢個 project 之前對 compiled opus.aar 做過
- * 嘅 javap/constant-pool 分析, easyopus.cpp 入面 (short[], int) 呢種
- * "raw int frameSize" 嘅 overload 喺原本 aar 係 private (內部 helper),
- * public API 一定要用 (byte[]/short[], Constants.FrameSize) 呢個簽名。
+ * Here, the encode()/decode() of both sets of public overloads (the byte[] version
+ * and the short[] version) are exposed directly. This is because, based on the
+ * javap/constant-pool analysis previously done on the compiled opus.aar for this
+ * project, the "raw int frameSize" overload of the (short[], int) kind inside
+ * easyopus.cpp is private (an internal helper) in the original aar. The public
+ * API must use the (byte[]/short[], Constants.FrameSize) signature.
  *
- * encode() 嘅 native 簽名本身冇 fec 參數, 所以 public encode(...,
- * FrameSize) 就係最終形態。decode() 嘅 native 簽名就有 fec, 但
- * XiaozhiAudioController.java 實際淨係用緊冇傳 fec 嘅兩參數
- * decode(shorts, FRAME_SIZE) 呼叫方式 - 所以下面
- * decode() 補多咗一個 fec 預設 0 嘅兩參數 public overload, 對應返原本
- * aar 一定有嘅呢個簽名。
+ * The native signature of encode() itself has no fec parameter, so the public
+ * encode(..., FrameSize) is the final form. The native signature of decode() does
+ * have fec, but XiaozhiAudioController.java actually only uses the two-argument
+ * call form decode(shorts, FRAME_SIZE) that does not pass fec. So, below, a
+ * two-argument public overload is added to decode() with fec defaulting to 0,
+ * matching the signature that the original aar must have.
  */
 public class Opus {
 
@@ -70,8 +73,9 @@ public class Opus {
     public byte[] decode(byte[] bytes, Constants.FrameSize frameSize, int fec) {
         return decode(bytes, frameSize.v, fec);
     }
-    /** fec 預設 0 (唔用 forward error correction) 嘅 public overload -
-     *  XiaozhiAudioController.java 一路都係用呢個兩參數版。 */
+    /** The public overload with fec defaulting to 0 (no forward error
+     *  correction) - XiaozhiAudioController.java has always used this
+     *  two-argument version. */
     public byte[] decode(byte[] bytes, Constants.FrameSize frameSize) {
         return decode(bytes, frameSize.v, 0);
     }
@@ -80,7 +84,7 @@ public class Opus {
     public short[] decode(short[] shorts, Constants.FrameSize frameSize, int fec) {
         return decode(shorts, frameSize.v, fec);
     }
-    /** 同上, short[] 版嘅兩參數 overload。 */
+    /** Same as above, the short[] two-argument overload. */
     public short[] decode(short[] shorts, Constants.FrameSize frameSize) {
         return decode(shorts, frameSize.v, 0);
     }
