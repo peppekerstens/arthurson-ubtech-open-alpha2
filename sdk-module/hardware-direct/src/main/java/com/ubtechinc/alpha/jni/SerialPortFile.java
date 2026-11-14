@@ -11,16 +11,20 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 /**
- * libserial_port.so 的 JNI 橋（pure-direct 用）。
+ * JNI bridge to libserial_port.so (used by pure-direct).
  *
- * <p>包名+類名+方法簽名必須與 .so 導出的符號逐字對應：
+ * <p>The package name + class name + method signatures must match the
+ * symbols exported by the .so exactly:
  * {@code Java_com_ubtechinc_alpha_jni_SerialPortFile_open} /
- * {@code Java_com_ubtechinc_alpha_jni_SerialPortFile_close}（已用 NDK readelf 驗證）。
- * 反編譯確認 native open(path, baudrate, flags) 內部走 termios 配 115200，
- * 這正是純 File 路徑缺的那一步（實測 ttyS1 預設 9600，不配 baud 發什麼 MCU 都不認）。</p>
+ * {@code Java_com_ubtechinc_alpha_jni_SerialPortFile_close} (verified with
+ * NDK readelf). Decompilation confirms that native open(path, baudrate,
+ * flags) uses termios inside to set 115200. This is exactly the step the
+ * pure File path misses (measured: ttyS1 defaults to 9600, and without a
+ * baud setting the MCU rejects everything sent).</p>
  *
- * <p>用法與經典 android-serialport-api 一致；DirectSerialPort 經反射調用本類，
- * 避免 hardware-direct 編譯期寫死依賴。</p>
+ * <p>Usage matches the classic android-serialport-api. DirectSerialPort
+ * calls this class by reflection, so hardware-direct carries no
+ * compile-time dependency on it.</p>
  */
 public class SerialPortFile implements java.io.Closeable {
     private static final String TAG = "SerialPortFile";
@@ -36,7 +40,7 @@ public class SerialPortFile implements java.io.Closeable {
         }
     }
 
-    /** .so 是否已載入；調用方開串口前可預檢（同 LedControl/HeadKeyMgr 睇齊）。 */
+    /** Whether the .so is loaded. The caller can pre-check before opening the port (same check as LedControl/HeadKeyMgr). */
     public static boolean isLibLoaded() {
         return sLibLoaded;
     }
@@ -55,7 +59,7 @@ public class SerialPortFile implements java.io.Closeable {
         mFileOutputStream = new FileOutputStream(mFd);
     }
 
-    /** 供 DirectSerialPort 反射取 fd（File 包裝用）。 */
+    /** For DirectSerialPort to take the fd via reflection (File wrapper). */
     public FileDescriptor getFD() {
         return mFd;
     }
@@ -71,9 +75,12 @@ public class SerialPortFile implements java.io.Closeable {
     private static native FileDescriptor open(String path, int baudrate, int flags);
 
     /**
-     * 關閉 native fd（同時滿足 {@link java.io.Closeable}——throws 窄過 interface 得）。
-     * 注意唔係冪等：同一個 fd 閂兩次有誤關復用號風險；擁有權歸 DirectSerialPort
-     *（JNI 路徑只行呢度一次，見 DirectSerialPort.closeQuietly），唔好喺外面亂調。
+     * Closes the native fd (also satisfies {@link java.io.Closeable} — a
+     * throws clause narrower than the interface is allowed).
+     * Not idempotent: closing the same fd twice risks closing a reused fd
+     * number. Ownership belongs to DirectSerialPort (the JNI path calls
+     * here once only, see DirectSerialPort.closeQuietly). Do not call from
+     * outside.
      */
     public native void close();
 }
