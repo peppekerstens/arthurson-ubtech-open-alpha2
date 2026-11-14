@@ -62,6 +62,26 @@ public final class ChestSafety {
     // Servo firmware write (owner rule D-197, alpha2-servo#15): never through debug/serial/send.
     public static final int CMD_SERVO_FW_START = 0x10;
     public static final int CMD_SERVO_FW_PAGE = 0x11;
+    // Commands that write flash or the identity: never through debug/serial/send, gate on or off.
+    // Source: alpha2-firmware-re chest/V142/dispatch.md (V142 and V352 tables): 0x10, 0x11 servo
+    // firmware START and PAGE; 0x30, 0x31 chest firmware START and PAGE; 0x32 chest firmware END,
+    // also bootloader update (the V142 handler can overwrite the bootloader, see the table note);
+    // 0x45, 0x46, 0x47 battery pack firmware (V352); 0x60 PC port: write data page;
+    // 0x36 write serial number (EEPROM).
+    private static boolean isNeverCommand(int c) {
+        switch (c) {
+            case 0x10: case 0x11: case 0x30: case 0x31: case 0x32:
+            case 0x45: case 0x46: case 0x47: case 0x60: case 0x36:
+                return true;
+            default:
+                return false;
+        }
+    }
+    // State changes behind the motion gate: 0x18 hand pressure zero (calibration), 0x02 chest
+    // power off, 0x1F power off head (V352), 0x27 Android power on/off (same table).
+    private static boolean isStateCommand(int c) {
+        return c == 0x18 || c == 0x02 || c == 0x1F || c == 0x27;
+    }
 
     public static final String SIT_DOWN_19 = "cmd 0x19 [00] is not a servo power off."
             + " It starts the 'Sit down' move of the chest (firmware V142 and V352,"
@@ -117,15 +137,27 @@ public final class ChestSafety {
      * is not a complete frame, so the scan skips it (checkChestFrames refuses it).
      */
     public static int findChestMoveCommand(byte[] data) {
-        return findCommand(data, false);
+        return findCommand(data);
     }
 
     /**
-     * The first servo firmware write command (cmd 0x10 or 0x11) in the raw frames, or -1
-     * (owner rule D-197). Same scan as {@link #findChestMoveCommand}.
+     * Finds a command that no gate allows (see isNeverCommand), or -1. This scan is lenient on
+     * purpose (D-197): it does not need a correct length, checksum or tail. At each F8 8F it
+     * looks at the byte of the long form (index 5) and of the short form (index 3). A header
+     * that ends before the long-form command byte gives 0x100: the data may be the first
+     * part of a frame that the chest joins with the next call. So a split frame or junk
+     * bytes cannot hide a firmware write.
      */
     public static int findServoFirmwareCommand(byte[] data) {
-        return findCommand(data, true);
+        if (data == null) return -1;
+        int n = data.length;
+        for (int i = 0; i + 1 < n; i++) {
+            if ((data[i] & 0xFF) != HEAD0 || (data[i + 1] & 0xFF) != HEAD1) continue;
+            if (i + 5 >= n) return 0x100;
+            if (isNeverCommand(data[i + 5] & 0xFF)) return data[i + 5] & 0xFF;
+            if (isNeverCommand(data[i + 3] & 0xFF)) return data[i + 3] & 0xFF;
+        }
+        return -1;
     }
 
     private static boolean isMoveCommand(int cmd) {
@@ -136,11 +168,11 @@ public final class ChestSafety {
             case CMD_PC_SERVO_53: case CMD_PC_SERVO_59:
                 return true;
             default:
-                return false;
+                return isStateCommand(cmd);
         }
     }
 
-    private static int findCommand(byte[] data, boolean firmware) {
+    private static int findCommand(byte[] data) {
         if (data == null) return -1;
         int n = data.length;
         for (int i = 0; i + 1 < n; i++) {
@@ -153,7 +185,7 @@ public final class ChestSafety {
                 total = shortLength(data, i);
                 if (total >= 0) cmd = data[i + 3] & 0xFF;
             }
-            if (firmware ? (cmd == CMD_SERVO_FW_START || cmd == CMD_SERVO_FW_PAGE) : isMoveCommand(cmd)) return cmd;
+            if (isMoveCommand(cmd)) return cmd;
         }
         return -1;
     }

@@ -108,9 +108,14 @@ public final class MotionGate {
                 + " does not allow it. Both motion settings are off by default and after each restart.";
     }
 
-    /** Servo firmware write (chest cmd 0x10, 0x11): refused with the gate on or off (D-197, alpha2-servo#15). */
-    public static final String SERVO_FIRMWARE_REFUSAL = "Refused: chest cmd 0x10 and 0x11 write the servo firmware."
-            + " There is no servo backup yet (owner rule D-197), so debug/serial/send never sends them.";
+    /**
+     * Firmware, bootloader and serial number writes (chest cmd 0x10, 0x11, 0x30 to 0x32, 0x36,
+     * 0x45 to 0x47, 0x60): refused with the gate on or off (D-197, alpha2-servo#15). The text
+     * starts like the gate text, but it names no setting, because no setting allows these.
+     */
+    public static final String SERVO_FIRMWARE_REFUSAL = "Motion is refused: this chest command writes firmware, the bootloader or the"
+            + " serial number. No motion setting allows it, and debug/serial/send never sends it"
+            + " (owner rule D-197: no write before a backup).";
 
     /**
      * The refusal text for chest data of debug/serial/send that is not one or more
