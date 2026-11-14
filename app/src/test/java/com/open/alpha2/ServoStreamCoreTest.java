@@ -45,6 +45,8 @@ public class ServoStreamCoreTest {
         volatile byte[] lastBatch;
         /** More than 0: the replies come from another thread, this many ms after the send. */
         volatile long replyDelayMs = 0;
+        /** The time (System.nanoTime) when the replies of the last batch are due. */
+        volatile long replyDueNs = 0;
 
         @Override public long nowMs() { return System.nanoTime() / 1_000_000L; }
 
@@ -56,6 +58,7 @@ public class ServoStreamCoreTest {
             lastBatch = batch;
             if (sendDelayMs > 0) sleep(sendDelayMs);
             if (answer && replyDelayMs > 0) {
+                replyDueNs = System.nanoTime() + replyDelayMs * 1_000_000L;
                 final byte[] b = batch;
                 final long d = replyDelayMs;
                 new Thread(new Runnable() {
@@ -385,6 +388,54 @@ public class ServoStreamCoreTest {
         int sendsEnd = e.sends.get();
         sleep(100);
         eq(sendsEnd, e.sends.get(), "restart.noSendAfterStop");
+
+        // -- a move goes between two read cycles (alpha2-rl#217) --
+        // No stream: the write starts at once and runs one time.
+        FakeEnv idle = env();
+        final AtomicInteger idleWrites = new AtomicInteger();
+        eq(Boolean.TRUE, idle.core.writeBetweenCycles(60, new ServoStreamCore.Write<Boolean>() {
+            @Override public Boolean run() { idleWrites.incrementAndGet(); return Boolean.TRUE; }
+        }), "move.idleResult");
+        eq(1, idleWrites.get(), "move.idleOnce");
+        eq(0L, idle.core.moveWaits() + idle.core.moveForced(), "move.idleNoCounters");
+
+        // A stream with replies 30 ms after the send: no write starts while replies are due.
+        final FakeEnv f = env();
+        f.replyDelayMs = 30;
+        f.core.start(new int[]{2, 3, 5, 6, 17, 18, 19, 20}, 20, 3000, false);
+        final AtomicInteger overlaps = new AtomicInteger();
+        final AtomicInteger writes = new AtomicInteger();
+        for (int i = 0; i < 20; i++) {
+            sleep(13 + (i % 5) * 7);
+            f.core.writeBetweenCycles(60, new ServoStreamCore.Write<Boolean>() {
+                @Override public Boolean run() {
+                    writes.incrementAndGet();
+                    if (System.nanoTime() < f.replyDueNs) overlaps.incrementAndGet();
+                    return Boolean.TRUE;
+                }
+            });
+        }
+        f.core.stop("move test");
+        eq(20, writes.get(), "move.allWritten");
+        eq(0, overlaps.get(), "move.noOverlapWithReplies");
+        eq(true, f.core.moveWaits() > 0, "move.waited");
+        eq(0L, f.core.moveForced(), "move.notForced");
+        eq(0L, f.core.missedReads(), "move.noMissedReads");
+
+        // The limit: replies that never come (cycle waits 48 ms), a short limit. The write still goes out.
+        final FakeEnv g = env();
+        g.replyDelayMs = 300;
+        g.core.start(new int[]{2, 3}, 20, 3000, false);
+        sleep(15);
+        final AtomicInteger forcedWrites = new AtomicInteger();
+        g.core.writeBetweenCycles(5, new ServoStreamCore.Write<Boolean>() {
+            @Override public Boolean run() { forcedWrites.incrementAndGet(); return Boolean.TRUE; }
+        });
+        g.core.stop("move limit test");
+        eq(1, forcedWrites.get(), "move.forcedStillWrites");
+        eq(1L, g.core.moveForced(), "move.forcedCounted");
+        eq(true, g.core.statusJson().contains("\"move_waits\":") && g.core.statusJson().contains("\"move_forced\":1"),
+                "move.statusFields");
 
         // -- status JSON --
         String st = e.core.statusJson();

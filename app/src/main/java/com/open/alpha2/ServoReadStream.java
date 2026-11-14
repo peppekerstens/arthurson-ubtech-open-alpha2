@@ -28,6 +28,8 @@ import java.util.Map;
  *       step (alpha2-brain#26). The stream pauses while the chest port is not open.</li>
  *   <li>Only the servos that answer cmd 0x17 are allowed (2, 3, 5, 6, 17 to 22). Other ids
  *       give 400 (alpha2-brain#29).</li>
+ *   <li>A move of {@code servo/all} waits for the replies of the cycle in flight, and the next
+ *       cycle waits for the move frame (alpha2-rl#217). See {@link #moveBetweenCycles}.</li>
  *   <li>It writes one frame batch for each cycle through {@code DirectSerialPort.sendRaw}, which is
  *       synchronized. Thus other chest frames (app commands, heartbeat handling) go out between
  *       two batches and never inside a frame.</li>
@@ -110,6 +112,19 @@ public final class ServoReadStream {
         boolean ok = s.core.haltForUpgrade(why, HALT_TIMEOUT_MS);
         if (!ok) Log.w(TAG, "the stream thread did not end in " + HALT_TIMEOUT_MS + " ms: " + why);
         return ok;
+    }
+
+    /** The longest wait of a move for a read cycle (ms): the reply window of 20 Hz plus a margin. */
+    public static final long MOVE_WAIT_MS = 60;
+
+    /**
+     * Runs a move write (for example {@code servo/all}) between two read cycles (alpha2-rl#217). The
+     * write waits at most {@link #MOVE_WAIT_MS} for the replies of the cycle in flight, then goes out
+     * anyway: a move is never dropped. Without a stream the write starts at once.
+     */
+    public static <T> T moveBetweenCycles(ServoStreamCore.Write<T> w) {
+        ServoReadStream s = sInstance;
+        return s == null ? w.run() : s.core.writeBetweenCycles(MOVE_WAIT_MS, w);
     }
 
     public static void shutdown() {

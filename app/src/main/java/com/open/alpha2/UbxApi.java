@@ -198,7 +198,9 @@ public final class UbxApi {
         int[] angles = ApiValidator.requireAngles20(query);
         int time = ApiValidator.optionalIntRange(query, "time", ApiValidator.SERVO_TIME_MIN_MS, ApiValidator.SERVO_TIME_MAX_MS, 1000);
         // setAllServos 内部已转 cmd03（cmd52 有 ACK 无动作）。
-        boolean sent = HardwareDirectManager.get(appContext).chest().setAllServos(angles, (short) time);
+        // The move goes between two stream read cycles (alpha2-rl#217).
+        boolean sent = ServoReadStream.moveBetweenCycles(() ->
+                HardwareDirectManager.get(appContext).chest().setAllServos(angles, (short) time));
         if (sent) ubxPlayer.notePose(angles);
         return MainActivity.sentReadyResponse(sent, directChestReady());
     }

@@ -224,6 +224,8 @@ final class ServoStreamCore {
     private final long[] externalReadAt = new long[256]; // guarded by lock
 
     private volatile long seq, cycles, completeCycles, missedReads, pausedCycles, lateCycles, lateReplies;
+    /** Moves that waited for a cycle (move_waits) and moves that went out after the limit (move_forced). */
+    private volatile long moveWaits, moveForced;
     /** The ids that the last cycle missed. Read loop thread only. */
     private int[] lastMissed = new int[0];
     private volatile int lastReadMs = -1, maxReadMs = -1;
@@ -254,6 +256,51 @@ final class ServoStreamCore {
     long lateCycles() { return lateCycles; }
 
     String stopReason() { return stopReason; }
+
+    long moveWaits() { return moveWaits; }
+
+    long moveForced() { return moveForced; }
+
+    /** A chest write of another requester, for example a move frame. */
+    interface Write<T> {
+        T run();
+    }
+
+    /**
+     * alpha2-rl#217: writes a move frame between two read cycles. A cmd 3 frame touches the slot of
+     * each servo in the chest, and it can replace a cmd 0x17 read that is still on its way. So the
+     * write waits until no cycle waits for replies (at most {@code maxWaitMs}). The next cycle waits
+     * for the write at the gate. The write never drops: after the limit it goes out anyway
+     * (move_forced). When the stream does not run, no cycle waits and the write starts at once.
+     * Order of the locks: gate, then lock (the same as the cycle).
+     */
+    <T> T writeBetweenCycles(long maxWaitMs, Write<T> w) {
+        long limitNs = clock.nanoTime() + Math.max(0, maxWaitMs) * 1_000_000L;
+        synchronized (gate) {
+            boolean waited = false;
+            boolean forced = false;
+            synchronized (lock) {
+                while (current != null) {
+                    long leftNs = limitNs - clock.nanoTime();
+                    if (leftNs <= 0) {
+                        forced = true;
+                        break;
+                    }
+                    waited = true;
+                    try {
+                        clock.await(lock, Math.max(1, leftNs / 1_000_000L));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        forced = true;
+                        break;
+                    }
+                }
+            }
+            if (waited) moveWaits++;
+            if (forced) moveForced++;
+            return w.run();
+        }
+    }
 
     // -- API --------------------------------------------------------------------------------------
 
@@ -384,6 +431,8 @@ final class ServoStreamCore {
                 .append(",\"paused_cycles\":").append(pausedCycles)
                 .append(",\"late_cycles\":").append(lateCycles)
                 .append(",\"late_replies\":").append(lateReplies)
+                .append(",\"move_waits\":").append(moveWaits)
+                .append(",\"move_forced\":").append(moveForced)
                 .append(",\"last_read_ms\":").append(lastReadMs)
                 .append(",\"max_read_ms\":").append(maxReadMs)
                 .append(",\"stop_reason\":").append(JsonUtil.quote(stopReason))
@@ -471,7 +520,10 @@ final class ServoStreamCore {
             got = c.angles.clone();
             lastNs = c.lastReplyNs;
             // Replies after this point do not count for this cycle. Clear only the own cycle.
-            if (current == c) current = null;
+            if (current == c) {
+                current = null;
+                lock.notifyAll(); // a move waits for this (writeBetweenCycles)
+            }
             if (!alive(gen)) return;
         }
         cycles++;
