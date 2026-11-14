@@ -14,14 +14,14 @@
      when auth is disabled, so the default behavior does not change. -->
 <div id="panelLockOverlay">
   <div class="panel-lock-card">
-    <h2>🔐 面板已鎖定 / Panel Locked</h2>
-    <p class="hint">認證已啟用，輸入 Token 解鎖先會顯示面板。<br>Auth is enabled — enter the token to show the panel.</p>
+    <h2>🔐 Panel Locked</h2>
+    <p class="hint">Auth is enabled — enter the token to show the panel.</p>
     <div class="row">
       <input id="panelLockInput" type="password" autocomplete="off" style="flex:1"
-             placeholder="Token（8–64 字元英數/-/_）/ Token (8–64 chars A-Za-z0-9/-/_)"
+             placeholder="Token (8–64 chars A-Za-z0-9/-/_)"
              onkeydown="if(event.key==='Enter')panelLockUnlock()">
-      <button class="secondary" onclick="togglePwVisibility('panelLockInput', this)" title="顯示輸入 / Show input">👁️</button>
-      <button onclick="panelLockUnlock()">解鎖 / Unlock</button>
+      <button class="secondary" onclick="togglePwVisibility('panelLockInput', this)" title="Show input">👁️</button>
+      <button onclick="panelLockUnlock()">Unlock</button>
     </div>
     <p id="panelLockMsg" class="hint"></p>
   </div>
@@ -30,17 +30,17 @@
 <div id="errorBanner" class="error-banner"></div>
 
 <nav class="tab-bar" id="navAlpha2" data-backend-nav="alpha2">
-  <button class="tab-btn active" data-tab="tab-status" onclick="switchTab('tab-status')" data-i18n="nav_status">📊 狀態</button>
-  <button class="tab-btn" data-tab="tab-actions" onclick="switchTab('tab-actions')" data-i18n="nav_actions">🕺 動作</button>
-  <button class="tab-btn" data-tab="tab-servo" onclick="switchTab('tab-servo')" data-i18n="nav_servo">⚙️ 舵機</button>
-  <button class="tab-btn" data-tab="tab-gamepad" onclick="switchTab('tab-gamepad')" data-i18n="nav_gamepad">🎮 手柄</button>
-  <button class="tab-btn" data-tab="tab-speech" onclick="switchTab('tab-speech')" data-i18n="nav_speech">🗣️ 語音</button>
-  <button class="tab-btn" data-tab="tab-music" onclick="switchTab('tab-music')" data-i18n="nav_music">🎵 音樂</button>
+  <button class="tab-btn active" data-tab="tab-status" onclick="switchTab('tab-status')" data-i18n="nav_status">📊 Status</button>
+  <button class="tab-btn" data-tab="tab-actions" onclick="switchTab('tab-actions')" data-i18n="nav_actions">🕺 Actions</button>
+  <button class="tab-btn" data-tab="tab-servo" onclick="switchTab('tab-servo')" data-i18n="nav_servo">⚙️ Servo</button>
+  <button class="tab-btn" data-tab="tab-gamepad" onclick="switchTab('tab-gamepad')" data-i18n="nav_gamepad">🎮 Gamepad</button>
+  <button class="tab-btn" data-tab="tab-speech" onclick="switchTab('tab-speech')" data-i18n="nav_speech">🗣️ Speech</button>
+  <button class="tab-btn" data-tab="tab-music" onclick="switchTab('tab-music')" data-i18n="nav_music">🎵 Music</button>
   <button class="tab-btn" data-tab="tab-led" onclick="switchTab('tab-led')" data-i18n="nav_led">💡 LED</button>
-  <button class="tab-btn" data-tab="tab-camera" onclick="switchTab('tab-camera')" data-i18n="nav_camera">📷 相機</button>
-  <button class="tab-btn" data-tab="tab-xiaozhi" onclick="switchTab('tab-xiaozhi')" data-i18n="nav_xiaozhi">🤖 小智</button>
-  <button class="tab-btn" data-tab="tab-advanced" onclick="switchTab('tab-advanced')" data-i18n="nav_advanced">🧪 實驗</button>
-  <a class="tab-btn tab-btn-link" href="blockly.html" target="_blank" rel="noopener" title="在新分頁開啟 Blockly 積木編程" data-i18n="nav_blockly_title" data-i18n-attr="title"><span data-i18n="nav_blockly">🧩 積木編程 ↗</span></a>
+  <button class="tab-btn" data-tab="tab-camera" onclick="switchTab('tab-camera')" data-i18n="nav_camera">📷 Camera</button>
+  <button class="tab-btn" data-tab="tab-xiaozhi" onclick="switchTab('tab-xiaozhi')" data-i18n="nav_xiaozhi">🤖 XiaoZhi</button>
+  <button class="tab-btn" data-tab="tab-advanced" onclick="switchTab('tab-advanced')" data-i18n="nav_advanced">🧪 Experimental</button>
+  <a class="tab-btn tab-btn-link" href="blockly.html" target="_blank" rel="noopener" title="Open Blockly visual programming in a new tab" data-i18n="nav_blockly_title" data-i18n-attr="title"><span data-i18n="nav_blockly">🧩 Blockly ↗</span></a>
 </nav>
 
 <main>
@@ -50,7 +50,7 @@
   <div id="tab-status" class="tab-page active">
     <section class="card">
       <div class="backend-switch-inline">
-        <span class="backend-switch-label" data-i18n="lang_switch_label">語言：</span>
+        <span class="backend-switch-label" data-i18n="lang_switch_label">Language:</span>
         <span class="lang-toggle">
           <button type="button" data-ui-lang-btn="zh" onclick="setUiLanguage('zh')">中文</button>
           <button type="button" data-ui-lang-btn="en" onclick="setUiLanguage('en')">English</button>
@@ -62,15 +62,15 @@
                oninput="onVolumeSliderInput(this.value)" onchange="setVolume(this.value)">
         <span class="volume-icon">🔊</span>
         <span id="volumeVal" class="volume-val">-</span>
-        <span class="hint" data-i18n="volume_hint" style="margin-left:8px">控制機械人喇叭的媒體音量 (STREAM_MUSIC)，和實體 +/- 按鈕共用同一個音量。</span>
+        <span class="hint" data-i18n="volume_hint" style="margin-left:8px">Controls the robot speaker's media volume (STREAM_MUSIC) — shares the same level as the physical +/- buttons.</span>
        </div>
     </section>
 
     <section class="card">
-      <h2 data-i18n="device_info_heading">裝置資訊</h2>
+      <h2 data-i18n="device_info_heading">Device Info</h2>
       <div class="device-grid">
         <div class="device-tile">
-          <div class="device-label" data-i18n="device_battery">🔋 電池</div>
+          <div class="device-label" data-i18n="device_battery">🔋 Battery</div>
           <div id="batteryOut" class="device-value">-</div>
         </div>
         <div class="device-tile">
@@ -78,23 +78,23 @@
           <div id="wifiOut" class="device-value">-</div>
         </div>
         <div class="device-tile">
-          <div class="device-label" data-i18n="device_bluetooth">🔷 藍牙</div>
+          <div class="device-label" data-i18n="device_bluetooth">🔷 Bluetooth</div>
           <div id="btOut" class="device-value">-</div>
         </div>
         <div class="device-tile">
-          <div class="device-label" data-i18n="device_uuid">🤖 機械人 UUID</div>
+          <div class="device-label" data-i18n="device_uuid">🤖 Robot UUID</div>
           <!-- Show the UUID directly: the page queries it on load (requestUuid). -->
           <div id="uuidOut" class="device-value" data-i18n="uuid_querying_hint">-</div>
         </div>
         <div class="device-tile">
-          <div class="device-label" data-i18n="device_chest_fw">🧠 胸板固件</div>
+          <div class="device-label" data-i18n="device_chest_fw">🧠 Chest FW</div>
           <div id="chestFwOut" class="device-value">-</div>
         </div>
       </div>
     </section>
 
     <section class="card">
-      <h2 data-i18n="sonar_heading">聲納</h2>
+      <h2 data-i18n="sonar_heading">Sonar</h2>
       <div class="row">
         <input id="sonarDist" type="range" min="0" max="100" value="30"
                oninput="onSonarSliderInput(this.value)" onchange="configureSonar(this.value)" style="flex:1">
@@ -115,15 +115,15 @@
          The alert reaction (red light + the "Heaven" ringtone) runs through MainActivity#applyAlpha2PirLedAndSound().
          Off by default. -->
     <section class="card">
-      <h2 data-i18n="alpha2_pir_heading">PIR 感應器</h2>
+      <h2 data-i18n="alpha2_pir_heading">PIR Sensor</h2>
       <div class="row">
-        <label class="switch-label"><span data-i18n="alpha2_pir_switch_label">感應器開關</span>
+        <label class="switch-label"><span data-i18n="alpha2_pir_switch_label">Sensor Switch</span>
           <span class="toggle-switch">
             <input type="checkbox" id="alpha2Pir" onchange="alpha2SetPir()">
             <span class="toggle-track"></span>
           </span>
         </label>
-        <label class="switch-label"><span data-i18n="alpha2_pir_alert_label">警示反應 (LED+鈴聲)</span>
+        <label class="switch-label"><span data-i18n="alpha2_pir_alert_label">Alert Reaction (LED + Chime)</span>
           <span class="toggle-switch">
             <input type="checkbox" id="alpha2PirAlertEnabled" onchange="alpha2SetPirAlertEnabled()">
             <span class="toggle-track"></span>
@@ -140,7 +140,7 @@
          robot SDK version (see MainActivity#onSensorChanged()/EventBus "accel"
          event). -->
     <section class="card" id="accelCard">
-      <h2 data-i18n="accel_heading">加速度計</h2>
+      <h2 data-i18n="accel_heading">Accelerometer</h2>
       <div class="row">
         <label class="switch-label">
           <span class="toggle-switch">
@@ -166,7 +166,7 @@
             <span class="toggle-track"></span>
           </span>
         </label>
-        <span data-i18n="tilt_led_toggle_label">4角度傾側著頭/眼LED</span>
+        <span data-i18n="tilt_led_toggle_label">4-direction tilt lights up head/eye LED</span>
       </div>
       <p class="hint" id="tiltLedHint"></p>
     </section>
@@ -175,18 +175,18 @@
   <!-- ============ TAB: ACTIONS ============ -->
   <div id="tab-actions" class="tab-page">
     <section class="card">
-      <h2 data-i18n="actions_heading">動作 (Actions)</h2>
+      <h2 data-i18n="actions_heading">Actions</h2>
       <div class="row">
-        <button onclick="loadActionList()" data-i18n="actions_load_btn">取得動作列表</button>
+        <button onclick="loadActionList()" data-i18n="actions_load_btn">Load Action List</button>
       </div>
       <div id="actionSubTabBar" class="sub-tab-bar"></div>
       <div id="actionSubSubTabBar" class="sub-tab-bar sub-sub-tab-bar"></div>
       <div id="actionList" class="chip-list">-</div>
       <div class="row">
-        <input id="actionName" placeholder="動作名稱 e.g. ACT0" data-i18n="action_name_placeholder" data-i18n-attr="placeholder">
-        <button onclick="playAction()" data-i18n="action_play_btn">播放</button>
-        <button onclick="stopAction()" data-i18n="action_stop_btn">停止</button>
-        <label data-i18n="action_speed_label">變速</label>
+        <input id="actionName" placeholder="Action name e.g. ACT0" data-i18n="action_name_placeholder" data-i18n-attr="placeholder">
+        <button onclick="playAction()" data-i18n="action_play_btn">Play</button>
+        <button onclick="stopAction()" data-i18n="action_stop_btn">Stop</button>
+        <label data-i18n="action_speed_label">Speed</label>
         <select id="actionSpeed" onchange="setActionSpeed()">
           <option value="0.5">0.5x</option>
           <option value="0.67">0.67x</option>
@@ -201,18 +201,18 @@
   <!-- ============ TAB: SERVO ============ -->
   <div id="tab-servo" class="tab-page">
     <section class="card">
-      <h2 data-i18n="servo_heading">舵機 (Servos, 1–22)</h2>
-      <p class="hint" data-i18n="servo_hint">拖動滑桿, 放手即送出, 自動限制在安全範圍內。</p>
+      <h2 data-i18n="servo_heading">Servos (1–22)</h2>
+      <p class="hint" data-i18n="servo_hint">Drag a slider and release to send — values are auto-clamped to a safe range.</p>
       <div class="row">
-        <label data-i18n="servo_time_label">時間(ms)：</label>
+        <label data-i18n="servo_time_label">Time (ms):</label>
         <input id="servoAllTime" type="number" min="20" value="1000" style="width:90px">
-        <button class="secondary" onclick="resetServoGrid()" data-i18n="servo_reset_btn">全部回到原位</button>
+        <button class="secondary" onclick="resetServoGrid()" data-i18n="servo_reset_btn">Reset All to Home</button>
       </div>
       <div class="row">
-        <button onclick="servoReadAllAngles()" data-i18n="servo_read_all_btn">📖 讀取全部</button>
+        <button onclick="servoReadAllAngles()" data-i18n="servo_read_all_btn">📖 Read all</button>
         <span id="servoReadStatus" class="hint"></span>
       </div>
-      <p class="hint" data-i18n="servo_read_hint">讀指定一顆或一次過讀全部舵機即時角度（0x17 純讀，唔寫回），顯示在對應行右邊；讀不到顯示 -。全部約 1 秒，讀取時請固定好機械人。</p>
+      <p class="hint" data-i18n="servo_read_hint">Reads one or all live servo angles (0x17 read-only, no write-back) into their rows; unreadable joints show -. All takes ~1s; keep the robot secured.</p>
       <div id="servoGroups"></div>
     </section>
   </div>
@@ -220,30 +220,30 @@
   <!-- ============ TAB: GAMEPAD (BT gamepad/keyboard, mapping shared on both ends) ============ -->
   <div id="tab-gamepad" class="tab-page">
     <section class="card">
-      <h2 data-i18n="gamepad_manage_heading">🔷 藍牙</h2>
+      <h2 data-i18n="gamepad_manage_heading">🎮 Bluetooth + Devices</h2>
       <div class="row">
-        <label class="switch-label"><span data-i18n="gamepad_bt_toggle">藍牙開關</span>
+        <label class="switch-label"><span data-i18n="gamepad_bt_toggle">Bluetooth</span>
           <span class="toggle-switch">
             <input type="checkbox" id="gamepadBtToggle" onchange="gamepadBtToggle()">
             <span class="toggle-track"></span>
           </span>
         </label>
-        <button class="secondary" onclick="gamepadScan()" data-i18n="gamepad_scan_btn">🔍 掃描</button>
+        <button class="secondary" onclick="gamepadScan()" data-i18n="gamepad_scan_btn">🔍 Scan</button>
         <span id="gamepadScanState" class="hint"></span>
       </div>
       <div id="gamepadFoundOut"></div>
     </section>
 
     <section class="card">
-      <h2 data-i18n="gamepad_pad_card_heading">🎮 手柄</h2>
+      <h2 data-i18n="gamepad_pad_card_heading">🎮 Gamepad</h2>
       <div class="row">
-        <label class="switch-label"><span data-i18n="gamepad_input_pad_toggle">直連手柄</span>
+        <label class="switch-label"><span data-i18n="gamepad_input_pad_toggle">Direct gamepad</span>
           <span class="toggle-switch">
             <input type="checkbox" id="gamepadInputPadToggle" onchange="gamepadInputToggle('pad')" checked>
             <span class="toggle-track"></span>
           </span>
         </label>
-        <label class="switch-label"><span data-i18n="gamepad_mapping_show_pad">映射表</span>
+        <label class="switch-label"><span data-i18n="gamepad_mapping_show_pad">Mapping</span>
           <span class="toggle-switch">
             <input type="checkbox" id="gamepadMappingPadToggle" onchange="gamepadMappingToggle('pad')">
             <span class="toggle-track"></span>
@@ -279,34 +279,34 @@
           <div><div class="gp-stick"><div class="gp-nub" id="gpnub-r"></div></div><div class="gp-stick-label">R</div></div>
         </div>
       </div>
-      <p class="hint" data-i18n="gamepad_pad_card_hint">直連手柄按鍵即時亮燈（經 WebSocket）；右搖桿郁點。默認映射：十字步態，A 停止。</p>
+      <p class="hint" data-i18n="gamepad_pad_card_hint">Direct pad presses light up live (via WebSocket); right stick moves the dot. Defaults: D-pad gaits, A stops.</p>
       <div class="row">
-        <span data-i18n="gamepad_last_label">最後按鍵：</span>
+        <span data-i18n="gamepad_last_label">Last key:</span>
         <span id="gamepadLastOut" class="device-value">-</span>
       </div>
       <div id="gamepadMappingPadWrap">
         <div class="row" style="justify-content:space-between;align-items:center">
-          <h3 style="margin:0" data-i18n="gamepad_mapping_pad_heading">🎮 手柄映射</h3>
+          <h3 style="margin:0" data-i18n="gamepad_mapping_pad_heading">🎮 Gamepad mapping</h3>
           <span>
-            <button onclick="gamepadSaveAll('pad')" data-i18n="gamepad_save_all_btn">💾 存全部</button>
-            <button class="secondary" onclick="gamepadResetMapping('pad')" data-i18n="gamepad_reset_btn">↩ 回預設</button>
+            <button onclick="gamepadSaveAll('pad')" data-i18n="gamepad_save_all_btn">💾 Save all</button>
+            <button class="secondary" onclick="gamepadResetMapping('pad')" data-i18n="gamepad_reset_btn">↩ Defaults</button>
           </span>
         </div>
-        <p class="hint" data-i18n="gamepad_mapping_pad_hint">同名鍵兩邊獨立值；改完即存機器人（重啟保留）。熄掣即收起。</p>
+        <p class="hint" data-i18n="gamepad_mapping_pad_hint">Same names hold separate values per side. Saved on robot.</p>
         <div id="gamepadMappingPadGrid"></div>
       </div>
     </section>
 
     <section class="card">
-      <h2 data-i18n="gamepad_kb_card_heading">⌨️ 鍵盤</h2>
+      <h2 data-i18n="gamepad_kb_card_heading">⌨️ Keyboard</h2>
       <div class="row">
-        <label class="switch-label"><span data-i18n="gamepad_input_kb_toggle">直連鍵盤</span>
+        <label class="switch-label"><span data-i18n="gamepad_input_kb_toggle">Direct keyboard</span>
           <span class="toggle-switch">
             <input type="checkbox" id="gamepadInputKbToggle" onchange="gamepadInputToggle('kb')" checked>
             <span class="toggle-track"></span>
           </span>
         </label>
-        <label class="switch-label"><span data-i18n="gamepad_mapping_show_kb">映射表</span>
+        <label class="switch-label"><span data-i18n="gamepad_mapping_show_kb">Mapping</span>
           <span class="toggle-switch">
             <input type="checkbox" id="gamepadMappingKbToggle" onchange="gamepadMappingToggle('kb')">
             <span class="toggle-track"></span>
@@ -315,20 +315,20 @@
       </div>
       <!-- Full keyboard diagram (built by JS, direct key presses light live, see gamepadBuildKeyboardDiagram) -->
       <div class="kb-board" id="kbBoardDiagram"></div>
-      <p class="hint" data-i18n="gamepad_kb_card_hint">直連鍵盤按鍵即時亮燈（經 WebSocket）；字母數字原樣＋控制鍵全覆蓋可映射，a/b/x/y 同手柄同名但獨立值。</p>
+      <p class="hint" data-i18n="gamepad_kb_card_hint">Direct keyboard presses light up live (via WebSocket); letters/digits as-is + control keys all mappable; a/b/x/y share names with pad but hold own values.</p>
       <div class="row">
-        <span data-i18n="gamepad_last_label">最後按鍵：</span>
+        <span data-i18n="gamepad_last_label">Last key:</span>
         <span id="gamepadKbLastOut" class="device-value">-</span>
       </div>
       <div id="gamepadMappingKbWrap">
         <div class="row" style="justify-content:space-between;align-items:center">
-          <h3 style="margin:0" data-i18n="gamepad_mapping_kb_heading">⌨️ 鍵盤映射</h3>
+          <h3 style="margin:0" data-i18n="gamepad_mapping_kb_heading">⌨️ Keyboard mapping</h3>
           <span>
-            <button onclick="gamepadSaveAll('kb')" data-i18n="gamepad_save_all_btn">💾 存全部</button>
-            <button class="secondary" onclick="gamepadResetMapping('kb')" data-i18n="gamepad_reset_btn">↩ 回預設</button>
+            <button onclick="gamepadSaveAll('kb')" data-i18n="gamepad_save_all_btn">💾 Save all</button>
+            <button class="secondary" onclick="gamepadResetMapping('kb')" data-i18n="gamepad_reset_btn">↩ Defaults</button>
           </span>
         </div>
-        <p class="hint" data-i18n="gamepad_mapping_kb_hint">同名鍵兩邊獨立值；改完即存機器人（重啟保留）。熄掣即收起。</p>
+        <p class="hint" data-i18n="gamepad_mapping_kb_hint">Same names hold separate values per side. Saved on robot.</p>
         <div id="gamepadMappingKbGrid"></div>
       </div>
     </section>
@@ -343,7 +343,7 @@
          matcher (1000 entries per language, Han characters pick the language). A hit triggers
         TTS plus an action. The call below is speech/semantic_simulate, answered by Android built-in TTS (see MainActivity.speakAndroidTts()). -->
     <section class="card">
-      <h2 data-i18n="speech_chat_heading">💬 對話界面</h2>
+      <h2 data-i18n="speech_chat_heading">💬 Conversation</h2>
       <!-- Vosk listening indicator (green = listening, gray = other): keep it in this row. Do not
           put it in the h2 above, because applyUiLanguage overwrites its full textContent. -->
       <div class="row" style="margin-bottom:-4px">
@@ -351,10 +351,10 @@
       </div>
       <div id="speechChatLog" class="event-log" style="min-height:200px"></div>
       <div class="row">
-        <input id="speechChatTextInput" placeholder="打字模擬 ASR 辨識結果…" data-i18n="speech_chat_text_placeholder" data-i18n-attr="placeholder" autocomplete="off" style="flex:2" onkeydown="if(event.key==='Enter'){sendSpeechChatText();}">
-        <button id="speechChatSendBtn" onclick="sendSpeechChatText()" data-i18n="speech_chat_send_btn">送出</button>
-        <button class="secondary" onclick="clearSpeechChatLog()" data-i18n="speech_chat_clear_btn">清空</button>
-        <button class="danger-btn" onclick="xiaozhiStopAll()" data-i18n="xiaozhi_stop_all_btn">⏹ 全部停止</button>
+        <input id="speechChatTextInput" placeholder="Type to simulate an ASR result…" data-i18n="speech_chat_text_placeholder" data-i18n-attr="placeholder" autocomplete="off" style="flex:2" onkeydown="if(event.key==='Enter'){sendSpeechChatText();}">
+        <button id="speechChatSendBtn" onclick="sendSpeechChatText()" data-i18n="speech_chat_send_btn">Send</button>
+        <button class="secondary" onclick="clearSpeechChatLog()" data-i18n="speech_chat_clear_btn">Clear</button>
+        <button class="danger-btn" onclick="xiaozhiStopAll()" data-i18n="xiaozhi_stop_all_btn">⏹ Stop All</button>
       </div>
     </section>
 
@@ -363,12 +363,12 @@
         model and starts listening. A finished sentence enters the chat pipeline through asr_result
         (bubble + semantic match + TTS + action), and partial results show live below. Recognition stays inside the question library (Chinese becomes Simplified first, see VoskController). -->
     <section class="card" id="voskCard">
-      <h2 data-i18n="vosk_heading">🎙️ 語音辨識 (Vosk 離線)</h2>
-      <p class="hint" data-i18n="vosk_hint">模型放 sdcard 頂層（如 vosk-model-small-cn-0.22），開啟頁面自動偵測，不跟 App。載入需幾秒＋約 200MB 記憶體，一次一個。</p>
+      <h2 data-i18n="vosk_heading">🎙️ Speech Recognition (Vosk offline)</h2>
+      <p class="hint" data-i18n="vosk_hint">Put models at sdcard top level (e.g. vosk-model-small-cn-0.22), auto-detected on page load, not bundled. Loading takes seconds + ~200MB RAM, one at a time.</p>
       <!-- One button per downloaded model (the name follows the panel language, see app-vosk.js voskLangName).
            Only one model is active at a time: the active button is blue, the rest are gray. A press stops the old model first, then loads and starts listening. -->
       <div class="row">
-        <label data-i18n="vosk_model_label">模型：</label>
+        <label data-i18n="vosk_model_label">Model:</label>
         <div id="voskModelBtns" style="flex:1; display:flex; gap:6px; flex-wrap:wrap"></div>
       </div>
       <!-- Show buttons only for downloaded models: blue = listening (press again to stop and turn gray), gray = press to load and start listening. Downloads live in the advanced tab (resource download card). -->
@@ -376,41 +376,41 @@
       <p class="hint" style="margin-top:6px" id="voskStatusOut">—</p>
     </section>
     <section class="card">
-      <h2 data-i18n="tts_heading">語音 / TTS</h2>
+      <h2 data-i18n="tts_heading">Speech / TTS</h2>
       <!-- TTS manual/auto pick (the switch sits above the three rows): on = manual pick, the engine/
            language/voice rows appear (default, current behavior unchanged). Off = follow the active Vosk
            model automatically and hide the rows. Backend: TtsCenter with the follow switch, plus speech/cur_tts_follow_vosk and speech/set_tts_follow_vosk. -->
       <div class="row" id="ttsFollowVoskRow">
-        <label class="switch-label"><span data-i18n="tts_follow_vosk_label">✋ 手動選擇</span>
+        <label class="switch-label"><span data-i18n="tts_follow_vosk_label">✋ Manual selection</span>
           <span class="toggle-switch">
             <input type="checkbox" id="ttsFollowVoskToggle" onchange="setTtsFollowVosk()">
             <span class="toggle-track"></span>
           </span>
         </label>
       </div>
-      <p class="hint" data-i18n="tts_follow_vosk_hint">開＝手動選擇語言／聲音；關＝自動跟 Vosk 語言包走</p>
+      <p class="hint" data-i18n="tts_follow_vosk_hint">On = pick language/voice manually; off = auto-follow the Vosk pack</p>
       <p class="hint" id="ttsFollowVoskStatus"></p>
       <!-- TTS uses only the Android built-in engine. The engine/language selectors stay visible. -->
       <div class="row" id="ttsAndroidEngineRow">
-        <label for="ttsAndroidEngineSelect" data-i18n="tts_android_engine_label">TTS 引擎：</label>
+        <label for="ttsAndroidEngineSelect" data-i18n="tts_android_engine_label">TTS Engine:</label>
         <select id="ttsAndroidEngineSelect" onchange="setAndroidTtsEngine()" style="flex:1"></select>
       </div>
       <!-- Android TTS language picker: the language list follows the selected engine. Reload the
            language list after a new engine is chosen. -->
       <div class="row" id="ttsAndroidLangRow">
-        <label for="ttsAndroidLangSelect" data-i18n="tts_android_lang_label">語言：</label>
+        <label for="ttsAndroidLangSelect" data-i18n="tts_android_lang_label">Language:</label>
         <select id="ttsAndroidLangSelect" onchange="setAndroidTtsLang()" style="flex:1"></select>
       </div>
       <!-- Voice picker: it appears after a concrete language is chosen, because each language has
            different voices (fetch them per lang through speech/tts_voices, see app-speech.js loadAndroidTtsVoices). -->
       <div class="row" id="ttsAndroidVoiceRow" style="display:none">
-        <label for="ttsAndroidVoiceSelect" data-i18n="tts_android_voice_label">聲音：</label>
+        <label for="ttsAndroidVoiceSelect" data-i18n="tts_android_voice_label">Voice:</label>
         <select id="ttsAndroidVoiceSelect" onchange="setAndroidTtsVoice()" style="flex:1"></select>
       </div>
       <div class="row">
-        <input id="ttsText" placeholder="要說的文字" data-i18n="tts_text_placeholder" data-i18n-attr="placeholder" style="flex:1">
-        <button onclick="speakTts()" data-i18n="tts_speak_btn">說話 (TTS)</button>
-        <button onclick="stopTts()" data-i18n="tts_stop_btn">停止 TTS</button>
+        <input id="ttsText" placeholder="Text to speak" data-i18n="tts_text_placeholder" data-i18n-attr="placeholder" style="flex:1">
+        <button onclick="speakTts()" data-i18n="tts_speak_btn">Speak (TTS)</button>
+        <button onclick="stopTts()" data-i18n="tts_stop_btn">Stop TTS</button>
       </div>
     </section>
 
@@ -422,104 +422,104 @@
     <section class="card">
       <h2>LED</h2>
       <div class="led-block">
-        <h3 data-i18n="led_head_heading">頭部 LED</h3>
+        <h3 data-i18n="led_head_heading">Head LED</h3>
         <div class="perled-center">
           <div class="perled-head">
             <div class="perled-side">
               <div class="perled-strip" id="perledHeadR"></div>
-              <div class="perled-side-label" data-i18n="led_perled_right">右</div>
+              <div class="perled-side-label" data-i18n="led_perled_right">R</div>
             </div>
             <div class="perled-pad-col">
-              <button id="padPlusBtn" class="pad-tri up" title="音量+ / Vol+" onclick="sysPadToggle('plus')"></button>
-              <button id="padMinusBtn" class="pad-tri down" title="音量- / Vol-" onclick="sysPadToggle('minus')"></button>
+              <button id="padPlusBtn" class="pad-tri up" title="Vol+" onclick="sysPadToggle('plus')"></button>
+              <button id="padMinusBtn" class="pad-tri down" title="Vol-" onclick="sysPadToggle('minus')"></button>
             </div>
             <div class="perled-side">
               <div class="perled-strip" id="perledHeadL"></div>
-              <div class="perled-side-label" data-i18n="led_perled_left">左</div>
+              <div class="perled-side-label" data-i18n="led_perled_left">L</div>
             </div>
           </div>
         </div>
         <div class="row">
-          <label data-i18n="led_color_label">顏色：</label>
+          <label data-i18n="led_color_label">Color:</label>
           <div id="headColorPicker" class="color-picker"></div>
         </div>
         <div class="row">
-          <label><span data-i18n="led_brightness_label">亮度 (1–9)：</span><span id="headBrightnessVal">9</span></label>
+          <label><span data-i18n="led_brightness_label">Brightness (1–9):</span><span id="headBrightnessVal">9</span></label>
           <input id="headBrightness" type="range" min="1" max="9" value="9"
                  oninput="document.getElementById('headBrightnessVal').textContent=this.value; headLedApply()">
         </div>
         <div class="row">
-          <label><span data-i18n="led_speed_label">速度 (50–500)：</span><span id="headSpeedVal">100</span></label>
+          <label><span data-i18n="led_speed_label">Speed (50–500):</span><span id="headSpeedVal">100</span></label>
           <input id="headSpeed" type="range" min="50" max="500" value="100"
                  oninput="document.getElementById('headSpeedVal').textContent=this.value; headLedApply()">
         </div>
         <div class="row">
-          <button onclick="headLedPreset('long')" data-i18n="led_preset_long">💡 長開</button>
-          <button onclick="headLedPreset('flash')" data-i18n="led_preset_flash">⚡ 閃燈</button>
-          <button onclick="headLedPreset('breathe')" data-i18n="led_preset_breathe">🫧 呼吸燈</button>
-          <button onclick="headLedPreset('chase')" data-i18n="led_preset_chase">🏃 跑馬燈</button>
-          <button onclick="headLedPreset('dual')" data-i18n="led_preset_dual">🎨 雙色燈</button>
-          <button onclick="headLedPreset('stop')" data-i18n="led_preset_stop">⏹ 停止</button>
+          <button onclick="headLedPreset('long')" data-i18n="led_preset_long">💡 On</button>
+          <button onclick="headLedPreset('flash')" data-i18n="led_preset_flash">⚡ Flash</button>
+          <button onclick="headLedPreset('breathe')" data-i18n="led_preset_breathe">🫧 Breathe</button>
+          <button onclick="headLedPreset('chase')" data-i18n="led_preset_chase">🏃 Chase</button>
+          <button onclick="headLedPreset('dual')" data-i18n="led_preset_dual">🎨 Dual Color</button>
+          <button onclick="headLedPreset('stop')" data-i18n="led_preset_stop">⏹ Stop</button>
         </div>
       </div>
 
       <div class="led-block">
-        <h3 data-i18n="led_eye_heading">眼睛 LED</h3>
+        <h3 data-i18n="led_eye_heading">Eye LED</h3>
         <div class="perled-center">
           <div class="perled-eyes">
             <div class="perled-eye-wrap">
               <div class="perled-ring" id="perledEyeR"></div>
-              <div class="perled-side-label" data-i18n="led_perled_right">右</div>
+              <div class="perled-side-label" data-i18n="led_perled_right">R</div>
             </div>
             <div class="perled-eye-wrap">
               <div class="perled-ring" id="perledEyeL"></div>
-              <div class="perled-side-label" data-i18n="led_perled_left">左</div>
+              <div class="perled-side-label" data-i18n="led_perled_left">L</div>
             </div>
           </div>
         </div>
         <div class="row">
-          <label data-i18n="led_color_label">顏色：</label>
+          <label data-i18n="led_color_label">Color:</label>
           <div id="eyeColorPicker" class="color-picker"></div>
         </div>
         <div class="row">
-          <label><span data-i18n="led_brightness_label">亮度 (1–9)：</span><span id="eyeBrightnessVal">9</span></label>
+          <label><span data-i18n="led_brightness_label">Brightness (1–9):</span><span id="eyeBrightnessVal">9</span></label>
           <input id="eyeBrightness" type="range" min="1" max="9" value="9"
                  oninput="document.getElementById('eyeBrightnessVal').textContent=this.value; eyeLedApply()">
         </div>
         <div class="row">
-          <label><span data-i18n="led_speed_label">速度 (50–500)：</span><span id="eyeSpeedVal">100</span></label>
+          <label><span data-i18n="led_speed_label">Speed (50–500):</span><span id="eyeSpeedVal">100</span></label>
           <input id="eyeSpeed" type="range" min="50" max="500" value="100"
                  oninput="eyeSpeedInput(this.value)" onchange="eyeSpeedCommit()">
         </div>
         <div class="row">
-          <button onclick="eyeLedPreset('long')" data-i18n="led_preset_long">💡 長開</button>
-          <button onclick="eyeLedPreset('flash')" data-i18n="led_preset_flash">⚡ 閃燈</button>
-          <button onclick="eyeLedPreset('chase')" data-i18n="led_preset_chase">🏃 跑馬燈</button>
-          <button onclick="eyeLedPreset('dual')" data-i18n="led_preset_dual">🎨 雙色燈</button>
-          <button onclick="eyeCountdown3s()" data-i18n="led_eye_countdown">⏳ 3秒倒數</button>
-          <button onclick="eyeLedPreset('stop')" data-i18n="led_preset_stop">⏹ 停止</button>
+          <button onclick="eyeLedPreset('long')" data-i18n="led_preset_long">💡 On</button>
+          <button onclick="eyeLedPreset('flash')" data-i18n="led_preset_flash">⚡ Flash</button>
+          <button onclick="eyeLedPreset('chase')" data-i18n="led_preset_chase">🏃 Chase</button>
+          <button onclick="eyeLedPreset('dual')" data-i18n="led_preset_dual">🎨 Dual Color</button>
+          <button onclick="eyeCountdown3s()" data-i18n="led_eye_countdown">⏳ 3s countdown</button>
+          <button onclick="eyeLedPreset('stop')" data-i18n="led_preset_stop">⏹ Stop</button>
         </div>
       </div>
 
       <div class="led-block">
-        <h3 data-i18n="led_mouth_heading">嘴部 LED</h3>
+        <h3 data-i18n="led_mouth_heading">Mouth LED</h3>
         <div class="perled-center">
           <div class="perled-mouth-wrap">
-            <button id="perledMouthArc" class="perled-mouth-arc" title="咀 / Mouth" onclick="mouthToggle()"></button>
+            <button id="perledMouthArc" class="perled-mouth-arc" title="Mouth" onclick="mouthToggle()"></button>
           </div>
         </div>
         <div class="row">
-          <label><span data-i18n="led_mouth_speed_label">速度 (100–1000)：</span><span id="mouthSpeedVal">150</span></label>
+          <label><span data-i18n="led_mouth_speed_label">Speed (100–1000):</span><span id="mouthSpeedVal">150</span></label>
           <input id="mouthSpeed" type="range" min="100" max="1000" value="150"
                  oninput="document.getElementById('mouthSpeedVal').textContent=this.value; mouthSpeedInput(this.value)">
         </div>
       </div>
 
       <div class="led-block">
-        <h3 data-i18n="led_sys_heading">系統指示燈</h3>
+        <h3 data-i18n="led_sys_heading">System Indicators</h3>
         <div class="row">
-          <label data-i18n="led_sys_mute">靜音燈：</label>
-          <button id="muteBtn" class="sys-toggle-off" onclick="sysMuteToggle()" data-i18n="led_mute_btn_title" data-i18n-attr="title" title="靜音燈"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.09-.6-.39-1.14-1-1.14z"/></svg></button>
+          <label data-i18n="led_sys_mute">Mute LED:</label>
+          <button id="muteBtn" class="sys-toggle-off" onclick="sysMuteToggle()" data-i18n="led_mute_btn_title" data-i18n-attr="title" title="Mute LED"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.09-.6-.39-1.14-1-1.14z"/></svg></button>
         </div>
       </div>
       <!-- Version marker: check for cached old JS. If the browser cannot see the newest number, it runs an old build. Press Ctrl+F5. -->
@@ -533,28 +533,28 @@
      the shared nav buttons above. -->
 <div id="tab-camera" class="tab-page">
   <section class="card">
-    <h2 data-i18n="camera_heading">相機</h2>
+    <h2 data-i18n="camera_heading">Camera</h2>
     <div class="row">
       <button id="cameraToggleBtn" onclick="toggleCameraLive()">▶</button>
-      <label class="switch-label"><span data-i18n="camera_feature_key">功能鍵</span>
+      <label class="switch-label"><span data-i18n="camera_feature_key">Feature Key</span>
         <span class="toggle-switch">
           <input type="checkbox" id="featureEnabled" checked onchange="cameraFeatureToggle()">
           <span class="toggle-track"></span>
         </span>
       </label>
-      <label class="switch-label"><span data-i18n="camera_pad_label">手柄</span>
+      <label class="switch-label"><span data-i18n="camera_pad_label">Gamepad</span>
         <span class="toggle-switch">
           <input type="checkbox" id="cameraPadToggle" onchange="cameraPadToggleView()">
           <span class="toggle-track"></span>
         </span>
       </label>
-      <label class="switch-label"><span data-i18n="face_track_label">人臉追蹤</span>
+      <label class="switch-label"><span data-i18n="face_track_label">Face Tracking</span>
         <span class="toggle-switch">
           <input type="checkbox" id="faceTrackToggle" onchange="faceTrackToggleChanged()">
           <span class="toggle-track"></span>
         </span>
       </label>
-      <label class="switch-label"><span data-i18n="color_track_label">顏色追蹤</span>
+      <label class="switch-label"><span data-i18n="color_track_label">Color Tracking</span>
         <span class="toggle-switch">
           <input type="checkbox" id="colorTrackToggle" onchange="colorTrackToggleChanged()">
           <span class="toggle-track"></span>
@@ -563,9 +563,9 @@
     </div>
     <!-- Color track picker: the seven LED colors (red/green/blue/yellow/purple/cyan/white). It shows only while color tracking is on. A click switches the target live, no restart needed. -->
     <div class="row" id="colorTrackPresets" style="display:none;gap:8px;align-items:center">
-      <span class="hint" data-i18n="led_color_label" style="margin:0">顏色：</span>
+      <span class="hint" data-i18n="led_color_label" style="margin:0">Color:</span>
       <span id="colorTrackDots" style="display:flex;gap:8px;align-items:center"></span>
-      <label class="switch-label" id="walkFollowWrap" style="margin-left:auto"><span data-i18n="walk_follow_label">行路跟</span>
+      <label class="switch-label" id="walkFollowWrap" style="margin-left:auto"><span data-i18n="walk_follow_label">Walk Follow</span>
         <span class="toggle-switch">
           <input type="checkbox" id="walkFollowToggle" onchange="colorTrackWalkChanged()">
           <span class="toggle-track"></span>
@@ -591,7 +591,7 @@
         <div id="crosshairMark" class="crosshair-mark"></div>
       </div>
       <!-- Auto-return switch: placed right of the joystick. The text is removed and only the switch stays. -->
-      <div id="joystickAutoReturnWrap" class="joystick-auto-return-wrap" ondblclick="event.stopPropagation()" title="自動回中 / Auto-return">
+      <div id="joystickAutoReturnWrap" class="joystick-auto-return-wrap" ondblclick="event.stopPropagation()" title="Auto-return">
         <label class="switch-label" style="gap:0">
           <span class="toggle-switch">
             <input type="checkbox" id="joystickAutoReturn" checked onchange="joystickAutoReturnToggle()" onclick="event.stopPropagation()">
@@ -608,7 +608,7 @@
       <div id="fabRow" class="fab-row">
         <button id="photoFab" class="fab-btn" onclick="capturePhotoAtResolution(4208,3120, this, true)">📷</button>
         <button id="recordFab" class="fab-btn" onclick="toggleRecording()">⏺</button>
-        <button id="robotVideoFab" class="fab-btn" onclick="robotVideoToggle()" title="機端錄影 mp4 / Robot-side recording mp4">🎥</button>
+        <button id="robotVideoFab" class="fab-btn" onclick="robotVideoToggle()" title="Robot-side recording mp4">🎥</button>
         <button id="micListenFab" class="fab-btn" onclick="toggleMicListen()">🎧</button>
       </div>
       <!-- Face track box: the backend face/track/status returns fx/fy/fw/fh (normalized). The frontend scales the green box to the viewport. -->
@@ -620,7 +620,7 @@
       <canvas id="cameraPadCanvas" class="camera-pad-canvas" style="display:none"></canvas>
       <span class="camera-kbd-hint" id="cameraKbdHint"></span>
     </div>
-    <p class="hint" id="cameraZoomHint" data-i18n="camera_zoom_hint" style="text-align:center">數位變焦 x1–x5（硬件支援時為硬件變焦，否則為軟件裁切；串流由前端即時縮放，拍照存檔由後端裁切）</p>
+    <p class="hint" id="cameraZoomHint" data-i18n="camera_zoom_hint" style="text-align:center">Digital zoom x1–x5 (hardware zoom when supported, otherwise software crop; the live stream is scaled in the frontend, saved photos are cropped in the backend)</p>
     <p class="hint" id="cameraStatusHint"></p>
     <div id="cameraCaptureList" class="capture-list"></div>
     <div id="cameraPhoto9Grid" class="photo-9-grid" style="display:none"></div>
@@ -634,34 +634,34 @@
      copy, and nothing is built twice. -->
 <div id="tab-xiaozhi" class="tab-page">
   <section class="card">
-    <h2 data-i18n="xiaozhi_heading">🤖 小智 AI 對話</h2>
+    <h2 data-i18n="xiaozhi_heading">🤖 XiaoZhi AI Chat</h2>
     <p class="hint" data-i18n="xiaozhi_phase4_hint">
-      開關開＝配對／連線／隨時語音對話，關＝斷開。首次要在 xiaozhi.me 輸入機械人讀出的配對碼。
+      Switch on = pair/connect/voice chat anytime, off = disconnect. First time, enter the pairing code the robot speaks at xiaozhi.me.
     </p>
 
     <div id="xiaozhiUnsupportedNotice" class="hint" style="display:none" data-i18n="xiaozhi_unsupported_hint">
-      這台機器的 Android 版本過舊，語音對話功能將會停用（純文字對話不受影響）。
+      This device's Android version is too old for voice chat - it will be disabled (text-only chat is unaffected).
     </div>
 
     <div id="xiaozhiActivationBox" class="hint" style="display:none; padding:10px; border:1px solid var(--border); border-radius:8px; margin-bottom:10px;">
-      <div data-i18n="xiaozhi_activation_prompt">請在 <a href="https://xiaozhi.me/console/" target="_blank" rel="noopener">xiaozhi.me</a> 輸入以下配對碼：</div>
+      <div data-i18n="xiaozhi_activation_prompt">Please enter the pairing code below at <a href="https://xiaozhi.me/console/" target="_blank" rel="noopener">xiaozhi.me</a>:</div>
       <div id="xiaozhiActivationCode" style="font-size:1.8em; font-weight:600; letter-spacing:0.15em; margin:6px 0;"></div>
     </div>
 
     <div class="row">
       <label class="switch-label">
-        <span data-i18n="xiaozhi_session_toggle_label">🤖 小智（開＝連線並隨時語音對話，關＝斷開）</span>
+        <span data-i18n="xiaozhi_session_toggle_label">🤖 XiaoZhi (on = connect & voice chat anytime, off = disconnect)</span>
         <span class="toggle-switch">
           <input type="checkbox" id="xiaozhiSessionToggle" onchange="xiaozhiToggleSession()">
           <span class="toggle-track"></span>
         </span>
       </label>
-      <span id="xiaozhiStatusBadge" class="hint" data-i18n="xiaozhi_status_disconnected">未連接</span>
+      <span id="xiaozhiStatusBadge" class="hint" data-i18n="xiaozhi_status_disconnected">Disconnected</span>
     </div>
 
     <div class="row">
       <span id="xiaozhiMicLed" class="led-dot led-dot-off"></span>
-      <span id="xiaozhiMicStatusBadge" class="hint" data-i18n="xiaozhi_mic_released">🎤 麥克風：已釋放</span>
+      <span id="xiaozhiMicStatusBadge" class="hint" data-i18n="xiaozhi_mic_released">🎤 Mic: released</span>
     </div>
 
     <div id="xiaozhiChatLog" class="event-log" style="min-height:200px"></div>
@@ -669,26 +669,26 @@
     <!-- The stop-all button sits at the end of the send row. One press stops all action playback,
          TTS, local music, and radio. It is only a frontend fan-out of existing stop endpoints, with no new backend logic. See xiaozhiStopAll(). -->
     <div class="row">
-      <input id="xiaozhiTextInput" placeholder="打字與小智聊天…" data-i18n="xiaozhi_text_placeholder" data-i18n-attr="placeholder" autocomplete="off" style="flex:2" onkeydown="if(event.key==='Enter'&&!event.repeat){xiaozhiSendText();}">
-      <button id="xiaozhiSendTextBtn" onclick="xiaozhiSendText()" disabled data-i18n="xiaozhi_send_text">送出</button>
-      <button class="secondary" onclick="clearXiaozhiChatLog()" data-i18n="xiaozhi_clear_btn">清空</button>
-      <button id="xiaozhiStopAllBtn" class="danger-btn" onclick="xiaozhiStopAll()" data-i18n="xiaozhi_stop_all_btn">⏹ 全部停止</button>
+      <input id="xiaozhiTextInput" placeholder="Type a message to XiaoZhi…" data-i18n="xiaozhi_text_placeholder" data-i18n-attr="placeholder" autocomplete="off" style="flex:2" onkeydown="if(event.key==='Enter'&&!event.repeat){xiaozhiSendText();}">
+      <button id="xiaozhiSendTextBtn" onclick="xiaozhiSendText()" disabled data-i18n="xiaozhi_send_text">Send</button>
+      <button class="secondary" onclick="clearXiaozhiChatLog()" data-i18n="xiaozhi_clear_btn">Clear</button>
+      <button id="xiaozhiStopAllBtn" class="danger-btn" onclick="xiaozhiStopAll()" data-i18n="xiaozhi_stop_all_btn">⏹ Stop All</button>
     </div>
 
     <!-- TTS output engine: "Xiaozhi" means the server sends opus audio, which XiaozhiAudioController
          decodes and plays. Choosing Android mutes opus and speaks each sentence through the local
          speech/tts (Android built-in). See the "xiaozhi_tts" case in xiaozhiHandleEvent() and MainActivity.xiaozhiTtsEngine. -->
     <div class="row">
-      <label data-i18n="xiaozhi_tts_engine_label">語音輸出：</label>
+      <label data-i18n="xiaozhi_tts_engine_label">Voice output:</label>
       <span class="lang-toggle">
-        <button id="xiaozhiTtsEngineXiaozhiBtn" onclick="xiaozhiSetTtsEngine('xiaozhi')" data-i18n="xiaozhi_tts_engine_xiaozhi_btn">小智</button>
-        <button id="xiaozhiTtsEngineAndroidBtn" onclick="xiaozhiSetTtsEngine('android')" data-i18n="tts_engine_android_btn">Android 預設</button>
+        <button id="xiaozhiTtsEngineXiaozhiBtn" onclick="xiaozhiSetTtsEngine('xiaozhi')" data-i18n="xiaozhi_tts_engine_xiaozhi_btn">XiaoZhi</button>
+        <button id="xiaozhiTtsEngineAndroidBtn" onclick="xiaozhiSetTtsEngine('android')" data-i18n="tts_engine_android_btn">Android Default</button>
       </span>
     </div>
     <!-- Random action while speaking switch (xiaozhi/filler_action/get|set): when off, a TTS start only lights the mouth LED and the robot does not move. -->
     <div class="row" style="align-items:center">
-      <label class="switch-label" title="開啟的話，小智每次開口講嘢機械人會做一個隨機動作 / When on, the robot does a random action each time Xiaozhi speaks">
-        <span data-i18n="xiaozhi_filler_heading">💃 講嘢時隨機動作</span>
+      <label class="switch-label" title="When on, the robot does a random action each time Xiaozhi speaks">
+        <span data-i18n="xiaozhi_filler_heading">💃 Random move while speaking</span>
         <span class="toggle-switch">
           <input type="checkbox" id="xiaozhiFillerToggle" checked onchange="xiaozhiSetFillerAction(this.checked)">
           <span class="toggle-track"></span>
@@ -701,10 +701,10 @@
        Of the four fields only the OTA address is required. The other three (WebSocket address/MAC/Token)
        come from the OTA response when left blank. Optional overrides serve manual configuration (see MainActivity "ota_config/set"). -->
   <section class="card">
-    <h3 data-i18n="xiaozhi_ota_custom_heading">⚙️ 自訂小智 server</h3>
+    <h3 data-i18n="xiaozhi_ota_custom_heading">⚙️ Custom XiaoZhi server</h3>
     <div class="row">
       <label class="switch-label">
-        <span data-i18n="xiaozhi_ota_custom_label">開＝自架 server，關＝官方 xiaozhi.me</span>
+        <span data-i18n="xiaozhi_ota_custom_label">On = self-hosted server, off = official xiaozhi.me</span>
         <span class="toggle-switch">
           <input type="checkbox" id="xiaozhiOtaCustomToggle" onchange="xiaozhiToggleOtaCustom()">
           <span class="toggle-track"></span>
@@ -713,26 +713,26 @@
     </div>
     <div id="xiaozhiOtaCustomBox" style="display:none">
       <p class="hint" data-i18n="xiaozhi_ota_custom_hint">
-        只有 OTA 位址是必填；其餘留空會自動取回來，連接期間不可以更改。
+        Only the OTA URL is required; leave the rest blank to fetch automatically. Cannot be changed while connected.
       </p>
       <div class="row">
-        <label for="xiaozhiOtaCustomUrl" style="flex:0 0 110px" data-i18n="xiaozhi_ota_field_ota">OTA 位址</label>
+        <label for="xiaozhiOtaCustomUrl" style="flex:0 0 110px" data-i18n="xiaozhi_ota_field_ota">OTA URL</label>
         <input type="text" id="xiaozhiOtaCustomUrl" placeholder="https://your-server/xiaozhi/ota/" style="flex:1">
       </div>
       <div class="row">
-        <label for="xiaozhiWsUrlOverride" style="flex:0 0 110px" data-i18n="xiaozhi_ota_field_ws">WebSocket 位址</label>
-        <input type="text" id="xiaozhiWsUrlOverride" placeholder="ws://your-server:8000/xiaozhi/v1/（留空自動）/ blank = auto" style="flex:1">
+        <label for="xiaozhiWsUrlOverride" style="flex:0 0 110px" data-i18n="xiaozhi_ota_field_ws">WebSocket URL</label>
+        <input type="text" id="xiaozhiWsUrlOverride" placeholder="ws://your-server:8000/xiaozhi/v1/ (blank = auto)" style="flex:1">
       </div>
       <div class="row">
         <label for="xiaozhiDeviceIdOverride" style="flex:0 0 110px" data-i18n="xiaozhi_ota_field_mac">MAC (Device-Id)</label>
-        <input type="text" id="xiaozhiDeviceIdOverride" placeholder="aa:bb:cc:dd:ee:ff（留空自動）/ blank = auto" style="flex:1">
+        <input type="text" id="xiaozhiDeviceIdOverride" placeholder="aa:bb:cc:dd:ee:ff (blank = auto)" style="flex:1">
       </div>
       <div class="row">
         <label for="xiaozhiTokenOverride" style="flex:0 0 110px" data-i18n="xiaozhi_ota_field_token">Token</label>
-        <input type="text" id="xiaozhiTokenOverride" placeholder="Access Token（留空自動）/ blank = auto" style="flex:1">
+        <input type="text" id="xiaozhiTokenOverride" placeholder="Access Token (blank = auto)" style="flex:1">
       </div>
       <div class="row">
-        <button id="xiaozhiOtaCustomSaveBtn" onclick="xiaozhiSaveOtaCustom()" data-i18n="xiaozhi_ota_custom_save">儲存</button>
+        <button id="xiaozhiOtaCustomSaveBtn" onclick="xiaozhiSaveOtaCustom()" data-i18n="xiaozhi_ota_custom_save">Save</button>
       </div>
     </div>
   </section>
@@ -743,13 +743,13 @@
        swap automatically over WebSocket "initialize"/"tools/list", with no manual setup. The top switch
        only expands (same style as the custom server card): on = show the list and enable/disable each item, off = collapse. -->
   <section class="card">
-    <h3 data-i18n="xiaozhi_mcp_tools_heading">🔧 內置MCP功能列表</h3>
+    <h3 data-i18n="xiaozhi_mcp_tools_heading">🔧 Built-in MCP Tools</h3>
     <p class="hint" data-i18n="xiaozhi_mcp_tools_hint">
-      控制這台機器向小智暴露哪些工具。和 xiaozhi.me console 的「MCP接入點」是兩回事。
+      Control which tools this device exposes to XiaoZhi. Not the same as xiaozhi.me console's "MCP access point".
     </p>
     <div class="row">
       <label class="switch-label">
-        <span data-i18n="xiaozhi_mcp_tools_expand_label">展開</span>
+        <span data-i18n="xiaozhi_mcp_tools_expand_label">Expand</span>
         <span class="toggle-switch">
           <input type="checkbox" id="xiaozhiMcpExpandToggle" onchange="xiaozhiToggleMcpExpandAll()">
           <span class="toggle-track"></span>
@@ -758,17 +758,17 @@
     </div>
     <div id="xiaozhiMcpToolsBox" style="display:none">
       <div class="row">
-        <button onclick="xiaozhiLoadMcpTools()" data-i18n="xiaozhi_mcp_tools_refresh">重新整理</button>
+        <button onclick="xiaozhiLoadMcpTools()" data-i18n="xiaozhi_mcp_tools_refresh">Refresh</button>
       </div>
-      <div id="xiaozhiMcpToolsList" class="hint" data-i18n="xiaozhi_mcp_tools_loading">載入中…</div>
+      <div id="xiaozhiMcpToolsList" class="hint" data-i18n="xiaozhi_mcp_tools_loading">Loading…</div>
     </div>
   </section>
 
   <!-- Xiaozhi console quick link card: opens https://xiaozhi.me/ in a new tab for pairing status and chat history. -->
   <section class="card">
-    <h3 data-i18n="xiaozhi_console_heading">🌐 小智控制台</h3>
+    <h3 data-i18n="xiaozhi_console_heading">🌐 XiaoZhi Console</h3>
     <div class="row">
-      <button onclick="window.open('https://xiaozhi.me/', '_blank', 'noopener')" data-i18n="xiaozhi_console_open_btn">前往 xiaozhi.me</button>
+      <button onclick="window.open('https://xiaozhi.me/', '_blank', 'noopener')" data-i18n="xiaozhi_console_open_btn">Open xiaozhi.me</button>
     </div>
   </section>
 </div>
@@ -776,44 +776,44 @@
 <!-- Local music tab: the frontend is UI only. Real playback and random actions run server-side
      (MainActivity.java playLocalMusicFile()/
      startMusicFillerActionLoop()). Songs live in /mnt/internal_sd/music/, and the backend is the
-     same one the Xiaozhi voice phrase "播放音樂" uses. -->
+     same one the Xiaozhi voice phrase "Play music" uses. -->
 <div id="tab-music" class="tab-page">
   <!-- Local and radio share one player (spectrum/volume/random action) -->
   <!-- Source card: local song library -->
   <section class="card">
-    <h2 data-i18n="music_heading">🎵 本地音樂</h2>
-    <p class="hint" data-i18n="music_scan_hint">機身音樂資料夾: /mnt/internal_sd/music/</p>
+    <h2 data-i18n="music_heading">🎵 Local Music</h2>
+    <p class="hint" data-i18n="music_scan_hint">Music folder on the robot: /mnt/internal_sd/music/</p>
     <!-- Drag and drop upload -->
     <div id="musicDropZone" class="music-drop-zone"
          ondragover="musicOnDragOver(event)"
          ondragleave="musicOnDragLeave(event)"
          ondrop="musicOnDrop(event)"
          onclick="document.getElementById('musicFileInput').click()">
-      <span data-i18n="music_drop_hint">📂 將音樂檔拖過來，或者按這裡選檔案</span>
+      <span data-i18n="music_drop_hint">📂 Drop music files here, or click to choose</span>
       <input id="musicFileInput" type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac"
              multiple style="display:none" onchange="musicOnFileInputChange(this.files)">
     </div>
     <p id="musicUploadStatus" class="hint"></p>
     <div class="row">
-      <button onclick="musicRefreshList()" data-i18n="music_refresh_btn">🔄 重新整理清單</button>
+      <button onclick="musicRefreshList()" data-i18n="music_refresh_btn">🔄 Refresh list</button>
     </div>
     <div id="musicListContainer" class="music-list"></div>
   </section>
 
   <!-- Source card: internet radio (radio-browser.info) -->
   <section class="card" id="radioCard">
-    <h2 data-i18n="radio_heading">📻 網絡電台</h2>
-    <p class="hint"><a href="https://www.radio-browser.info/" target="_blank" rel="noopener">radio-browser.info</a> · <span data-i18n="radio_browser_hint">全球公開電台：搜尋即列出 50 個隨機結果，點擊名稱即播</span></p>
+    <h2 data-i18n="radio_heading">📻 Internet Radio</h2>
+    <p class="hint"><a href="https://www.radio-browser.info/" target="_blank" rel="noopener">radio-browser.info</a> · <span data-i18n="radio_browser_hint">Worldwide public stations: search lists 50 random results, tap a name to play</span></p>
     <div class="row" style="align-items:baseline">
-      <h3 data-i18n="radio_fav_heading" style="margin:0">⭐ 我的收藏</h3>
+      <h3 data-i18n="radio_fav_heading" style="margin:0">⭐ My Favorites</h3>
       <span id="radioFavCount" class="hint" style="margin:0"></span>
       <span style="flex:1"></span>
-      <button class="secondary" onclick="radioLoadFavorites()" data-i18n="radio_fav_refresh_btn">🔄 重新整理</button>
+      <button class="secondary" onclick="radioLoadFavorites()" data-i18n="radio_fav_refresh_btn">🔄 Refresh</button>
     </div>
     <div id="radioFavContainer" class="radio-list radio-fav-list"></div>
     <div class="row">
-      <input id="radioSearchInput" placeholder="搜尋電台名稱、國家、標籤…" data-i18n="radio_search_placeholder" data-i18n-attr="placeholder" style="flex:1" onkeydown="radioOnSearchKeydown(event)">
-      <button onclick="radioSearch()" data-i18n="radio_search_btn">🔍 搜尋</button>
+      <input id="radioSearchInput" placeholder="Search station name, country or tag…" data-i18n="radio_search_placeholder" data-i18n-attr="placeholder" style="flex:1" onkeydown="radioOnSearchKeydown(event)">
+      <button onclick="radioSearch()" data-i18n="radio_search_btn">🔍 Search</button>
     </div>
     <div class="row" style="gap:6px;">
       <button class="secondary" onclick="radioQuickSearch('music')">music</button>
@@ -825,7 +825,7 @@
       <button class="secondary" onclick="radioQuickSearch('jazz')">jazz</button>
       <button class="secondary" onclick="radioQuickSearch('classical')">classical</button>
       <button class="secondary" onclick="radioQuickSearch('news')">news</button>
-      <button class="secondary" onclick="radioQuickSearch('香港')">香港 / Hong Kong</button>
+      <button class="secondary" onclick="radioQuickSearch('香港')">Hong Kong</button>
       <button class="secondary" onclick="radioQuickSearch('pop')">pop</button>
     </div>
     <p id="radioSearchStatus" class="hint"></p>
@@ -837,11 +837,11 @@
        direct link, the existing audio/radio/play_url makes the robot play it (see app-archive.js). Expect
        live, indie, and old recordings. No commercial chart music. -->
   <section class="card" id="archiveCard">
-    <h2 data-i18n="arc_heading">🌐 網上點歌</h2>
-    <p class="hint" data-i18n="arc_hint">Internet Archive 免費音樂（現場／獨立／舊錄音），無需登入；搜尋經你的瀏覽器，播放經機械人。</p>
+    <h2 data-i18n="arc_heading">🌐 Pick Online Music</h2>
+    <p class="hint" data-i18n="arc_hint">Free music from Internet Archive (live/indie/vintage), no login; search runs in your browser, playback on the robot.</p>
     <div class="row">
-      <input id="archiveSearchInput" placeholder="搜尋歌名、歌手、樂隊…" data-i18n="arc_search_placeholder" data-i18n-attr="placeholder" style="flex:1" onkeydown="arcOnSearchKeydown(event)">
-      <button onclick="archiveSearch()" data-i18n="arc_search_btn">🔍 搜尋</button>
+      <input id="archiveSearchInput" placeholder="Search song, artist or band…" data-i18n="arc_search_placeholder" data-i18n-attr="placeholder" style="flex:1" onkeydown="arcOnSearchKeydown(event)">
+      <button onclick="archiveSearch()" data-i18n="arc_search_btn">🔍 Search</button>
     </div>
     <p id="archiveSearchStatus" class="hint"></p>
     <div id="archiveListContainer" class="radio-list"></div>
@@ -849,38 +849,38 @@
 
   <!-- Shared player: spectrum / progress / controls / volume + random action — used by local and radio -->
   <section class="card" id="sharedPlayerCard">
-    <h3 data-i18n="music_now_playing_heading">播放中</h3>
+    <h3 data-i18n="music_now_playing_heading">Now Playing</h3>
     <!-- Shared display: local or radio. JS updates #musicNowPlaying/#radioNowPlaying/#sharedNowPlaying together. -->
     <div class="row" id="sharedNowPlayingRow" style="gap:8px;align-items:center;flex-wrap:wrap">
-      <p id="sharedNowPlaying" class="hint" data-i18n="music_now_playing_none" style="margin:0;flex:1;min-width:120px">未播放</p>
-      <label class="switch-label" style="border-left:1px solid var(--border); padding-left:12px;" title="開啟的話，播歌/播電台期間機械人會不定時自己動，停止才停 / When on, the robot moves on its own at random times while music or radio plays, and stops when playback stops">
-        <span data-i18n="music_filler_heading">💃 隨機動作</span>
+      <p id="sharedNowPlaying" class="hint" data-i18n="music_now_playing_none" style="margin:0;flex:1;min-width:120px">No track selected</p>
+      <label class="switch-label" style="border-left:1px solid var(--border); padding-left:12px;" title="When on, the robot moves on its own at random times while music or radio plays, and stops when playback stops">
+        <span data-i18n="music_filler_heading">💃 Random Movement</span>
         <span class="toggle-switch">
           <input type="checkbox" id="musicFillerToggle" onchange="musicSetFillerActionEnabled(this.checked)">
           <span class="toggle-track"></span>
         </span>
       </label>
-      <span id="musicFillerStateLabel" class="hint" data-i18n="music_filler_on" style="margin:0;">開</span>
-      <label class="switch-label" style="border-left:1px solid var(--border); padding-left:12px;" title="開啟的話，播歌期間頭做水位錶、眼跟人聲轉色、嘴跟大細聲呼吸 / When on, during playback the head works as a level meter, the eyes change color with the voice, and the mouth breathes with the volume">
+      <span id="musicFillerStateLabel" class="hint" data-i18n="music_filler_on" style="margin:0;">On</span>
+      <label class="switch-label" style="border-left:1px solid var(--border); padding-left:12px;" title="When on, during playback the head works as a level meter, the eyes change color with the voice, and the mouth breathes with the volume">
         <span data-i18n="music_disco_heading">🪩 Disco LED</span>
         <span class="toggle-switch">
           <input type="checkbox" id="musicDiscoToggle" onchange="musicSetDiscoEnabled(this.checked)">
           <span class="toggle-track"></span>
         </span>
       </label>
-      <span id="musicDiscoStateLabel" class="hint" data-i18n="music_disco_off" style="margin:0;">關</span>
+      <span id="musicDiscoStateLabel" class="hint" data-i18n="music_disco_off" style="margin:0;">Off</span>
     </div>
-    <p id="musicNowPlaying" class="hint" style="display:none">未選擇歌曲</p>
-    <span id="radioNowPlaying" class="hint" style="display:none">未播放電台</span>
+    <p id="musicNowPlaying" class="hint" style="display:none">No song selected</p>
+    <span id="radioNowPlaying" class="hint" style="display:none">No radio playing</span>
     <!-- Panel order (final): now playing -> combined canvas -> EQ preset -> progress + play buttons -> volume -->
     <div id="musicEqBands" class="eq-bands-box">
       <canvas id="musicEqSpectrum" style="width:100%;height:150px;display:block;touch-action:none;cursor:grab"></canvas>
     </div>
     <!-- EQ: no switch. It starts on, and the standard preset applies right away. -->
     <div class="row" id="musicEqRow" style="display:none;gap:8px;align-items:center;flex-wrap:wrap">
-      <span class="hint" data-i18n="music_eq_heading" style="margin:0">🎚️ 等化器</span>
+      <span class="hint" data-i18n="music_eq_heading" style="margin:0">🎚️ Equalizer</span>
       <span id="musicEqPreset" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"></span>
-      <span id="musicEqUnsupported" class="hint" data-i18n="music_eq_unsupported" style="display:none;margin:0">呢部機無 EQ</span>
+      <span id="musicEqUnsupported" class="hint" data-i18n="music_eq_unsupported" style="display:none;margin:0">No EQ on this device</span>
     </div>
     <div class="row music-progress-row" id="sharedProgressRow">
       <span id="musicPositionLabel">0:00</span>
@@ -889,12 +889,12 @@
       <span id="musicDurationLabel">0:00</span>
     </div>
     <div class="row" id="sharedTransportRow">
-      <button onclick="musicPlayPrev()" title="上一首 / Previous">⏮</button>
+      <button onclick="musicPlayPrev()" title="Previous">⏮</button>
       <button id="musicPlayPauseBtn" onclick="musicTogglePlayPause()">▶</button>
-      <button onclick="musicPlayNext()" title="下一首 / Next">⏭</button>
-      <button onclick="musicPlayRandom()" title="隨機連播（播完自動再隨機）" data-i18n="music_random_btn">🔀</button>
-      <button onclick="musicPlayAll()" data-i18n="music_playall_btn">▶ 全部</button>
-      <button class="danger-btn" onclick="musicStopAll()" data-i18n="music_stop_btn">⏹ 全部停止</button>
+      <button onclick="musicPlayNext()" title="Next">⏭</button>
+      <button onclick="musicPlayRandom()" title="Shuffle (auto re-shuffle on finish)" data-i18n="music_random_btn">🔀</button>
+      <button onclick="musicPlayAll()" data-i18n="music_playall_btn">▶ All</button>
+      <button class="danger-btn" onclick="musicStopAll()" data-i18n="music_stop_btn">⏹ Stop All</button>
     </div>
     <!-- Shared volume (SYSTEM MUSIC): the last row of the panel -->
     <div class="row volume-row" id="sharedVolumeRow">
@@ -927,7 +927,7 @@
          details after the switch expands it, same as the UUID card: closed on every page load, no remembered state. -->
     <section class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
-        <h2 style="margin:0" data-i18n="panel_auth_heading">🔐 面板認證</h2>
+        <h2 style="margin:0" data-i18n="panel_auth_heading">🔐 Panel Token</h2>
         <label class="switch-label">
           <span class="toggle-switch">
             <input type="checkbox" id="panelAuthCardEnabled" onchange="panelAuthCardToggle()">
@@ -935,18 +935,18 @@
           </span>
         </label>
       </div>
-      <p id="panelAuthDisabledHint" class="hint" data-i18n="panel_auth_card_disabled_hint">開啟先會顯示面板認證設定</p>
+      <p id="panelAuthDisabledHint" class="hint" data-i18n="panel_auth_card_disabled_hint">Turn on to show panel token settings</p>
       <div id="panelAuthCardBody" style="display:none">
-      <p class="hint" data-i18n="panel_auth_hint">啟用後，整個面板（全部 API＋上載，含其他分頁）要帶 token。預設關閉（全開）。未啟用時輸入新值按儲存即啟用；已啟用時輸入現有值按儲存即解鎖（如需更換新值，先清除再儲存）。Token 記在瀏覽器，同一個面板地址跨 tab 共用。</p>
+      <p class="hint" data-i18n="panel_auth_hint">When enabled, the whole panel (all APIs + uploads, incl. other tabs) needs the token. Off by default (fully open). Type a new value + Save to enable; type the current value + Save to unlock (to change it, Clear first then Save). Stored in this browser, shared across tabs of the same panel URL.</p>
       <div class="row">
         <span id="panelAuthStatus" class="hint">-</span>
       </div>
       <div class="row">
         <input id="panelAuthInput" type="password" autocomplete="off" style="flex:1"
-               placeholder="Token（8–64 字元英數/-/_）" data-i18n="panel_auth_token_placeholder" data-i18n-attr="placeholder">
-        <button class="secondary" onclick="togglePwVisibility('panelAuthInput', this)" title="顯示輸入" data-i18n="panel_pw_show" data-i18n-attr="title">👁️</button>
-        <button onclick="panelAuthSet()" data-i18n="panel_auth_set_btn">儲存</button>
-        <button class="danger-btn" onclick="panelAuthClear()" data-i18n="panel_auth_clear_btn">清除</button>
+               placeholder="Token (8–64 chars A-Za-z0-9/-/_)" data-i18n="panel_auth_token_placeholder" data-i18n-attr="placeholder">
+        <button class="secondary" onclick="togglePwVisibility('panelAuthInput', this)" title="Show input" data-i18n="panel_pw_show" data-i18n-attr="title">👁️</button>
+        <button onclick="panelAuthSet()" data-i18n="panel_auth_set_btn">Save</button>
+        <button class="danger-btn" onclick="panelAuthClear()" data-i18n="panel_auth_clear_btn">Clear</button>
       </div>
       <p id="panelAuthMsg" class="hint"></p>
       </div>
@@ -957,7 +957,7 @@
          XiaozhiConfig boot_voice/get|set＋XiaozhiBridge.maybeBootVoice()。 -->
     <section class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
-        <h2 style="margin:0" data-i18n="boot_voice_heading">🔌 開機語音模式</h2>
+        <h2 style="margin:0" data-i18n="boot_voice_heading">🔌 Voice mode on boot</h2>
         <label class="switch-label">
           <span class="toggle-switch">
             <input type="checkbox" id="bootVoiceCardEnabled" onchange="bootVoiceCardToggle()">
@@ -965,30 +965,30 @@
           </span>
         </label>
       </div>
-      <p id="bootVoiceCardDisabledHint" class="hint" data-i18n="boot_voice_disabled_hint">開啟後才會顯示開機語音設定</p>
+      <p id="bootVoiceCardDisabledHint" class="hint" data-i18n="boot_voice_disabled_hint">Turn on to show the boot voice settings</p>
       <div id="bootVoiceCardBody" style="display:none">
-        <p class="hint" data-i18n="boot_voice_hint">請選擇其中一個：會在下次開啟 App 時自動執行。現在選擇只會儲存設定，不會立刻連線或立刻開始聆聽。</p>
+        <p class="hint" data-i18n="boot_voice_hint">Pick one: runs automatically next time the app starts. Saving only — won't connect or listen right now.</p>
         <div class="row">
           <label class="switch-label">
             <input type="radio" name="bootVoiceMode" value="off" onchange="bootVoiceSet('off')">
-            <span data-i18n="boot_voice_opt_off">💤 全部手動</span>
+            <span data-i18n="boot_voice_opt_off">💤 Start nothing automatically</span>
           </label>
         </div>
-        <p class="hint" style="margin-left:24px" data-i18n="boot_voice_opt_off_desc">開啟 App 後不自動執行任何項目，需要時再手動開啟。</p>
+        <p class="hint" style="margin-left:24px" data-i18n="boot_voice_opt_off_desc">Do nothing on boot; start things manually when needed.</p>
         <div class="row">
           <label class="switch-label">
             <input type="radio" name="bootVoiceMode" value="xiaozhi" onchange="bootVoiceSet('xiaozhi')">
-            <span data-i18n="boot_voice_opt_xiaozhi">🤖 開機自動連接小智</span>
+            <span data-i18n="boot_voice_opt_xiaozhi">🤖 Auto-connect XiaoZhi on boot</span>
           </label>
         </div>
-        <p class="hint" style="margin-left:24px" data-i18n="boot_voice_opt_xiaozhi_desc">開啟 App 約 15 秒後自動連接小智，可直接對話（需要網路連線，且已完成配對）。</p>
+        <p class="hint" style="margin-left:24px" data-i18n="boot_voice_opt_xiaozhi_desc">Auto-connects XiaoZhi ~15s after app start, ready to chat (needs internet + pairing).</p>
         <div class="row">
           <label class="switch-label">
             <input type="radio" name="bootVoiceMode" value="vosk" onchange="bootVoiceSet('vosk')">
-            <span data-i18n="boot_voice_opt_vosk">🗣️ 開機自動啟用 Vosk</span>
+            <span data-i18n="boot_voice_opt_vosk">🗣️ Auto-start Vosk on boot</span>
           </label>
         </div>
-        <p class="hint" style="margin-left:24px" data-i18n="boot_voice_opt_vosk_desc">開啟 App 並載入模型後，自動開始離線聆聽，不需要網路（須先在語音頁面載入模型）。</p>
+        <p class="hint" style="margin-left:24px" data-i18n="boot_voice_opt_vosk_desc">Auto-starts offline listening once the model loads, no internet needed (load a model in the Speech tab first).</p>
         <p id="bootVoiceStatus" class="hint"></p>
       </div>
     </section>
@@ -1001,7 +1001,7 @@
          Exclusivity: see DownloadGate. -->
     <section class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
-        <h2 style="margin:0" data-i18n="res_dl_heading">📦 資源下載</h2>
+        <h2 style="margin:0" data-i18n="res_dl_heading">📦 Resource Download</h2>
         <label class="switch-label">
           <span class="toggle-switch">
             <input type="checkbox" id="resDlCardEnabled" onchange="resDlCardToggle()">
@@ -1009,34 +1009,34 @@
           </span>
         </label>
       </div>
-      <p id="resDlCardDisabledHint" class="hint" data-i18n="res_dl_disabled_hint">開啟後才會顯示可下載資源</p>
+      <p id="resDlCardDisabledHint" class="hint" data-i18n="res_dl_disabled_hint">Turn on to show downloadable resources</p>
       <div id="resDlCardBody" style="display:none">
-        <p class="hint" data-i18n="res_dl_hint">一次只可下載一樣（Vosk 模型同動作包共用通道）。Vosk 落完自動載入，語音頁即多一個按鍵；動作包落完去動作頁重新載入列表。</p>
-        <h4 data-i18n="vosk_dl_supported_heading" style="margin:8px 0 4px">✓ 有對話（有 matcher）</h4>
+        <p class="hint" data-i18n="res_dl_hint">One download at a time (Vosk models, the actions pack and Google TTS share one slot). Vosk auto-loads when done, a new button appears in the Speech tab; reload the list in the Actions tab for the pack; Google TTS opens the system installer when done.</p>
+        <h4 data-i18n="vosk_dl_supported_heading" style="margin:8px 0 4px">✓ Supported (dialogue-ready)</h4>
         <div id="voskCatalogSupported" style="display:flex; gap:6px; flex-wrap:wrap"></div>
         <div class="row" style="margin-top:6px">
-          <button class="secondary" id="voskUnsupportedToggleBtn" onclick="voskUnsupportedToggle()">顯示只聽寫模型 ▸</button>
+          <button class="secondary" id="voskUnsupportedToggleBtn" onclick="voskUnsupportedToggle()">Show transcription-only models ▸</button>
         </div>
         <div id="voskUnsupportedWrap" style="display:none">
-          <h4 data-i18n="vosk_dl_unsupported_heading" style="margin:8px 0 4px">無對話（只聽寫）</h4>
+          <h4 data-i18n="vosk_dl_unsupported_heading" style="margin:8px 0 4px">Unsupported (transcribe only)</h4>
           <div id="voskCatalogList" style="display:flex; gap:6px; flex-wrap:wrap"></div>
         </div>
         <div class="row" style="margin-top:6px">
-          <button class="secondary" id="voskCatCancelBtn" onclick="voskCancelDownload()" data-i18n="vosk_download_cancel_btn" style="display:none">取消下載</button>
+          <button class="secondary" id="voskCatCancelBtn" onclick="voskCancelDownload()" data-i18n="vosk_download_cancel_btn" style="display:none">Cancel download</button>
         </div>
         <p class="hint" style="margin-top:6px" id="voskCatStatusOut">—</p>
-        <h4 data-i18n="actions_pack_heading" style="margin:8px 0 4px">⬇ 動作包下載</h4>
-        <p class="hint" data-i18n="actions_pack_hint">更新包有 202 個動作，下載並自動解壓到 sdcard（舊 /sdcard/actions 會改名 /sdcard/actions-backup）。完成後去動作頁重新載入列表。</p>
+        <h4 data-i18n="actions_pack_heading" style="margin:8px 0 4px">⬇ Actions Pack Download</h4>
+        <p class="hint" data-i18n="actions_pack_hint">The update pack contains 202 actions; downloads and auto-extracts to sdcard (old /sdcard/actions is renamed to /sdcard/actions-backup). Reload the action list in the Actions tab when done.</p>
         <div class="row" style="margin-top:6px">
-          <button id="actionsPackDlBtn" onclick="actionsPackDownload()" data-i18n="actions_pack_download_btn">⬇ 下載 actions.zip</button>
-          <button class="secondary" id="actionsPackCancelBtn" onclick="actionsPackCancel()" data-i18n="actions_pack_cancel_btn" style="display:none">取消下載</button>
+          <button id="actionsPackDlBtn" onclick="actionsPackDownload()" data-i18n="actions_pack_download_btn">⬇ Download actions.zip</button>
+          <button class="secondary" id="actionsPackCancelBtn" onclick="actionsPackCancel()" data-i18n="actions_pack_cancel_btn" style="display:none">Cancel download</button>
         </div>
         <p class="hint" style="margin-top:6px" id="actionsPackStatusOut">—</p>
-        <h4 data-i18n="apk_dl_heading" style="margin:8px 0 4px">📱 Google TTS 下載</h4>
-        <p class="hint" data-i18n="apk_dl_hint">下載指定版本 Google TTS，落完自動開系統安裝器（經 scrcpy mouse 撳確認）。同卡其他下載共用通道，一次一樣。</p>
+        <h4 data-i18n="apk_dl_heading" style="margin:8px 0 4px">📱 Google TTS Download</h4>
+        <p class="hint" data-i18n="apk_dl_hint">Download the pinned Google TTS; the system installer opens when done (confirm with the scrcpy mouse). Shares the one download slot.</p>
         <div class="row" style="margin-top:6px">
-          <button id="apkDlBtn" onclick="apkDownload()" data-i18n="apk_dl_download_btn">⬇ 下載 Google TTS</button>
-          <button class="secondary" id="apkCancelBtn" onclick="apkCancel()" data-i18n="vosk_download_cancel_btn" style="display:none">取消下載</button>
+          <button id="apkDlBtn" onclick="apkDownload()" data-i18n="apk_dl_download_btn">⬇ Download Google TTS</button>
+          <button class="secondary" id="apkCancelBtn" onclick="apkCancel()" data-i18n="vosk_download_cancel_btn" style="display:none">Cancel download</button>
         </div>
         <p class="hint" style="margin-top:6px" id="apkStatusOut">—</p>
       </div>
@@ -1052,16 +1052,16 @@
           </span>
         </label>
       </div>
-      <p id="advTunerDisabledHint" class="hint" data-i18n="servo_tuner_disabled_hint">開啟後才顯示 22ch 微調器（長按 ±1 連發，offset 即時計算，已禁用長按選單）</p>
+      <p id="advTunerDisabledHint" class="hint" data-i18n="servo_tuner_disabled_hint">Turn on to show 22ch tuner (long-press ±1 repeats, offset live, copy menu disabled)</p>
       <div id="advTunerBody" style="display:none" oncontextmenu="return false">
-        <p class="hint" data-i18n="servo_tuner_hint">獨立於舵機分頁的進階微調器 — 直接修改 22 顆 servo 角度，±1° 精調，一鍵讀取全部目前角度。與原廠 1.0.0.4 校準工具相同佈局（1-20 對應肩/肘/髖/膝/踝/手/頭，21-22 為擴展）。長按 ±1 連發時已禁用系統複製選單。</p>
+        <p class="hint" data-i18n="servo_tuner_hint">Standalone tuner — tune 22 servos directly, ±1° fine-tune, one-click read. Matches factory 1.0.0.4 layout (1-20: shoulder/elbow/hip/knee/ankle/hand/head, 21-22 extra). Long-press ±1 repeats, copy menu disabled.</p>
         <div class="row">
-          <button onclick="advTunerReset()" class="secondary" data-i18n="servo_tuner_standby">復位+掃描</button>
-          <button onclick="advCalibrateAll()" class="danger-btn" style="background:#dc2626;color:white" data-i18n="servo_tuner_calibrate">校准</button>
+          <button onclick="advTunerReset()" class="secondary" data-i18n="servo_tuner_standby">reset+scan</button>
+          <button onclick="advCalibrateAll()" class="danger-btn" style="background:#dc2626;color:white" data-i18n="servo_tuner_calibrate">Calibrate</button>
         </div>
         <div class="row">
-          <button onclick="advBackup()" class="secondary" data-i18n="servo_tuner_backup">備份 offset</button>
-          <button onclick="document.getElementById('advImportFile').click()" class="secondary" data-i18n="servo_tuner_restore">還原 offset</button>
+          <button onclick="advBackup()" class="secondary" data-i18n="servo_tuner_backup">Backup offsets</button>
+          <button onclick="document.getElementById('advImportFile').click()" class="secondary" data-i18n="servo_tuner_restore">Restore offsets</button>
           <input type="file" id="advImportFile" accept=".json" style="display:none" onchange="advImport(this)">
         </div>
         <div id="advServoTunerGrid" class="servo-tuner-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:10px" oncontextmenu="return false"></div>
@@ -1071,7 +1071,7 @@
 
     <section class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
-        <h2 style="margin:0" data-i18n="servo_id_heading">🔢 更改舵機 ID</h2>
+        <h2 style="margin:0" data-i18n="servo_id_heading">🔢 Change Servo ID</h2>
         <label class="switch-label">
           <span class="toggle-switch">
             <input type="checkbox" id="servoIdCardEnabled" onchange="servoIdCardToggle()">
@@ -1079,17 +1079,17 @@
           </span>
         </label>
       </div>
-      <p id="servoIdCardDisabledHint" class="hint" data-i18n="servo_id_disabled_hint">啟用後才會顯示更改舵機 ID 功能</p>
+      <p id="servoIdCardDisabledHint" class="hint" data-i18n="servo_id_disabled_hint">Turn on to show the servo ID changer</p>
       <div id="servoIdCardBody" style="display:none">
-        <p class="hint" data-i18n="servo_id_hint">透過胸板命令 10 [舊 ID][新 ID]，經舵機碼 205 寫入舵機 EEPROM，掉電保持。同一總線不可有兩顆相同 ID；完成後請至舵機頁面試動新 ID 驗證。</p>
+        <p class="hint" data-i18n="servo_id_hint">Chest cmd 10 [old ID][new ID], written to servo EEPROM via servo code 205, persists across power cycles. No two servos on the same bus may share an ID; verify by moving the new ID in the Servo tab afterwards.</p>
         <div class="row">
-          <label data-i18n="servo_id_old_label">舊 ID：</label>
+          <label data-i18n="servo_id_old_label">Old ID:</label>
           <input id="servoIdOld" type="number" min="1" max="22" value="1" style="width:70px" oninput="servoIdBusUpdate()">
-          <label data-i18n="servo_id_new_label" style="margin-left:8px">新 ID：</label>
+          <label data-i18n="servo_id_new_label" style="margin-left:8px">New ID:</label>
           <input id="servoIdNew" type="number" min="1" max="22" value="1" style="width:70px" oninput="servoIdBusUpdate()">
-        <p class="hint" data-i18n="servo_id_bus_hint">⚠️ 胸板左右兩個舵機接口不可混插：1,2,3,7,8,9,10,11,17,19,20,21 僅可連接右側接口；4,5,6,12,13,14,15,16,18,22 僅可連接左側接口——接錯一側將無法識別。若新 ID 與舊 ID 分屬不同側，更改後須先拔線改插，否則將立即失去連接！只能在斷電情況下接駁舵機，通電後不可插拔，否則會燒板！</p>
+        <p class="hint" data-i18n="servo_id_bus_hint">⚠️ The chest left/right servo ports are not interchangeable: IDs 1,2,3,7,8,9,10,11,17,19,20,21 must use the right port; IDs 4,5,6,12,13,14,15,16,18,22 must use the left port — the wrong side is not recognised. If the new ID is on the other side, move the plug after the change or contact is lost immediately! Only connect or disconnect servos while powered off — never plug or unplug while powered on, or the board will burn!</p>
         <p id="servoIdBusInfo" class="hint"></p>
-          <button class="danger-btn" onclick="servoModifyId()" data-i18n="servo_id_change_btn">✏️ 更改 ID</button>
+          <button class="danger-btn" onclick="servoModifyId()" data-i18n="servo_id_change_btn">✏️ Change ID</button>
         </div>
         <p id="servoIdStatus" class="hint"></p>
       </div>
@@ -1097,7 +1097,7 @@
 
     <section class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
-        <h2 style="margin:0" data-i18n="servo_fw_heading">🔌 舵機固件</h2>
+        <h2 style="margin:0" data-i18n="servo_fw_heading">🔌 Servo Firmware</h2>
         <label class="switch-label">
           <span class="toggle-switch">
             <input type="checkbox" id="servoFwCardEnabled" onchange="servoFwCardToggle()">
@@ -1105,32 +1105,32 @@
           </span>
         </label>
       </div>
-      <p id="servoFwCardDisabledHint" class="hint" data-i18n="servo_fw_disabled_hint">啟用後才會顯示舵機固件功能</p>
+      <p id="servoFwCardDisabledHint" class="hint" data-i18n="servo_fw_disabled_hint">Turn on to show servo firmware</p>
       <div id="servoFwCardBody" style="display:none">
-        <p class="hint" data-i18n="servo_fw_hint">透過胸板命令 14 逐顆讀取韌體版本，只讀取、不寫入。版本格式尚未完全驗證，僅供參考。全部約需十幾秒。</p>
+        <p class="hint" data-i18n="servo_fw_hint">Reads each servo firmware version via chest command 14, read-only. The version format is not fully verified — for reference only. Reading all takes ~10+ seconds.</p>
         <div class="row" style="gap:12px">
           <span class="hint" data-i18n="servo_fw_legend_8kg">🔵 8kg（2,3,5,6,17,18,19,20）</span>
           <span class="hint" data-i18n="servo_fw_legend_20kg">🟠 20kg（1,4,7,8,9,10,11,12,13,14,15,16）</span>
-          <span class="hint" data-i18n="servo_fw_legend_unknown">⚪ 21–22 擴展（未知）</span>
+          <span class="hint" data-i18n="servo_fw_legend_unknown">⚪ 21–22 extra (unknown)</span>
         </div>
         <div class="row">
-          <button onclick="servoFwReadAll()" data-i18n="servo_fw_read_all_btn">📖 一鍵讀取全部 1–22</button>
+          <button onclick="servoFwReadAll()" data-i18n="servo_fw_read_all_btn">📖 Read all 1–22</button>
           <span id="servoFwStatus" class="hint"></span>
         </div>
         <div id="servoFwGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:10px"></div>
         <hr style="margin:14px 0">
-        <h3 style="margin:0" data-i18n="servo_up_heading">🔥 舵機固件升級</h3>
-        <p class="hint" data-i18n="servo_up_hint">高危操作，可能變磚。流程：上載恰好 7168 bytes 無 bootloader 固件 → 雙重確認 → 經胸板命令 16/17 逐頁燒錄（112 頁）→ 等上行 134 結果。燒錄期間請勿斷電、請勿觸碰機械人。</p>
+        <h3 style="margin:0" data-i18n="servo_up_heading">🔥 Servo Firmware Upgrade</h3>
+        <p class="hint" data-i18n="servo_up_hint">Dangerous — may brick the servo. Flow: upload an exactly-7168-byte bootloader-free image → confirm twice → flash 112 pages via chest cmds 16/17 → wait for uplink 134. Do not power off or touch the robot while flashing.</p>
         <div class="row">
-          <label data-i18n="servo_up_id_label">舵機 ID：</label>
+          <label data-i18n="servo_up_id_label">Servo ID:</label>
           <input id="servoUpId" type="number" min="1" max="22" value="1" style="width:70px">
           <input type="file" id="servoUpFile" accept=".bin">
-          <button onclick="servoUpUpload()" data-i18n="servo_up_upload_btn">上載</button>
+          <button onclick="servoUpUpload()" data-i18n="servo_up_upload_btn">Upload</button>
         </div>
         <p id="servoUpFileStatus" class="hint"></p>
         <div class="row">
-          <button class="danger-btn" onclick="servoUpStart()" data-i18n="servo_up_start_btn">開始升級</button>
-          <button class="secondary" onclick="servoUpAbort()" data-i18n="servo_up_abort_btn">中止</button>
+          <button class="danger-btn" onclick="servoUpStart()" data-i18n="servo_up_start_btn">Start Upgrade</button>
+          <button class="secondary" onclick="servoUpAbort()" data-i18n="servo_up_abort_btn">Abort</button>
         </div>
         <div id="servoUpProgressWrap" style="display:none; margin-top:6px">
           <div style="background:#eee;height:12px;border-radius:6px;overflow:hidden">
@@ -1144,7 +1144,7 @@
 
     <section class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
-        <h2 data-i18n="advanced_uuid_heading" style="margin:0">🤖 機械人 ID 變更器</h2>
+        <h2 data-i18n="advanced_uuid_heading" style="margin:0">🤖 Robot ID Changer</h2>
         <label class="switch-label">
           <span class="toggle-switch">
             <input type="checkbox" id="uuidCardEnabled" onchange="uuidCardToggle()">
@@ -1152,30 +1152,30 @@
           </span>
         </label>
       </div>
-      <p id="uuidCardDisabledHint" class="hint" data-i18n="uuid_card_disabled_hint">開啟先會顯示機械人 ID 變更功能</p>
+      <p id="uuidCardDisabledHint" class="hint" data-i18n="uuid_card_disabled_hint">Turn on to show the robot ID changer</p>
       <div id="uuidCardBody" style="display:none">
         <div id="uuidCardValue" class="device-value" style="font-size:20px;letter-spacing:1px">-</div>
         <canvas id="uuidQrCanvas" class="uuid-qr" width="240" height="240"></canvas>
         <p id="uuidQrHint" class="hint" data-i18n="uuid_qr_hint">Scan the QR code to bind equipment</p>
         <div class="row">
-          <button onclick="requestUuid()" data-i18n="uuid_query_btn">查詢</button>
-          <button onclick="uuidCopyId()" data-i18n="uuid_copy_btn">📋 複製 ID</button>
+          <button onclick="requestUuid()" data-i18n="uuid_query_btn">Query</button>
+          <button onclick="uuidCopyId()" data-i18n="uuid_copy_btn">📋 Copy ID</button>
         </div>
         <div class="row">
           <input id="uuidNewInput" type="text" maxlength="31"
                  placeholder="BAF006UBT10000377" style="flex:1"
                  oninput="uuidOnInputChange()">
-          <button onclick="uuidGenerateRandom()" data-i18n="uuid_random_btn">🎲 隨機碼</button>
-          <button class="danger-btn" onclick="uuidWriteNew()" data-i18n="uuid_write_btn">寫入 EEPROM</button>
+          <button onclick="uuidGenerateRandom()" data-i18n="uuid_random_btn">🎲 Random</button>
+          <button class="danger-btn" onclick="uuidWriteNew()" data-i18n="uuid_write_btn">Write EEPROM</button>
         </div>
         <p id="uuidWriteStatus" class="hint"></p>
-        <p class="hint" data-i18n="uuid_manual_reboot_hint">寫入後請手動重開機（長按機身電源鍵關機再開），新 ID 先會生效。App 沒有系統權限自動重開機。</p>
+        <p class="hint" data-i18n="uuid_manual_reboot_hint">After writing, reboot manually (long-press the power button) for the new ID to take effect. The app has no system permission to reboot itself.</p>
       </div>
     </section>
 
     <section class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
-        <h2 style="margin:0" data-i18n="chest_title">胸板固件</h2>
+        <h2 style="margin:0" data-i18n="chest_title">Chest Firmware</h2>
         <label class="switch-label">
           <span class="toggle-switch">
             <input type="checkbox" id="chestCardEnabled" onchange="chestToggle()">
@@ -1183,15 +1183,15 @@
           </span>
         </label>
       </div>
-      <p id="chestCardDisabledHint" class="hint" data-i18n="chest_hint_disabled">開啟後顯示胸板固件版本與升級</p>
+      <p id="chestCardDisabledHint" class="hint" data-i18n="chest_hint_disabled">Enable to show chest firmware version and upgrade</p>
       <div id="chestCardBody" style="display:none">
         <div class="row" style="align-items:center">
-          <span class="hint" data-i18n="chest_current_version">當前版本：</span><span id="chestVersionText" class="hint" style="font-weight:bold"></span>
+          <span class="hint" data-i18n="chest_current_version">Current version:</span><span id="chestVersionText" class="hint" style="font-weight:bold"></span>
         </div>
-        <p class="hint" style="margin-top:10px" data-i18n="chest_hint_upload">選擇 ≤112KB 的 app 小鏡像（4 字節對齊；256KB 完整鏡像包含 bootloader，不適用），選擇後將自動上傳至 /sdcard/AlphaII_CHEST_kernel.bin，再按「開始升級」：</p>
+        <p class="hint" style="margin-top:10px" data-i18n="chest_hint_upload">Select an app-only small image (≤112KB, 4-byte aligned; a 256KB full image contains the bootloader and is not supported). It will be uploaded automatically to /sdcard/AlphaII_CHEST_kernel.bin, then press Start Upgrade:</p>
         <div class="row" style="align-items:center">
           <input type="file" id="chestBinFile" accept=".bin" onchange="chestUpload()">
-          <button class="secondary" onclick="chestUpgrade()" style="margin-left:8px" data-i18n="chest_btn_upgrade">開始升級</button>
+          <button class="secondary" onclick="chestUpgrade()" style="margin-left:8px" data-i18n="chest_btn_upgrade">Start Upgrade</button>
         </div>
         <p id="chestUploadStatus" class="hint"></p>
         <div id="chestProgressWrap" style="display:none; margin-top:6px">
@@ -1204,7 +1204,7 @@
     </section>
 
     <section class="card">
-      <h3>ℹ️ Open Alpha2 版本 / Version</h3>
+      <h3>ℹ️ Open Alpha2 Version</h3>
       <div class="row">
         <button onclick="window.open('https://github.com/arthurson/ubtech-open-alpha2/releases','_blank','noopener')" style="font-weight:700;">Open Alpha2 beta 7 ↗</button>
       </div>
@@ -1213,10 +1213,10 @@
 
   <!-- ============ EVENT LOG (always visible, inside the main scroll area, belongs to no tab) ============ -->
   <section class="card event-log-card">
-    <h2 data-i18n="event_log_heading">即時事件 Log (WebSocket)</h2>
+    <h2 data-i18n="event_log_heading">Live Event Log (WebSocket)</h2>
     <div class="row">
-      <button onclick="clearLog()" data-i18n="clear_log_btn">清空 Log</button>
-      <label class="switch-label"><span data-i18n="auto_scroll_label">自動捲動</span>
+      <button onclick="clearLog()" data-i18n="clear_log_btn">Clear Log</button>
+      <label class="switch-label"><span data-i18n="auto_scroll_label">Auto-scroll</span>
         <span class="toggle-switch">
           <input type="checkbox" id="autoScroll" checked>
           <span class="toggle-track"></span>
