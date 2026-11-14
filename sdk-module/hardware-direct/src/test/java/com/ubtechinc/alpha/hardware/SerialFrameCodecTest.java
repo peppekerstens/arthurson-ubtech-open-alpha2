@@ -3,24 +3,28 @@ package com.ubtechinc.alpha.hardware;
 import java.util.Arrays;
 
 /**
- * SerialFrameCodec 單元測試 (零依賴，不用 JUnit)。
+ * SerialFrameCodec unit test (zero dependencies, no JUnit).
  *
- * 點解唔用 JUnit：同 app/src/test 的 ApiValidatorTest 一樣——本專案離線編譯
- * (`--offline`)，gradle cache 入面冇 junit，加 `testImplementation` 會整斷
- * 每個人嘅 offline build。呢個 file 係純 Java + `main()` runner，經
- * `scripts/test-serialcodec.py` 用 `javac`/`java` 直接編譯執行 (CI 同本機都得，
- * 連 android.jar 都唔使——SerialFrameCodec 只掂 java.*)，`./gradlew
- * assembleDebug` 完全唔受影響 (唔喺 main sourceSet)。
+ * Why no JUnit: same as ApiValidatorTest in app/src/test. This project
+ * compiles offline (`--offline`), the gradle cache holds no junit, and
+ * adding `testImplementation` would break every offline build. This file
+ * is pure Java + a `main()` runner. `scripts/test-serialcodec.py` compiles
+ * and runs it directly with `javac`/`java` (CI and local both work, and
+ * android.jar is not needed — SerialFrameCodec uses only java.*).
+ * `./gradlew assembleDebug` is not affected (not in the main sourceSet).
  *
- * 點解要測：SerialFrameCodec (嚴格 SUM/ED 校验) 同 MainActivity 側
- * stripSerialFrame() (無校验硬切) 係雙解析器分叉，收斂之前呢份 test 將
- * 651 幀實證過嘅線格式釘死——serial 嗰邊一改錯即紅。注意呢度只測 codec
- * 本身；同 stripSerialFrame 嘅 differential test 要成個 app classpath
- * 先編到 MainActivity，留待收斂嗰陣先做。
+ * Why test: SerialFrameCodec (strict SUM/ED check) and
+ * stripSerialFrame() on the MainActivity side (no check, hard cut) form a
+ * two-parser fork. Until they converge, this test pins the wire format
+ * proven by 651 real frames — a wrong change on the serial side turns
+ * red here. Note: this tests the codec itself only. A differential test
+ * against stripSerialFrame needs the full app classpath to compile
+ * MainActivity, so it waits until convergence.
  *
- * 向量來源：全部出自 code 註解／實機 logcat 捉到嘅真幀，唔係現編嘅。
+ * Vector source: all come from code comments or real frames captured in
+ * device logcat, not invented on the spot.
  *
- * 執行：`python scripts/test-serialcodec.py`
+ * Run: `python scripts/test-serialcodec.py`
  */
 public final class SerialFrameCodecTest {
     private static int passed = 0;
@@ -67,43 +71,43 @@ public final class SerialFrameCodecTest {
     }
 
     public static void main(String[] args) {
-        // -- encode：官方實證向量 (javadoc §真實線格式) --
-        // 單舵機官方幀：12+5+0+5+3+0+123+0+100=248=0xF8 (計埋 SRC 先啱)
+        // -- encode: official proven vectors (javadoc §真實線格式) --
+        // Official single-servo frame: 12+5+0+5+3+0+123+0+100=248=0xF8 (counting SRC gives the right value)
         eqBytes(hex("f8 8f 0c 05 00 05 03 00 7b 00 64 f8 ed"),
                 SerialFrameCodec.encode((byte) 0x05, hex("03 00 7b 00 64")),
                 "encode single-servo official");
-        // 讀回覆：9+5+0+5+0+3=22=0x16
+        // Read reply: 9+5+0+5+0+3=22=0x16
         eqBytes(hex("f8 8f 09 05 00 05 00 03 16 ed"),
                 SerialFrameCodec.encode((byte) 0x05, hex("00 03")),
                 "encode read-reply official");
-        // chest/version query 實機 TX 捉到：f8 8f 07 05 00 33 3f ed
+        // chest/version query captured on real-device TX: f8 8f 07 05 00 33 3f ed
         // (7+5+0+0x33=63=0x3F)
         eqBytes(hex("f8 8f 07 05 00 33 3f ed"),
                 SerialFrameCodec.encode((byte) 0x33, null),
                 "encode version query null-param");
-        // 空 param 同 null 同形
+        // Empty param and null encode identically
         eqBytes(SerialFrameCodec.encode((byte) 0x33, null),
                 SerialFrameCodec.encode((byte) 0x33, new byte[0]),
                 "encode null==empty");
-        // mute 燈 cmd68[01]：8+5+0+0x44+1=82=0x52
+        // Mute LED cmd68[01]: 8+5+0+0x44+1=82=0x52
         eqBytes(hex("f8 8f 08 05 00 44 01 52 ed"),
                 SerialFrameCodec.encode((byte) 0x44, hex("01")),
                 "encode mute-led");
 
-        // -- decode round-trip (encode 出嚟嘅嘢自己解得返) --
+        // -- decode round-trip (encode output decodes back) --
         byte[] enc = SerialFrameCodec.encode((byte) 0x44, hex("01"));
         SerialFrameCodec.DecodeResult rt = SerialFrameCodec.tryDecode(enc, 0, enc.length);
         eqBytes(enc, rt.frame, "roundtrip frame");
         eq(enc.length, rt.consumed, "roundtrip consumed");
 
-        // -- decode 00 00 事件式真幀 (mute 鍵按下，MainActivity 註解實幀) --
+        // -- decode 00 00 event frame (mute key press, real frame from a MainActivity comment) --
         // 8+0+0+0x91+1=154=0x9A
         byte[] mute = hex("f8 8f 08 00 00 91 01 9a ed");
         SerialFrameCodec.DecodeResult m = SerialFrameCodec.tryDecode(mute, 0, mute.length);
         eqBytes(mute, m.frame, "decode 00-head event");
         eq(9, m.consumed, "decode 00-head consumed");
 
-        // -- decode 跳過前面垃圾 --
+        // -- decode skips leading garbage --
         byte[] noisy = hex("00 55 f8 8f 08 00 00 91 01 9a ed");
         SerialFrameCodec.DecodeResult n = SerialFrameCodec.tryDecode(noisy, 0, noisy.length);
         eqBytes(mute, n.frame, "decode skip garbage");
@@ -115,46 +119,46 @@ public final class SerialFrameCodecTest {
         eqBytes(mute, o.frame, "decode offset frame");
         eq(9, o.consumed, "decode offset consumed");
 
-        // -- decode 唔夠 bytes：回 null 等齊 --
+        // -- decode too few bytes: return null and wait --
         SerialFrameCodec.DecodeResult t = SerialFrameCodec.tryDecode(
                 hex("f8 8f 08 00 00"), 0, 5);
         isNull(t, "decode truncated");
 
-        // -- decode SUM 錯：跳 1 byte (frame null) --
+        // -- decode bad SUM: skip 1 byte (frame null) --
         byte[] badSum = hex("f8 8f 08 00 00 91 01 9b ed");
         SerialFrameCodec.DecodeResult bs = SerialFrameCodec.tryDecode(badSum, 0, badSum.length);
         isNull(bs.frame, "decode bad-sum frame");
         eq(1, bs.consumed, "decode bad-sum consumed");
 
-        // -- decode tail 錯：跳 1 byte --
+        // -- decode bad tail: skip 1 byte --
         byte[] badTail = hex("f8 8f 08 00 00 91 01 9a ee");
         SerialFrameCodec.DecodeResult bt = SerialFrameCodec.tryDecode(badTail, 0, badTail.length);
         isNull(bt.frame, "decode bad-tail frame");
         eq(1, bt.consumed, "decode bad-tail consumed");
 
-        // -- decode 短式 (F8 8F LEN CMD PAYLOAD SUM ED)：2+4+0=6 --
+        // -- decode short form (F8 8F LEN CMD PAYLOAD SUM ED): 2+4+0=6 --
         byte[] shortFrame = hex("f8 8f 02 04 00 06 ed");
         SerialFrameCodec.DecodeResult s = SerialFrameCodec.tryDecode(shortFrame, 0, shortFrame.length);
         eqBytes(shortFrame, s.frame, "decode short form");
         eq(7, s.consumed, "decode short consumed");
 
-        // -- decode 完全冇幀頭 / 太短 --
+        // -- decode no frame head at all / too short --
         isNull(SerialFrameCodec.tryDecode(hex("00 11 22 33 44 55"), 0, 6), "decode no-head");
         isNull(SerialFrameCodec.tryDecode(hex("f8 8f 08"), 0, 3), "decode too-short");
 
-        // -- 升級幀 (官方 upgrade APK 同款 ID=1＋INDEX)：encodeUpgrade --
-        // 48 START（fileLen 108360，小鏡像）：11+1+1+48+0+1+167+72=301→0x2D
+        // -- upgrade frame (same ID=1 + INDEX as the official upgrade APK): encodeUpgrade --
+        // 48 START (fileLen 108360, small image): 11+1+1+48+0+1+167+72=301→0x2D
         eqBytes(hex("f8 8f 0b 01 01 30 00 01 a7 48 2d ed"),
                 SerialFrameCodec.encodeUpgrade((byte) 1, (byte) 1, (byte) 48,
                         hex("00 01 a7 48")),
                 "encodeUpgrade start");
-        // 49 page 回覆 [01 idx7 01]：8+1+7+49+1=66=0x42。
-        // 呢隻舊版解唔到（ID!=05/00 跌落短式誤解）——假 success 幫兇，釘死佢。
+        // 49 page reply [01 idx7 01]: 8+1+7+49+1=66=0x42.
+        // The old decoder cannot handle this (ID != 05/00 falls into the short form and misreads). The false success hides the bug; pin it down.
         byte[] upgReply = hex("f8 8f 08 01 07 31 01 42 ed");
         SerialFrameCodec.DecodeResult ur = SerialFrameCodec.tryDecode(upgReply, 0, upgReply.length);
         eqBytes(upgReply, ur.frame, "decode upgrade reply");
         eq(9, ur.consumed, "decode upgrade reply consumed");
-        // 升級 round-trip（ID/INDEX 照帶返出嚟）
+        // Upgrade round-trip (ID/INDEX come back unchanged)
         byte[] upg = SerialFrameCodec.encodeUpgrade((byte) 1, (byte) 5, (byte) 50,
                 hex("00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f"));
         SerialFrameCodec.DecodeResult ut = SerialFrameCodec.tryDecode(upg, 0, upg.length);
