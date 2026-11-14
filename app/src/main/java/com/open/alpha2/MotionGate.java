@@ -109,6 +109,15 @@ public final class MotionGate {
     }
 
     /**
+     * Firmware, bootloader and serial number writes (chest cmd 0x10, 0x11, 0x30 to 0x32, 0x36,
+     * 0x45 to 0x47, 0x60): refused with the gate on or off (D-197, alpha2-servo#15). The text
+     * starts like the gate text, but it names no setting, because no setting allows these.
+     */
+    public static final String SERVO_FIRMWARE_REFUSAL = "Motion is refused: this chest command writes firmware, the bootloader or the"
+            + " serial number. No motion setting allows it, and debug/serial/send never sends it"
+            + " (owner rule D-197: no write before a backup).";
+
+    /**
      * The refusal text for chest data of debug/serial/send that is not one or more
      * complete frames (alpha2-brain#130): the scan for a move command skips a frame
      * with a bad length, checksum or tail, and the chest could join the bytes into a
@@ -136,6 +145,7 @@ public final class MotionGate {
      */
     public String refusalForSerialSend(String port, byte[] data) {
         if (!"chest".equals(port)) return null;
+        if (ChestSafety.findServoFirmwareCommand(data) >= 0) return SERVO_FIRMWARE_REFUSAL;
         if (ChestSafety.findChestMoveCommand(data) >= 0) return refusalForChestMove();
         if (refusalForChestMove() != null && ChestSafety.checkWholeFrames(data) != null) {
             return refusalForUnparseableChest();
@@ -151,6 +161,7 @@ public final class MotionGate {
      */
     public static String refusalWithoutGate(String port, byte[] data) {
         if (!"chest".equals(port)) return null;
+        if (ChestSafety.findServoFirmwareCommand(data) >= 0) return SERVO_FIRMWARE_REFUSAL;
         if (ChestSafety.findChestMoveCommand(data) >= 0) {
             return "Motion is refused: debug/serial/send has no motion gate.";
         }
