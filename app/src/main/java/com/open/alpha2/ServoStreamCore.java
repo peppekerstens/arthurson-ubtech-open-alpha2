@@ -301,6 +301,9 @@ final class ServoStreamCore {
                     }
                 }
             }
+            // moveWaits and moveForced are volatile longs, and ++ is not atomic. This is
+            // safe: only the thread that holds gate writes them, and synchronized (gate)
+            // wraps the whole method body.
             if (waited) moveWaits++;
             if (forced) moveForced++;
             return w.run();
