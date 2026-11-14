@@ -1,7 +1,7 @@
 package com.open.alpha2;
 
 /**
- * Immutable snapshot of where the XiaoZhi (小智) OTA/device-activation flow currently
+ * Immutable snapshot of where the XiaoZhi OTA/device-activation flow currently
  * is - see XiaozhiOtaClient's class javadoc for what this flow actually does and why.
  * MainActivity's background activation thread publishes a new snapshot at each stage
  * transition; the browser polls "xiaozhi/activation_status" to reflect it (there's no

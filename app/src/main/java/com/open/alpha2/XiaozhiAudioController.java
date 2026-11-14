@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * PHASE 2: mic-capture-and-encode + decode-and-playback halves of the XiaoZhi (小智)
+ * PHASE 2: mic-capture-and-encode + decode-and-playback halves of the XiaoZhi
  * audio path, using theeasiestway/android-opus-codec (opus.aar in app/libs/) as the
  * Opus JNI layer. Deliberately a separate controller from AudioController/
  * AudioPlaybackController (the walkie-talkie feature's mic/speaker classes) rather than
@@ -263,13 +263,17 @@ public class XiaozhiAudioController {
      *  must not be split/merged. */
     private void captureLoop() {
         short[] pcmBuf = new short[SAMPLES_PER_FRAME];
-        // 2026-08 診斷: 用來查「說話完全沒反應」是否因為 mic 實際錄到的是靜音/垃圾
-        // 數據 (例如 adev_open_input_stream HAL 層 fallback 開到的 stream 沒真正
-        // 接到硬體), 還是聲音本身沒問題、只是協議/server 側的事。每大概 2 秒
-        // (約 33 個 60ms frame) print 一次這個 frame 的 RMS 和 peak amplitude,
-        // 不會 flood log 但足夠在下次錄音時直接從 log 看到有沒有真正錄到聲 - 如果一直
-        // 都是 0 或者接近 0, 就證明是 HAL/mic 層問題; 如果說話的時候數值有明顯升,
-        // 就證明錄音正常, 問題在 server/協議層。
+        // 2026-08 diagnostics: used to find out whether "speaking gets no reaction
+        // at all" is caused by the mic actually recording silence/garbage data
+        // (for example, the stream opened by the adev_open_input_stream HAL-layer
+        // fallback is not really connected to the hardware), or the sound itself
+        // is fine and it is only a protocol/server-side issue. Roughly every 2
+        // seconds (about 33 frames of 60ms) print this frame's RMS and peak
+        // amplitude once - it does not flood the log, but at the next recording
+        // you can see directly from the log whether sound was really captured -
+        // if it stays at 0 or near 0 all the time, that proves an HAL/mic-layer
+        // problem; if the values clearly rise while speaking, that proves the
+        // recording is normal and the problem is in the server/protocol layer.
         int frameCounter = 0;
         final int LOG_EVERY_N_FRAMES = 33;
 
@@ -493,23 +497,30 @@ public class XiaozhiAudioController {
      *  (startPlayback() not called yet, or already stopped) rather than buffering
      *  audio nobody will play.
      *
-     *  2026-08 修正 (真機證實的 bug, 表現為大量 "E/CodecOpus [decode] error:
-     *  corrupted stream", 307 次一個 session): 之前這裡用 bytesToShorts(opusData)
-     *  將收到的壓縮 Opus bytes 轉成 short[] 再傳到 decode(short[], FrameSize) 這個
-     *  overload。問題在 bytesToShorts() 用 "bytes.length / 2" 來決定輸出
-     *  short[] 的長度 - 這假設了 opusData 長度一定是雙數, 但 Opus 是
-     *  variable-length codec, 每個 encoded frame 的實際 byte 數會隨音頻內容/
-     *  bitrate 浮動, 完全可能是單數。單數長度的時候, 整數除法會悄悄地截斷最後
-     *  一個 byte, 讓 decoder 收到一個少了一個 byte、不完整的 compressed
-     *  bitstream, 觸發 corrupted stream (Opus 用 range coder, 對 bitstream
-     *  完整性很敏感, 少一個 byte 就足以讓整個 frame decode 失敗) - 這也解釋了
-     *  為什麼不是每個 frame 都撞到 (取決於那個 frame 剛好是不是單數長度, 機率上
-     *  接近一半)。Opus class (見 com.theeasiestway.opus.Opus) 本身其實已經有
-     *  真正接受/回傳 byte[] 的 decode(byte[], FrameSize) overload, 完全不用這層
-     *  byte[]<->short[] 轉換, 也沒有任何長度奇偶問題 - 這裡改用這個, 連
-     *  bytesToShorts() 這個 helper 都不再需要 (shortsToBytes() 仍然用於 encode
-     *  那邊, 沒有這個 bug: 轉換方向是 short[]->byte[], 長度由 short[].length*2
-     *  決定, 保證是雙數, 沒截斷風險)。 */
+     *  2026-08 fix (a bug confirmed on the real device, manifesting as a large
+     *  number of "E/CodecOpus [decode] error: corrupted stream", 307 times in a
+     *  single session): this previously used bytesToShorts(opusData) to convert
+     *  the received compressed Opus bytes into a short[] before passing them to
+     *  the decode(short[], FrameSize) overload. The problem is that
+     *  bytesToShorts() used "bytes.length / 2" to determine the length of the
+     *  output short[] - that assumes opusData's length is always even, but Opus
+     *  is a variable-length codec: the actual byte count of each encoded frame
+     *  floats with the audio content/bitrate and can well be odd. With an odd
+     *  length, integer division silently truncates the last byte, so the
+     *  decoder receives an incomplete compressed bitstream that is one byte
+     *  short, triggering corrupted stream (Opus uses a range coder, which is
+     *  very sensitive to bitstream integrity; one missing byte is enough to
+     *  fail the whole frame's decode) - this also explains why not every frame
+     *  hits it (it depends on whether that frame happens to have an odd length,
+     *  which is close to half the time by probability). The Opus class (see
+     *  com.theeasiestway.opus.Opus) actually already has a decode(byte[],
+     *  FrameSize) overload that truly accepts/returns byte[], so this layer of
+     *  byte[]<->short[] conversion is not needed at all, and there is no length
+     *  parity problem either - this now uses that, and even the bytesToShorts()
+     *  helper is no longer needed (shortsToBytes() is still used on the encode
+     *  side, and does not have this bug: the conversion direction is
+     *  short[]->byte[], the length is determined by short[].length*2, guaranteed
+     *  even, no truncation risk). */
     public void onIncomingOpusFrame(byte[] opusData) {
         Opus dec = decoder;
         if (dec == null || !playing) return;
@@ -708,23 +719,28 @@ public class XiaozhiAudioController {
 
     // ================= PCM/Opus <-> byte[] conversion =================
 
-    /** encode() 的 short[] overload 用來編碼 PCM 樣本 (short[] 天生就是 16-bit
-     *  audio sample 的原生表達方式, 和 AudioRecord/AudioTrack 一致, 不用額外
-     *  byte-order 轉換), 但 encode() 的輸出 (壓縮 Opus payload) 沒有任何 16-bit
-     *  sample 語意, 只是借用這個 library 通用的 "array of 16-bit units"
-     *  return type - 所以要用這個 helper 轉成扁平 byte[] 才能塞進 WebSocket
-     *  binary frame。Little-endian, 和 AudioController.wrapPcmAsWav 用的
-     *  ByteOrder.LITTLE_ENDIAN 一致。
+    /** The short[] overload of encode() is used to encode PCM samples (short[]
+     *  is natively the representation of 16-bit audio samples, consistent with
+     *  AudioRecord/AudioTrack, no extra byte-order conversion needed), but the
+     *  output of encode() (the compressed Opus payload) has no 16-bit sample
+     *  semantics at all; it merely borrows this library's generic "array of
+     *  16-bit units" return type - so this helper must convert it into a flat
+     *  byte[] to fit into a WebSocket binary frame. Little-endian, consistent
+     *  with the ByteOrder.LITTLE_ENDIAN that AudioController.wrapPcmAsWav uses.
      *
-     *  這裡的轉換方向 (short[] -> byte[]) 長度一定是 shorts.length*2, 保證是
-     *  雙數, 沒截斷風險 - 對稱的反方向 (byte[] -> short[], 曾經叫
-     *  bytesToShorts()) 就不是這樣, 因為 Opus 是 variable-length codec, 收到的
-     *  壓縮 byte[] 長度可能是單數, "/2" 整數除法會悄悄地截斷最後一個 byte, 導致
-     *  真機證實的 "corrupted stream" decode error (307 次一個 session) - 2026-08
-     *  已經將 onIncomingOpusFrame() 改用 Opus class 本身提供、真正接受/回傳
-     *  byte[] 的 decode(byte[], FrameSize) overload, 完全繞過這個轉換, 所以
-     *  bytesToShorts() 這個 helper 已經刪掉, 不留下一個「看起來對但實際有 bug」
-     *  的方法引誘之後的人再用它。 */
+     *  The conversion direction here (short[] -> byte[]) always has length
+     *  shorts.length*2, guaranteed even, no truncation risk - the symmetric
+     *  reverse direction (byte[] -> short[], formerly called bytesToShorts())
+     *  is not like this, because Opus is a variable-length codec, the length of
+     *  the received compressed byte[] can be odd, and the "/2" integer division
+     *  silently truncates the last byte, causing the real-device-confirmed
+     *  "corrupted stream" decode error (307 times in a single session) - since
+     *  2026-08, onIncomingOpusFrame() has switched to the decode(byte[],
+     *  FrameSize) overload that the Opus class itself provides, which truly
+     *  accepts/returns byte[], completely bypassing this conversion, so the
+     *  bytesToShorts() helper has been deleted, leaving behind no method that
+     *  "looks right but actually has a bug" to lure later people into reusing
+     *  it. */
     private static byte[] shortsToBytes(short[] shorts) {
         byte[] bytes = new byte[shorts.length * 2];
         for (int i = 0; i < shorts.length; i++) {

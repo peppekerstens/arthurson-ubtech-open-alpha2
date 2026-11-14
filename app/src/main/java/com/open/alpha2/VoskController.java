@@ -24,24 +24,33 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Vosk 離線 ASR（語音 tab）。機身已無 iFlytek/Nuance，用 Vosk
- * （alphacephei/vosk-android AAR，armeabi-v7a native，API 21+）頂上。
+ * Vosk offline ASR (voice tab). The robot no longer has iFlytek/Nuance, so
+ * Vosk (alphacephei/vosk-android AAR, armeabi-v7a native, API 21+) takes over.
  *
- * <p>Model 不跟 app（每個約 65MB）：放 sdcard，這裡掃描自動偵測（user 要求）。
- * 掃描根：{@link Environment#getExternalStorageDirectory()}＋{@code /mnt/internal_sd}
- * 頂層目錄，有 {@code am/final.mdl} 就算一個可用 model（id＝目錄名）。
+ * <p>Models do not ship with the app (each is about 65MB): they live on
+ * sdcard and are scanned here for auto-detection (user request).
+ * Scan roots: top-level directories of
+ * {@link Environment#getExternalStorageDirectory()} + {@code /mnt/internal_sd};
+ * a directory with {@code am/final.mdl} counts as one usable model (id =
+ * directory name).
  *
- * <p>流程：{@link #scanModels()} 列出 → {@link #loadModel(String)}（背景 thread，
- * 幾秒＋~200MB RAM，一次只駐留一個）→ {@link #startListening()}（SpeechService
- * 自己開 AudioRecord，16kHz）→ partial 經 {@code asr_partial} event 即時顯示，
- * final 經沿用的 {@code asr_result} event（前端同打字模擬同一條：user 氣泡＋
- * 語意配對＋Android TTS）。
+ * <p>Flow: {@link #scanModels()} lists -> {@link #loadModel(String)}
+ * (background thread, a few seconds + ~200MB RAM, only one resident at a
+ * time) -> {@link #startListening()} (SpeechService opens its own
+ * AudioRecord, 16kHz) -> partials show in real time via the {@code asr_partial}
+ * event, finals via the reused {@code asr_result} event (the same pipeline as
+ * the frontend's typed-input simulation: user bubble + semantic pairing +
+ * Android TTS).
  *
- * <p>開放式辨識（open vocab）：唔起限定文法，直接無約束 Recognizer。
- *  幻聽只靠三樣硬編碼：conf 閘定值 0.01／TTS 時停 decode／前端單字唔出氣泡。
+ * <p>Open recognition (open vocab): no constrained grammar, a plain
+ * unconstrained Recognizer.
+ *  Hallucinations are only controlled by three hard-coded things: the conf
+ * threshold fixed at 0.01 / pause decode during TTS / the frontend does not
+ * bubble a single word.
  *
- * <p>所有 public 方法 thread-safe；heavy 工（load）自己開 thread，callback
- * 經 listener 返回（SpeechService 那些在 main thread，要輕手）。
+ * <p>All public methods are thread-safe; heavy work (load) opens its own
+ * thread, and callbacks come back via listeners (the SpeechService ones run
+ * on the main thread and must stay light).
  */
 public final class VoskController {
     private static final String TAG = "VoskController";
@@ -50,10 +59,10 @@ public final class VoskController {
     private static final String PREF_MODEL_ID = "vosk_model_id";
     /** Stored grammar (JSON array of phrases, "[unk]" for other words). Empty = open vocabulary. */
     private static final String PREF_GRAMMAR = "vosk_grammar";
-    /** 對話語言（zh/en/es/fr/ja/de/it/pt/ko/ru）：loadModel 成功時記下，開機還原＋status 顯示用。 */
+    /** Dialogue language (zh/en/es/fr/ja/de/it/pt/ko/ru): recorded when loadModel succeeds; used for boot restore + status display. */
     private static final String PREF_DIALOGUE_LANG = "vosk_dialogue_lang";
 
-    /** 掃描到的一個可用 model（langHint＝中文名，langEn＝英文名，前端跟 UI 語言選顯示）。 */
+    /** One usable model found by the scan (langHint = Chinese name, langEn = English name; the frontend picks the display by UI language). */
     public static final class VoskModelInfo {
         public final String id;
         public final String path;
@@ -94,13 +103,13 @@ public final class VoskController {
     private volatile State state = State.IDLE;
     private volatile String modelId;
     private volatile String lastError;
-    /** 載入緊邊個包（loadModel 起跑嗰陣記；轉軚／unload／落定清掉，供開工前檢查用）。 */
+    /** Which pack is loading (recorded when loadModel starts; cleared on steering change / unload / completion; used for the pre-job check). */
     private volatile String loadingId;
 
-    // -- 模型下載 (實驗 tab 下載卡，後端直落 zip＋unzip) --
-    // 官方 small 模型 catalog（對照 alphacephei.com/vosk/models）：
-    // {modelId, url, sizeMb}：sizeMb 是官頁標示（約數，給用戶判斷流量）。
-    // 大體積（1G 級）不收：部機 RAM 頂不住。固定 allowlist，不收任意 URL（防 SSRF）。
+    // -- Model download (experiments tab download card; the backend downloads the zip + unzips directly) --
+    // Official small model catalog (cross-checked against alphacephei.com/vosk/models):
+    // {modelId, url, sizeMb}: sizeMb is the official page label (approximate, for the user to judge traffic).
+    // Large sizes (1G class) are not accepted: the robot's RAM cannot hold them. Fixed allowlist, no arbitrary URLs (anti-SSRF).
     private static final String DL_BASE = "https://alphacephei.com/vosk/models/";
     private static final String[][] DL_CATALOG = {
         {"vosk-model-small-cn-0.22", "42"},
@@ -133,12 +142,12 @@ public final class VoskController {
         {"vosk-model-small-kz-0.42", "58"},
         {"vosk-model-small-uk-v3-nano", "73"},
     };
-    // 下載狀態機（同上面 load/listen State 獨立：下載中主 State 照舊 IDLE，不干擾）。
-    // idle＝未開始／完成後重置前；downloading／unzipping 進行中；done／error／cancelled 終態。
+    // Download state machine (independent from the load/listen State above: the main State stays IDLE during a download, undisturbed).
+    // idle = not started / before the reset after completion; downloading / unzipping = in progress; done / error / cancelled = terminal states.
     private volatile String dlState = "idle";
     private volatile String dlLang; // "cn"/"en"
-    private volatile String dlModel; // 完整目錄名
-    private volatile int dlProgress = -1; // 0-100，-1＝未知（unzip 中／長度不明）
+    private volatile String dlModel; // full directory name
+    private volatile int dlProgress = -1; // 0-100, -1 = unknown (unzipping / length unknown)
     private volatile long dlBytes = 0;
     private volatile long dlTotal = -1;
     private volatile String dlError;
@@ -147,13 +156,16 @@ public final class VoskController {
     private Model model;
     private Recognizer recognizer;
     private SpeechService speechService;
-    private String grammarJson; // 恆 null（開放式辨識，保留欄位免改 start 流程）
-    private boolean stripSpaces; // 恆 false（舊中文 char-grammar 先用）
+    private String grammarJson; // always null (open-vocabulary recognition; the field is kept to avoid changing the start flow)
+    private boolean stripSpaces; // always false (previously used by the old Chinese char-grammar first)
 
-    /** final 平均 word conf 低過呢個就當底噪幻聽掉咗佢 (唔發佈、
-     *  唔入配對；logcat 照留 "low-conf final dropped")。
-     *  -1＝未知 (舊 lib／無 result 陣列) 照放行，不誤殺。
-     *  定值 0.01：幾乎全放行，只擋極低分垃圾。 */
+    /** When the average word conf of a final is below this, treat it as
+     *  bottom-noise hallucination and drop it (do not publish, do not pair;
+     *  logcat keeps "low-conf final dropped" as before).
+     *  -1 = unknown (old lib / no result array): still let it pass, no
+     *  mistaken kills.
+     *  Fixed value 0.01: almost everything passes; only extremely low-score
+     *  garbage is blocked. */
     private static final double MIN_FINAL_CONF = 0.01;
 
     public VoskController(Context context, SemanticMatcherZh zh,
@@ -175,7 +187,7 @@ public final class VoskController {
             LibVosk.setLogLevel(LogLevel.WARNINGS);
         } catch (Throwable ignore) {
         }
-        // 上次選過的 model（如果還在）背景自動載入，開啟頁面即 ready。
+        // The previously selected model (if still present) auto-loads in the background, so the page opens ready.
         final String saved = prefs().getString(PREF_MODEL_ID, null);
         if (saved != null && findModelDir(saved) != null) {
             loadModel(saved);
@@ -186,13 +198,15 @@ public final class VoskController {
         return appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
 
-    // -- 掃描 ---------------------------------------------------------------
+    // -- Scan ---------------------------------------------------------------
 
-    /** 掃 sdcard 頂層找模型目錄（標準版 am/final.mdl，或官方扁平包頂層
-     *  final.mdl——例 pt-0.3 出廠即扁平，libvosk 原生讀得到，之前驗收卡太嚴
-     *  反而將之下載判失敗）。快，哪條 thread call 都得。純檔案 IO，不碰
-     *  org.vosk，API 19 都用得（static 是刻意的，等 vosk/models endpoint
-     *  在 controller 未起（19 機）都列到表）。 */
+    /** Scan the top level of sdcard for model directories (standard
+     *  am/final.mdl, or the top-level final.mdl of an official flat pack --
+     *  e.g. pt-0.3 ships flat, libvosk reads it natively; the old acceptance
+     *  check was too strict and wrongly failed that download). Fast; any
+     *  thread may call it. Pure file IO, does not touch org.vosk, works on
+     *  API 19 (static is deliberate, so the vosk/models endpoint lists the
+     *  table even when the controller is not up (19 device)). */
     public static List<VoskModelInfo> scanModels() {
         Set<String> roots = new LinkedHashSet<>();
         try {
@@ -228,22 +242,22 @@ public final class VoskController {
         return out;
     }
 
-    /** 目錄算不算可用模型：標準版（am/final.mdl）或官方扁平版（頂層 final.mdl）。 */
+    /** Whether a directory counts as a usable model: standard (am/final.mdl) or official flat (top-level final.mdl). */
     private static boolean isModelDir(File d) {
         if (new File(new File(d, "am"), "final.mdl").isFile()) return true;
         return new File(d, "final.mdl").isFile();
     }
 
-    /** 由 model id parse 語言段 (vosk-model[-small]-xx-...，xx 是語言碼)，
-     *  查全表。parse 段兩語版共用（之前 guessLang／guessLangEn 各複製一份）。 */
+    /** Parse the language segment from the model id (vosk-model[-small]-xx-..., xx is the language code)
+     *  and look it up in the full table. The parse part is shared by both language versions (previously guessLang / guessLangEn each copied one). */
     private static String[] parseLangSub(String id) {
         String lang = null;
         String sub = null;
         String[] parts = id.toLowerCase(java.util.Locale.US).split("-");
         for (int i = 0; i < parts.length; i++) {
             if (parts[i].equals("model") || parts[i].equals("small")) {
-                // 跳過 "model"/"small" 這些固定前綴 (如 vosk-model-small-cn-0.22，
-                // 語言段是 "small" 後面那格，不是 "model" 後面)。
+                // Skip the fixed prefixes "model" / "small" (e.g. vosk-model-small-cn-0.22:
+                // the language segment is the cell after "small", not after "model").
                 int j = i + 1;
                 while (j < parts.length
                         && (parts[j].equals("model") || parts[j].equals("small"))) {
@@ -273,9 +287,9 @@ public final class VoskController {
     private static final java.util.Map<String, String> LANG_NAMES = buildLangNames(false);
     private static final java.util.Map<String, String> LANG_NAMES_EN = buildLangNames(true);
 
-    /** 中英兩表同一個 code 表一次建成（之前兩個 builder 各複製同一份 pairs）。 */
+    /** Build the Chinese and English tables at once from the same code table (the two old builders each copied the same pairs). */
     private static java.util.Map<String, String> buildLangNames(boolean english) {
-        // Vosk 官方 models 頁 35 個 small 全覆蓋 (code → 中文名／英文名)。
+        // Full coverage of the 35 small models on the official Vosk models page (code -> Chinese name / English name).
         String[][] pairs = {
             {"en", "英文", "English"}, {"cn", "中文", "Chinese"}, {"zh", "中文", "Chinese"},
             {"ja", "日文", "Japanese"}, {"ru", "俄文", "Russian"},
@@ -303,8 +317,8 @@ public final class VoskController {
         return m;
     }
 
-    /** guessLang 的英文版（同一個 parse，前端 uiLang＝en 時顯示；catalog/models
-     *  帶 langEn，舊客只讀 lang 不受影響）。 */
+    /** The English version of guessLang (the same parse; shown when the frontend uiLang = en;
+     *  catalog / models carry langEn, so old clients that only read lang are unaffected). */
     private static String guessLangEn(String id) {
         String[] ls = parseLangSub(id);
         String lang = ls[0];
@@ -341,7 +355,7 @@ public final class VoskController {
         return null;
     }
 
-    // -- 載入 -----------------------------------------------------------------
+    // -- Load -----------------------------------------------------------------
 
     public synchronized State getState() {
         return state;
@@ -374,18 +388,18 @@ public final class VoskController {
                         + "}");
     }
 
-    /** 背景載入 model（幾秒）。return null＝已開始載入，否則是即時錯誤。
-     *  進度／結果經 vosk_state event＋status 查。 */
+    /** Load a model in the background (a few seconds). Return null = loading started, otherwise an immediate error.
+     *  Progress / result via the vosk_state event + status query. */
     public String loadModel(final String id) {
         final String path = findModelDir(id);
         if (path == null) {
             setState(State.ERROR, null, "model not found on sdcard: " + id);
             return "model not found on sdcard: " + id;
         }
-        // OOM 熔斷：RK3288 得 1GB RAM，大包（如韓文 252MB）載入嗰陣俾 LMK 靜殺，
-        // logcat 乜都無（唔係 Java crash）。載入前驗夠唔夠位，唔夠即回清晰錯誤，
-        // 好過成個 App 突然死亡。舊 model 已先放（下面 stopLocked＋closeModelLocked），
-        // 呢度計 model 本體＋150MB 工作 headroom。
+        // OOM circuit breaker: the RK3288 has only 1GB of RAM, and a big pack (e.g. Korean 252MB) gets silently killed by LMK while loading,
+        // with nothing in logcat (not a Java crash). Verify there is enough room before loading; if not, return a clear error
+        // instead of letting the whole App die suddenly. The old model is already released first (stopLocked + closeModelLocked below);
+        // this counts the model body + 150MB of working headroom.
         long needBytes = 150L * 1024 * 1024;
         try {
             for (VoskModelInfo m : scanModels()) {
@@ -424,8 +438,8 @@ public final class VoskController {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                // 開工前再驗一次：轉軚／unload 過就唔好白白 mmap 幾百 MB
-                //（幾個大包一齊載入，邊個贏邊個輸睇彩數，見實測）。
+                // Verify once more before starting work: if a steering change / unload happened, do not waste mmap-ing a few hundred MB
+                // (several big packs loading at once, who wins and who loses is luck, see real-device tests).
                 synchronized (VoskController.this) {
                     if (state != State.LOADING || !id.equals(loadingId)) return;
                 }
@@ -433,7 +447,7 @@ public final class VoskController {
                     Model m = new Model(path);
                     String grammar = buildGrammar(id);
                     synchronized (VoskController.this) {
-                        // 載入期間被 unload／load 過就丟掉這個（認埋 id：慢嗰個後完成唔可以搶贏新包）。
+                        // If it was unloaded / reloaded during the load, discard this one (also check the id: a slow one that finishes later must not beat the new pack).
                         if (state != State.LOADING || !id.equals(loadingId)) {
                             try {
                                 m.close();
@@ -448,7 +462,7 @@ public final class VoskController {
                     ed.putString(PREF_MODEL_ID, id);
                     String mappedLang = langOfModelId(id);
                     if (mappedLang != null) {
-                        // model 即語言：換 model 一併記下對話語言，等 status／前端不用估。
+                        // Model is language: when switching models, also record the dialogue language, so status / the frontend do not have to guess.
                         ed.putString(PREF_DIALOGUE_LANG, mappedLang);
                     }
                     ed.apply();
@@ -466,14 +480,14 @@ public final class VoskController {
         return null;
     }
 
-    /** model id → 對話語言（zh/en/es/fr/ja/de/it/pt/ko/ru；認不到回 null）。同 buildGrammar 之前內聯
-     *  那串 contains 逐字一樣，抽出來等 vosk/load 同步配對語言都用同一套。
-     *  注意 "es" 本身太易撞（test/best 都有 es），一定要加邊界先認
-     *  （spanish/español/-es-/es- 開頭/-es 結尾/成個就係 es）。
-     *  "fr" 一樣太易撞（from 都有 fr），同樣要加邊界先認。
-     *  "ja" 都要加邊界先認（major/january 都有 ja）。
-     *  新五語一樣：de 易撞（model/made 都有 de）、it 易撞（with/city 都有 it）、
-     *  pt 易撞（empty 都有 pt）、ko/ru 都要加邊界，先認全名再認邊界 code。 */
+    /** Model id -> dialogue language (zh/en/es/fr/ja/de/it/pt/ko/ru; return null when unrecognized). Identical, word for word, to the
+     *  inline contains chain that buildGrammar used to have; extracted so that the synchronous pairing in vosk/load uses the same set.
+     *  Note that "es" itself is too easy to collide (test/best both contain es), so it is only recognized with a boundary
+     *  (spanish / español / -es- / an es- start / an -es end / the whole thing being es).
+     *  "fr" is equally easy to collide (from contains fr), so it also needs a boundary to be recognized.
+     *  "ja" also needs a boundary to be recognized (major/january both contain ja).
+     *  The new five languages are the same: de collides easily (model/made both contain de), it collides easily (with/city both contain it),
+     *  pt collides easily (empty contains pt), ko/ru both need a boundary; recognize the full name first, then the bounded code. */
     static String langOfModelId(String id) {
         if (id == null) return null;
         String lower = id.toLowerCase(java.util.Locale.US);
@@ -506,8 +520,8 @@ public final class VoskController {
         return null;
     }
 
-    /** 目前對話語言（zh/en/es/fr/ja/de/it/pt/ko/ru）：上次 load 記下的；未記過就由目前 model 推斷（都沒有就 zh）。
-     *  語言跟 model 行——模型鍵就是語言鍵，不用用家另外選。 */
+    /** Current dialogue language (zh/en/es/fr/ja/de/it/pt/ko/ru): what the last load recorded; when never recorded, infer it from the current model (fall back to zh when there is none).
+     *  The language follows the model -- the model key is the language key, so the user does not select it separately. */
     public String getDialogueLang() {
         try {
             String v = prefs().getString(PREF_DIALOGUE_LANG, null);
@@ -553,7 +567,7 @@ public final class VoskController {
         return r;
     }
 
-    /** 丟掉個 model（不清 prefs 記住的選擇）。 */
+    /** Drop the model (do not clear the choice stored in prefs). */
     public synchronized void unload() {
         stopLocked();
         closeModelLocked();
@@ -582,29 +596,29 @@ public final class VoskController {
         grammarJson = null;
     }
 
-    // -- 聆聽 -----------------------------------------------------------------
+    // -- Listening -----------------------------------------------------------------
 
-    /** start 進行中旗（construction 放鎖外嗰陣防 double-start；同 state 分開，
-     *  status API 形狀唔郁；stopLocked 會清，讀寫一律經鎖）。 */
+    /** In-progress flag while start is running (prevents a double-start while the construction is outside the lock; kept separate from
+     *  state so the status API shape does not move; stopLocked clears it, and all reads/writes go through the lock). */
     private boolean starting = false;
 
-    /** native 重活互斥（Recognizer／Service construction＋Model.close 唔好一齊做；
-     *  同主 monitor 分開，唔揸住佢等幾十秒。拿鎖次序只做 main→audio 單向，唔死鎖。） */
+    /** Mutual exclusion for heavy native work (Recognizer / Service construction + Model.close must not happen together;
+     *  kept separate from the main monitor so it is not held while waiting tens of seconds. Lock order is only main -> audio, one direction, no deadlock.) */
     private final Object audioInitLock = new Object();
 
     /**
-     * 開始聆聽。return null＝已開始，否則是錯誤字串（model 未載入／已在聽／mic 開不到）。
-     * 結果經 asr_partial（即時）／asr_result（成句，沿用舊管線：氣泡＋語意配對＋TTS）。
+     * Start listening. Return null = started, otherwise an error string (model not loaded / already listening / mic cannot be opened).
+     * Results via asr_partial (real time) / asr_result (full sentence, reusing the old pipeline: bubble + semantic pairing + TTS).
      */
     public synchronized String startListening() {
         if (state == State.LISTENING) return null;
         return startListeningLocked();
     }
 
-    /** 開始聆聽內部實作（完整問法文法）。慢 construction（mic check＋Recognizer
-     *  native＋Service＋AudioRecord open，忙咪嗰陣幾十秒）放鎖外，只用 audioInitLock
-     *  互斥，唔揸主 monitor（見 logcat AudioRecord.native_setup 60s＋waiters 堆積）；
-     *  落定先攞鎖驗旗＋assign。start 緊嗰陣再撳回 "starting, try later"。 */
+    /** Internal implementation of start listening (full question grammar). The slow construction (mic check + Recognizer
+     *  native + Service + AudioRecord open, tens of seconds when the mic is busy) runs outside the lock, using only
+     *  audioInitLock for mutual exclusion, and does not hold the main monitor (see logcat AudioRecord.native_setup 60s + waiters piling up);
+     *  only after it lands is the lock taken to check the flag + assign. Pressing again while starting returns "starting, try later". */
     private String startListeningLocked() {
         final Model snapModel;
         final String snapGrammar;
@@ -618,8 +632,8 @@ public final class VoskController {
             snapModel = model;
             snapGrammar = grammarJson;
         }
-        // mic 預檢：部機不支援 16kHz capture 就不要開（開了都是垃圾/[unk]）。
-        // 同 SpeechService 內部同一個參數（MONO／PCM16）。
+        // Mic pre-check: if the robot does not support 16kHz capture, do not open it (opening it yields only garbage / [unk] anyway).
+        // Same parameters as inside SpeechService (MONO / PCM16).
         try {
             int minBuf = AudioRecord.getMinBufferSize(16000,
                     AudioFormat.CHANNEL_IN_MONO,
@@ -650,14 +664,14 @@ public final class VoskController {
                 } else {
                     rec = new Recognizer(snapModel, SAMPLE_RATE);
                 }
-                // word 置信度：final JSON 先有 result/conf 陣列，先做到噪音閘
-                // (見 onVoskFinal；底噪幻聽通常低分，真人說話高分)。舊版 lib 無
-                // 呢個 method 就當無事 (fail-open，下面 avgWordConf 回 -1 照放行)。
+                // Word confidence: the final JSON has a result/conf array, which makes the noise gate possible
+                // (see onVoskFinal; bottom-noise hallucinations usually score low, real human speech scores high). If the old lib
+                // does not have this method, treat it as nothing (fail-open; avgWordConf below returns -1 and lets it pass).
                 try {
                     rec.setWords(true);
                 } catch (Throwable ignore) {
                 }
-                // endpointer 調校已移除：Recognizer 一律用 library 預設（之前跟 persist 偏好）。
+                // Endpointer tuning removed: the Recognizer always uses the library defaults (it previously followed a persisted preference).
                 service = new SpeechService(rec, SAMPLE_RATE);
                 service.startListening(new RecognitionListener() {
                 @Override
@@ -697,7 +711,7 @@ public final class VoskController {
                 }
             });
             }
-            // 落定：攞鎖驗旗＋assign（中途有人停過／轉過態即收拾自己，唔 assign 殭屍）。
+            // Landed: take the lock, check the flag + assign (if someone stopped / changed state in the middle, clean up after itself; do not assign a zombie).
             synchronized (this) {
                 if (!starting || state != State.READY) {
                     starting = false;
@@ -721,10 +735,10 @@ public final class VoskController {
         return null;
     }
 
-    /** 成句結果：沿用舊管線（氣泡＋語意配對＋TTS）。
-     *  跑在 SpeechService listener thread（main）。絕不 throw。
-     *  認可度閘定值 0.01 - 平均 word conf 低過即當底噪掉咗
-     *  (唔發佈唔配對；未知 conf 回 -1 照放行)。 */
+    /** Full-sentence result: reuse the old pipeline (bubble + semantic pairing + TTS).
+     *  Runs on the SpeechService listener thread (main). Never throws.
+     *  Confidence gate fixed at 0.01 -- an average word conf below it is treated as bottom noise and dropped
+     *  (not published, not paired; an unknown conf returns -1 and still passes). */
     private void onVoskFinal(String hypothesis) {
         try {
             String text = transcript(hypothesis, "text");
@@ -734,7 +748,7 @@ public final class VoskController {
                 Log.i(TAG, "low-conf final dropped (" + conf + "): " + text);
                 return;
             }
-            // 斷症用：log 下認到什麼＋幾多分（EventBus 只帶去前端，logcat 看不到內容）。
+            // For debugging: log what was recognized + its score (the EventBus only carries it to the frontend; logcat cannot see the content).
             Log.i(TAG, "final: " + text + " conf="
                     + (conf < 0 ? "?" : String.format("%.2f", conf)));
             EventBus.get().publish("asr_result",
@@ -744,8 +758,8 @@ public final class VoskController {
         }
     }
 
-    /** final JSON result 陣列平均 word conf；無 result 陣列／解析失敗
-     *  回 -1 (未知，呼叫方照放行)。 */
+    /** Average word conf of the final JSON result array; when there is no result array / parsing fails,
+     *  return -1 (unknown; the caller still lets it pass). */
     private static double avgWordConf(String json) {
         if (json == null) return -1;
         try {
@@ -768,8 +782,8 @@ public final class VoskController {
         }
     }
 
-    /** TTS 播音時 pause 回來（不放 mic，只是不 decode），播完 resume。
-     *  不在聽就 no-op。 */
+    /** Pause and come back during TTS playback (do not release the mic, just do not decode); resume when playback ends.
+     *  A no-op when not listening. */
     public synchronized void setPaused(boolean paused) {
         if (speechService != null && state == State.LISTENING) {
             try {
@@ -779,12 +793,12 @@ public final class VoskController {
         }
     }
 
-    /** TTS 開始播：即 pause decode (同 setPaused(true)）。 */
+    /** TTS starts playing: pause decode immediately (same as setPaused(true)). */
     public synchronized void onTtsStarted() {
         setPaused(true);
     }
 
-    /** TTS 播完：即 resume decode。 */
+    /** TTS finished playing: resume decode immediately. */
     public void onTtsFinished() {
         synchronized (VoskController.this) {
             setPaused(false);
@@ -796,7 +810,7 @@ public final class VoskController {
         if (state == State.LISTENING || model != null) {
             state = model != null ? State.READY : State.IDLE;
         }
-        // server 側停 (如讓 mic 給小智) 都要推 event，前端才會關燈。
+        // A server-side stop (e.g. yielding the mic to Xiaozhi) must also push the event, or the frontend will not turn the lamp off.
         EventBus.get().publish("vosk_state",
                 "{\"state\":\"" + state.name().toLowerCase(java.util.Locale.US) + "\""
                         + ",\"model\":" + (modelId == null ? "null" : "\"" + escape(modelId) + "\"")
@@ -834,7 +848,7 @@ public final class VoskController {
         loadingId = null;
     }
 
-    /** 起步失敗／中途被停嗰陣清 starting 旗（經鎖；stopLocked 嗰邊都會清）。 */
+    /** Clear the starting flag when the start fails / is stopped midway (via the lock; the stopLocked side clears it too). */
     private void endStarting() {
         try {
             synchronized (this) {
@@ -844,7 +858,7 @@ public final class VoskController {
         }
     }
 
-    /** 收拾起步半成品（service 優先停，否則關 recognizer；同舊 catch 同一路）。 */
+    /** Clean up the half-finished start (stop the service first, otherwise close the recognizer; the same path as the old catch). */
     private static void closeStartParts(SpeechService service, Recognizer rec) {
         if (service != null) {
             try {
@@ -859,7 +873,7 @@ public final class VoskController {
         }
     }
 
-    /** optText＋trim。空即回 null 唔發佈。partial 同 final 共用。 */
+    /** optText + trim. Empty returns null and is not published. Shared by partial and final. */
     private String transcript(String json, String key) {
         String s = optText(json, key);
         if (s != null) {
@@ -885,13 +899,14 @@ public final class VoskController {
                 .replace("\n", "\\n").replace("\r", "\\r");
     }
 
-    // -- 模型下載＋自動 unzip -------------------------------------------------
-    // 前端流程：實驗 tab 下載卡 → vosk/catalog 列出全部可下載（已下載不顯示）→
-    // vosk/download?model=<id> 起背景 thread → 前端 poll vosk/download_status
-    // （或聽 vosk_download event）顯示進度 → done 後自動 refresh＋load
-    // （這裡順便 auto-load，省一 round trip）。
+    // -- Model download + auto unzip -------------------------------------------------
+    // Frontend flow: experiments tab download card -> vosk/catalog lists everything downloadable
+    // (already-downloaded ones are not shown) -> vosk/download?model=<id> starts a background
+    // thread -> the frontend polls vosk/download_status (or listens for the vosk_download event)
+    // to show progress -> after done, auto refresh + load (this side also auto-loads, saving
+    // one round trip).
 
-    /** modelId→{modelId,url}。不在 catalog 就回 null（由上層轉做 400）。 */
+    /** modelId -> {modelId, url}. Returns null when not in the catalog (the upper layer turns it into a 400). */
     public static String[] downloadTarget(String modelId) {
         if (modelId == null) return null;
         for (String[] e : DL_CATALOG) {
@@ -904,9 +919,9 @@ public final class VoskController {
         return downloadTarget(modelId) != null;
     }
 
-    /** 實驗 tab 下載卡用：全部可下載＋已下載旗＋對話旗。
-     *  dialogue＝有對認 matcher、可對話（十語；同 SemanticCenter 規則一致，
-     *  未有 matcher 的語言一律 false）。純檔案 IO＋常數判斷，哪條 thread call 都得。 */
+    /** For the experiments tab download card: everything downloadable + the downloaded flag + the dialogue flag.
+     *  dialogue = has a recognized matcher, can converse (ten languages; consistent with the SemanticCenter rules,
+     *  languages without a matcher are always false). Pure file IO + constant checks; any thread may call it. */
     public static String catalogJson() {
         StringBuilder sb = new StringBuilder("{\"ok\":true,\"catalog\":[");
         boolean first = true;
@@ -927,7 +942,7 @@ public final class VoskController {
         return sb.append("]}").toString();
     }
 
-    /** 下載根＝scanModels 第一個可寫根（同掃描一致，unzip 完頂層即見到 model 目錄）。 */
+    /** Download root = the first writable root from scanModels (consistent with the scan; once unzipped, the model directory is visible at the top level). */
     private static File downloadRoot() {
         File ext = null;
         try {
@@ -937,7 +952,7 @@ public final class VoskController {
         if (ext != null) {
             try {
                 if (ext.exists() ? ext.canWrite() : ext.mkdirs()) return ext;
-                // exists 但不肯定寫得入也照樣嘗試（舊機 canWrite 誤報），寫不入後面會再錯。
+                // If it exists but writing is uncertain, still try (canWrite mis-reports on old devices); if the write fails, it will error again downstream.
                 return ext;
             } catch (Throwable ignore) {
             }
@@ -945,21 +960,21 @@ public final class VoskController {
         return new File("/mnt/internal_sd");
     }
 
-    /** 開始下載＋unzip。modelId 必須在 catalog（見 downloadTarget）。
-     *  return null＝已開始，否則即時錯誤字串。 */
+    /** Start download + unzip. modelId must be in the catalog (see downloadTarget).
+     *  Return null = started, otherwise an immediate error string. */
     public synchronized String startDownload(String modelId) {
         String[] target = downloadTarget(modelId);
         if (target == null) return "unknown downloadable model: " + modelId;
         if ("downloading".equals(dlState) || "unzipping".equals(dlState)) {
             return "already downloading (" + dlModel + " " + dlProgress + "%)";
         }
-        // 單通道：動作包下載緊就唔開得（見 DownloadGate，實驗 tab 資源下載卡）。
+        // Single channel: if the action pack is downloading, this cannot start (see DownloadGate, the resource download card on the experiments tab).
         if (!DownloadGate.tryAcquire("vosk", modelId)) {
             return "another download in progress (" + DownloadGate.describe() + ")";
         }
         final String url = target[1];
-        // 已有就不要重落（scan 同 loadModel 共用判定：見 isModelDir）。
-        // 狀態順手撥 done——之前失敗殘留的 error 訊息不用再留。
+        // If it already exists, do not download it again (scan and loadModel share the same check: see isModelDir).
+        // Set the state to done as well -- a leftover error message from a previous failure does not need to stay.
         if (findModelDir(modelId) != null) {
             dlModel = modelId;
             dlLang = guessLang(modelId);
@@ -996,7 +1011,7 @@ public final class VoskController {
         return null;
     }
 
-    /** download_status endpoint 用（透傳 JSON，不經 ApiResponse 包多層）。 */
+    /** For the download_status endpoint (pass-through JSON, not wrapped in another ApiResponse layer). */
     public String downloadStatusJson() {
         String st;
         String lang;
@@ -1071,10 +1086,10 @@ public final class VoskController {
                 root.mkdirs();
             } catch (Throwable ignore) {
             }
-            // 快照：之後新增的頂層目錄都是今次 unzip 落的，失敗／取消即清除，
-            // 免每次重試都在 sdcard 留下一份垃圾。
+            // Snapshot: top-level directories added from now on were all dropped by this unzip; on failure / cancel, clear them,
+            // so that no retry leaves another piece of garbage on sdcard.
             beforeDl = listDirNames(root);
-            // --- 下載 ---
+            // --- download ---
             java.net.HttpURLConnection conn = null;
             java.io.InputStream in = null;
             java.io.OutputStream out = null;
@@ -1094,9 +1109,9 @@ public final class VoskController {
                 if (code < 200 || code >= 300) {
                     throw new java.io.IOException("HTTP " + code);
                 }
-                // 用 int 版 getContentLength（API 1 已有）：model zip ~50MB 遠細過 2GB；
-                // getContentLengthLong 要 API 24+，這個 APK 要行 API 21/22（見 manifest），
-                // 直接 call 會拋 NoSuchMethodError（同 vosk 熔斷保 API 19 同一類）。
+                // Use the int version of getContentLength (present since API 1): the model zip is ~50MB, far below 2GB;
+                // getContentLengthLong needs API 24+, and this APK must run on API 21/22 (see manifest);
+                // calling it directly throws NoSuchMethodError (the same class as the vosk circuit breaker that keeps API 19).
                 long total = -1;
                 try {
                     total = conn.getContentLength();
@@ -1150,7 +1165,7 @@ public final class VoskController {
             synchronized (this) {
                 if (dlCancel) throw new java.io.IOException("cancelled");
             }
-            // --- unzip（自己解，不依賴系統 unzip binary）---
+            // --- unzip (unzip it ourselves, no dependence on the system unzip binary) ---
             setDl("unzipping", 100, null);
             try {
                 zipTmp.renameTo(zipDone);
@@ -1166,9 +1181,9 @@ public final class VoskController {
                 if (zipTmp.exists()) zipTmp.delete();
             } catch (Throwable ignore) {
             }
-            // 驗收：解完要有模型目錄才算數（標準 am/final.mdl 或官方扁平包
-            // 頂層 final.mdl，見 isModelDir）。不收貨就連 zip 帶今次新增目錄
-            // 一齊清除——舊的 model 目錄（快照之前已存在）一律不碰。
+            // Acceptance: only count it as a success if a model directory exists after unzipping (standard
+            // am/final.mdl or the top-level final.mdl of an official flat pack, see isModelDir). If it is not accepted, clear the
+            // zip together with the directories added this time -- old model directories (already present before the snapshot) are never touched.
             if (findModelDir(modelId) == null) {
                 cleanupNewDirs(root, beforeDl);
                 try {
@@ -1181,8 +1196,8 @@ public final class VoskController {
             setDl("done", 100, null);
             DownloadGate.release("vosk");
             Log.i(TAG, "model downloaded+unzipped: " + modelId);
-            // 順手自動載入（省前端一 round trip；失敗不當下載失敗，狀態照 done）。
-            // 用家正在聽就讓路——loadModel 會停 mic 斷 session，等用家自己切過去。
+            // Auto-load as a side step (saves the frontend one round trip; a failure is not a download failure, the state stays done).
+            // If the user is listening, yield the way -- loadModel stops the mic and cuts the session, so wait for the user to switch over themselves.
             boolean listeningNow;
             synchronized (this) {
                 listeningNow = state == State.LISTENING;
@@ -1208,8 +1223,8 @@ public final class VoskController {
                 zipTmp.delete();
             } catch (Throwable ignore) {
             }
-            // 失敗／取消都清場：刪走今次 unzip 新增的目錄（zip 損壞／中途取消
-            // 留下的半包），快照之前已存在的目錄一律不碰。
+            // Clean up on both failure / cancel: delete the directories added by this unzip (the
+            // half pack left by a corrupted zip / a mid-way cancel); directories already present before the snapshot are never touched.
             cleanupNewDirs(root, beforeDl);
             DownloadGate.release("vosk");
             if (cancelled || "cancelled".equalsIgnoreCase(msg)) {
@@ -1220,7 +1235,7 @@ public final class VoskController {
         }
     }
 
-    /** 列出 root 下頂層目錄（canonical path 集，下載前快照用）。 */
+    /** List the top-level directories under root (a set of canonical paths, for the pre-download snapshot). */
     private static java.util.Set<String> listDirNames(File root) {
         java.util.Set<String> s = new java.util.HashSet<>();
         File[] fs;
@@ -1239,7 +1254,7 @@ public final class VoskController {
         return s;
     }
 
-    /** 刪走不在快照內的頂層目錄（今次 unzip 落的；用家舊檔一律不碰）。 */
+    /** Delete top-level directories that are not in the snapshot (the ones dropped by this unzip; the user's old files are never touched). */
     private static void cleanupNewDirs(File root, java.util.Set<String> before) {
         File[] fs;
         try {
@@ -1280,7 +1295,7 @@ public final class VoskController {
         }
     }
 
-    /** zip-slip safe：entry 必須解到 root 之內，否則跳過。 */
+    /** Zip-slip safe: an entry must unpack inside root, otherwise it is skipped. */
     private void unzipToRoot(File zip, File root) throws java.io.IOException {
         String rootCanon = root.getCanonicalPath();
         java.util.zip.ZipInputStream zis = null;
@@ -1294,7 +1309,7 @@ public final class VoskController {
                     if (dlCancel) throw new java.io.IOException("cancelled");
                 }
                 String name = e.getName();
-                // 擋絕對路徑／.. 跳出（官方包不會有，但不信外來 zip）。
+                // Block absolute paths / .. escapes (official packs never have them, but do not trust an outside zip).
                 File f = new File(root, name);
                 String canon = f.getCanonicalPath();
                 if (!canon.equals(rootCanon) && !canon.startsWith(rootCanon + File.separator)) {

@@ -11,34 +11,41 @@ import com.ubtechinc.alpha.hardware.HardwareDirectManager;
 import java.util.Map;
 
 /**
- * 小智 AI 語音對話包：HTTP API (handleXiaozhiApi)、mic 生命週期＋hold enforcer、
- * OTA/activation＋重連、相機 vision (官方上傳鏈路，失敗才 inline)、MCP bridge (listTools/callTool)、
- * mute 鍵開關＋連線指示燈。
+ * XiaoZhi AI voice conversation package: HTTP API (handleXiaozhiApi), mic
+ * lifecycle + hold enforcer, OTA/activation + reconnect, camera vision (the
+ * official upload path, inline only when it fails), MCP bridge
+ * (listTools/callTool), mute-key toggle + connection indicator lamp.
  *
- * 擁有關係：
- * - MainActivity 只留：implements HostState（TTS 兩法＋sonar 四法，正在轉交
- *   SpeechCenter／SonarCenter）、接線
- *   （onCreate 建構、onDestroy shutdown()、router 轉發、PIR/mute key 兩個硬件入口）。
- *   這裡 sonar state 不經 HostState——MCP sensors 4 tool
- *   經下面 sonarCenter 直調 SonarCenter。
- * - xiaozhiClient/xiaozhiAudioController/xiaozhiConfig 全部由這裡擁有。
- * - stopAllSpeechPlayback() 在 SpeechCenter（TTS core，跨域
- *   orchestration），經 stopSpeechPlayback() 碰 xiaozhi 那條播放管道。
+ * Ownership:
+ * - MainActivity keeps only: implements HostState (the two TTS methods + the
+ *   four sonar methods, being handed over to SpeechCenter / SonarCenter), and
+ *   the wiring (constructed in onCreate, shutdown() in onDestroy, router
+ *   forwarding, the two hardware entries PIR/mute key).
+ *   The sonar state does not go through HostState here -- the MCP sensors
+ *   4 tool calls SonarCenter directly via the sonarCenter below.
+ * - xiaozhiClient / xiaozhiAudioController / xiaozhiConfig are all owned here.
+ * - stopAllSpeechPlayback() lives in SpeechCenter (TTS core, cross-domain
+ *   orchestration) and touches the xiaozhi playback pipeline via
+ *   stopSpeechPlayback().
  *
- * 線程：HTTP handler thread 可阻塞；activation/reconnect 自開
- * 背景 thread；mic hold enforcer 獨立 thread；mainHandler 只做延遲計時。
+ * Threading: the HTTP handler thread may block; activation/reconnect open
+ * their own background threads; the mic hold enforcer runs on an independent
+ * thread; mainHandler only does delayed timing.
  *
- * 實機驗證限制（無穩定上網）：connect 後的成功路徑（語音對話、vision、
- * callTool 硬件工具）驗不到，要有外網時補驗。離線可驗：status/
- * activation_status/mcp_tools/list/validation error 路徑＋開機不崩潰。
+ * Real-device verification limits (no stable internet): the success paths
+ * after connect (voice conversation, vision, callTool hardware tools) cannot
+ * be verified; complete the verification when an external network is
+ * available. Verifiable offline: the status / activation_status /
+ * mcp_tools / list / validation error paths + no crash at boot.
  */
 public final class XiaozhiBridge {
     private static final String TAG = "XiaozhiBridge";
 
     /**
-     * 宿主縫：TTS state（enforcer＋gap 計時經這裡讀）。sonar state 不經這裡——
-     * MCP sensors 4 tool 經上面 sonarCenter 直調 SonarCenter。
-     * 由 MainActivity 實現。
+     * Host seam: TTS state (the enforcer + gap timing read through here). The
+     * sonar state does not go through here -- the MCP sensors 4 tool calls
+     * SonarCenter directly via the sonarCenter above.
+     * Implemented by MainActivity.
      */
     public interface HostState {
         boolean isRobotTtsSpeaking();
@@ -59,7 +66,7 @@ public final class XiaozhiBridge {
     private final CameraController cameraController;
     private final LedCenter ledCenter;
     private final HostState hostState;
-    // sensors 4 tool 經這裡直調 (放最尾，慣例)。
+    // The sensors 4 tool calls directly through here (placed last, by convention).
     private final SonarCenter sonarCenter;
     private XiaozhiConfig xiaozhiConfig;
 
@@ -84,30 +91,34 @@ public final class XiaozhiBridge {
                 Log.w(TAG, "PTT: turn action failed (" + name + ")", error);
             }
         });
-        // 小智設定層 (含 TTS 引擎讀取+舊值遷移) 在這裡建構。
+        // The XiaoZhi config layer (including TTS engine read + old-value migration) is constructed here.
         this.xiaozhiConfig = new XiaozhiConfig(context);
-        // device id 讀 prefs。
+        // The device id is read from prefs.
         this.xiaozhiClient = new XiaozhiClient(getXiaozhiDeviceId());
     }
 
-    /** onDestroy 共用：斷線＋停 audio。 */
-    // guard，重複調用不要每次都 new thread。
+    /** Shared by onDestroy: disconnect + stop audio. */
+    // Guard: do not new a thread on every repeated call.
     private final java.util.concurrent.atomic.AtomicBoolean shutdownGuard =
             new java.util.concurrent.atomic.AtomicBoolean(false);
 
     public void shutdown() {
         if (!shutdownGuard.compareAndSet(false, true)) return;
         if (xiaozhiClient != null) {
-            // disconnect() 內部會做 sendCloseFrame() (socket write, 完成
-            // WebSocket close handshake, 見 XiaozhiClient 的 case 0x8 的
-            // comment)。onDestroy() 保證在 main thread 執行, Android 對 main
-            // thread 做網路 I/O 的限制不會因為「這個 write 很快」就豁免 - 實機
-            // 證實會拋出 NetworkOnMainThreadException, 導致 onDestroy() 本身拋出
-            // uncaught exception, 造成整個 activity destroy 失敗、app crash
-            // (見 logcat FATAL EXCEPTION: main / "Unable to destroy activity")。
-            // 這裡將 disconnect() 移到背景 thread 執行 - onDestroy() 不用等它做完
-            // (fire-and-forget, app 反正就要結束了, close frame 送不送得到都不影響
-            // 用戶體驗), 只需要避免在 main thread 直接觸發網路 write。
+            // disconnect() internally performs sendCloseFrame() (a socket write
+            // that completes the WebSocket close handshake; see the comment on
+            // case 0x8 in XiaozhiClient). onDestroy() is guaranteed to run on
+            // the main thread, and Android's restriction on network I/O on the
+            // main thread is not waived just because "this write is quick" -
+            // real-device testing confirms it throws NetworkOnMainThreadException,
+            // which makes onDestroy() itself throw an uncaught exception, causing
+            // the whole activity destroy to fail and the app to crash (see
+            // logcat FATAL EXCEPTION: main / "Unable to destroy activity").
+            // This moves disconnect() to a background thread - onDestroy() does
+            // not wait for it to finish (fire-and-forget, the app is about to
+            // exit anyway, and whether the close frame arrives does not affect
+            // the user experience); it only needs to avoid triggering a network
+            // write directly on the main thread.
             final XiaozhiClient clientToClose = xiaozhiClient;
             new Thread(new Runnable() {
                 @Override
@@ -119,7 +130,7 @@ public final class XiaozhiBridge {
         xiaozhiAudioController.shutdown();
     }
 
-    /** stopAllSpeechPlayback() 經這裡停小智那條播放管道。 */
+    /** stopAllSpeechPlayback() stops the XiaoZhi playback pipeline through here. */
     public void stopSpeechPlayback() {
         xiaozhiAudioController.stopPlayback();
     }

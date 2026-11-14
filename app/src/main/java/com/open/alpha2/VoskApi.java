@@ -5,7 +5,7 @@ import android.util.Log;
 import java.util.Map;
 
 /**
- * Vosk 離線 ASR endpoint 層：models/load/status/start/stop/unload/download/catalog。
+ * Vosk offline ASR endpoint layer: models/load/status/start/stop/unload/download/catalog.
  */
 public final class VoskApi {
     private static final String TAG = "VoskApi";
@@ -20,9 +20,10 @@ public final class VoskApi {
         this.semanticCenter = semanticCenter;
     }
 
-    /** vosk/* endpoint 熔斷：vosk 是 null（API 19 機不起 controller，或者
-     *  21+ 機 init 失敗）就回清晰錯誤，不要逐個 case 寫 if。
-     *  return null = 可用，照行。 */
+    /** Circuit breaker for the vosk/* endpoints: when vosk is null (API 19
+     *  devices do not start the controller, or init failed on 21+), return a
+     *  clear error instead of writing an if for every case.
+     *  Return null = usable, go ahead. */
     private HttpServer.ApiResponse voskOrError() {
         if (vosk != null) return null;
         if (android.os.Build.VERSION.SDK_INT < 21) {
@@ -32,12 +33,12 @@ public final class VoskApi {
         return HttpServer.ApiResponse.error("vosk not initialised");
     }
 
-    // -- Vosk 離線 ASR --------------------------------------
-    // Model 放 sdcard 自動偵測 (見 VoskController.scanModels)，一次一粒。
-    // 成句結果沿用 asr_result event（前端同打字模擬同一條管線：氣泡＋
-    // 語意配對＋Android TTS＋direct 動作）。
-    // API 19 熔斷：除 models（純檔案掃描，static，哪個 API 都得）之外，
-    // 其他經 voskOrError() 回清晰錯誤，不要逐個 case 寫 if。
+    // -- Vosk offline ASR --------------------------------------
+    // Models on sdcard are auto-detected (see VoskController.scanModels), one at a time.
+    // Full-sentence results reuse the asr_result event (the frontend uses the same
+    // pipeline as typed input: bubble + semantic pairing + Android TTS + direct actions).
+    // API 19 circuit breaker: apart from models (a pure file scan, static, works on
+    // any API level), the others return a clear error via voskOrError(); no if per case.
     public HttpServer.ApiResponse voskModels() {
         StringBuilder sb = new StringBuilder("{\"ok\":true,\"models\":[");
         boolean first = true;
@@ -57,7 +58,7 @@ public final class VoskApi {
     private String downloadJsonInner() {
         if (vosk == null) return "null";
         try {
-            // downloadStatusJson 是 {"ok":true,...}，去除 ok 層剩內文方便嵌。
+            // downloadStatusJson is {"ok":true,...}; strip the ok layer so the inner text is easy to embed.
             String full = vosk.downloadStatusJson();
             int i = full.indexOf("\"state\"");
             if (i < 0) return "null";
@@ -73,8 +74,10 @@ public final class VoskApi {
         String id = ApiValidator.require(query, "model");
         String err = vosk.loadModel(id);
         if (err != null) return HttpServer.ApiResponse.error(err);
-        // 直接打 model 鍵換了 model 都一併一併轉換配對語言（認不到語言不動）。
-        // load 是背景做，這裡樂觀同步——同前端即刻切換行為一致。
+        // A direct model switch via the model key also switches the paired
+        // language (an unrecognized language is left untouched).
+        // Load runs in the background; this switches optimistically and
+        // synchronously -- same behavior as the frontend's instant switch.
         String mapped = VoskController.langOfModelId(id);
         if (mapped != null) semanticCenter.setDialogueLang(mapped);
         return HttpServer.ApiResponse.ok("{\"ok\":true,\"loading\":\""
@@ -120,9 +123,11 @@ public final class VoskApi {
     public HttpServer.ApiResponse voskStart() {
         HttpServer.ApiResponse need = voskOrError();
         if (need != null) return need;
-        // 後開者得 mic：小智正在開就整個 session 踢斷（斷線＋熄 mute 燈，同
-        // "disconnect" case 同順序），先開 recorder (同 startXiaozhiMic
-        // 停 vosk 對稱；不自動幫小智重開——對稱那邊都不自動重開 vosk)。
+        // Whoever opens later gets the mic: if Xiaozhi is opening, cut the
+        // whole session (disconnect + mute lamp off, the same order as the
+        // "disconnect" case), then start the recorder (symmetric with
+        // startXiaozhiMic stopping vosk; do not auto-reopen for Xiaozhi --
+        // that side does not auto-reopen vosk either).
         xiaozhiBridge.yieldMicToVosk();
         String err = vosk.startListening();
         if (err != null) return HttpServer.ApiResponse.error(err);
@@ -136,12 +141,13 @@ public final class VoskApi {
         return HttpServer.ApiResponse.okTrue();
     }
 
-    /** 切包等待世代（新撳即 supersede 舊等緊嗰條，唔好堆二三十條 thread
-     *  一齊等把鎖，見 logcat Long monitor contention waiters=28）。 */
+    /** Model-switch waiting generation (a new press supersedes the old one
+     *  that is still waiting; do not pile up twenty or thirty threads waiting
+     *  for the lock, see logcat "Long monitor contention waiters=28"). */
     private final java.util.concurrent.atomic.AtomicInteger switchGen =
             new java.util.concurrent.atomic.AtomicInteger(0);
 
-    /** 調用方係咪 main thread（mapping 物理掣係，HTTP worker 唔係）。 */
+    /** Is the caller the main thread (the mapped physical button is; the HTTP worker is not). */
     private static boolean onMainThread() {
         try {
             return android.os.Looper.myLooper() == android.os.Looper.getMainLooper();
@@ -150,10 +156,14 @@ public final class VoskApi {
         }
     }
 
-    /** GamepadCenter 映射共用：Vosk 監聽單鍵 toggle（聽緊即停，閒置即搶咪開聽）。
-     *  main thread 經物理掣入：一律放背景，連 isListening() 讀鎖都唔掂
-     *  （等 background op 即 ANR 死，見 traces）；回 true＝已停／已接受。
-     *  HTTP worker 照行同步版（回值照實）。背景失敗只記 log＋status 睇到。 */
+    /** Shared by the GamepadCenter mapping: single-key toggle for Vosk
+     *  listening (stop if listening, grab the mic and start listening if idle).
+     *  main thread via the physical button: always run in the background,
+     *  even the isListening() read lock is not touched (waiting on a
+     *  background op means ANR death, see traces); return true = stopped /
+     *  accepted. The HTTP worker runs the synchronous version (the return
+     *  value is factual). Background failures are only logged and visible in
+     *  status. */
     public boolean toggleListening() {
         if (voskOrError() != null) return false;
         if (onMainThread()) {
@@ -189,7 +199,7 @@ public final class VoskApi {
         }
     }
 
-    /** 背景開聽（yield mic＋start；失敗 Log＋唔炸調用方）。 */
+    /** Start listening in the background (yield the mic + start; on failure Log + do not throw at the caller). */
     private void startListeningAsync() {
         new Thread(new Runnable() {
             @Override public void run() {
@@ -204,10 +214,14 @@ public final class VoskApi {
         }, "VoskStart").start();
     }
 
-    /** GamepadCenter 映射共用：切指定語言包（聽緊同包即停；否則載入＋載好即開聽）。
-     *  main thread 經物理掣入：一律放背景，連 getModelId() 讀鎖都唔掂
-     *  （等 background op 即 ANR 死，見 traces）；回 true＝已停／已接受切包。
-     *  HTTP worker 照行同步版（回值照實）。 */
+    /** Shared by the GamepadCenter mapping: switch to a given language pack
+     *  (stop if listening on the same pack; otherwise load and start
+     *  listening once it is ready).
+     *  main thread via the physical button: always run in the background,
+     *  even the getModelId() read lock is not touched (waiting on a
+     *  background op means ANR death, see traces); return true = stopped /
+     *  switch accepted. The HTTP worker runs the synchronous version (the
+     *  return value is factual). */
     public boolean switchModel(String id) {
         if (voskOrError() != null || id == null || id.trim().isEmpty()) return false;
         final String tid = id.trim();
@@ -244,8 +258,10 @@ public final class VoskApi {
             }
             final String err = vosk.loadModel(tid);
             if (err != null) {
-                // 載入緊嗰陣轉軚：打斷舊載入再載新嘅（唔係成堆 false 冇反應；
-                // unload 會令舊 bg thread 自己收，見 loadModel）。
+                // Steering change while a load is in flight: interrupt the
+                // old load and load the new one (not a pile of silent
+                // false returns; unload makes the old bg thread clean up
+                // by itself, see loadModel).
                 boolean loading = false;
                 try {
                     loading = vosk.getState() == VoskController.State.LOADING;
@@ -277,8 +293,11 @@ public final class VoskApi {
             final int gen = switchGen.incrementAndGet();
             new Thread(new Runnable() {
                 @Override public void run() {
-                    // 等載好先開聽（load 幾秒到幾十秒；每秒望一次，最多等 60 秒；
-                    // 新撳 supersede 即走，唔堆 thread 等把鎖）。
+                    // Wait for the load to finish before starting to listen
+                    // (a load takes a few seconds to a few tens of seconds;
+                    // check once per second, wait up to 60 seconds; a new
+                    // press supersedes -- leave immediately, do not pile up
+                    // threads waiting for the lock).
                     for (int i = 0; i < 60; i++) {
                         try {
                             Thread.sleep(1000);
@@ -297,7 +316,7 @@ public final class VoskApi {
                         if (ready) break;
                         if (i == 59) return;
                     }
-                    // 瞓醒再驗世代：期間有人撳過新包即收手，唔開舊嘢。
+                    // Wake up and re-check the generation: if someone pressed a newer pack meanwhile, back off; do not start the old one.
                     if (gen != switchGen.get()) return;
                     try {
                         xiaozhiBridge.yieldMicToVosk();
@@ -321,10 +340,11 @@ public final class VoskApi {
         return HttpServer.ApiResponse.okTrue();
     }
 
-    // 模型下載＋自動 unzip（實驗 tab 下載卡用）。
-    // model＝目錄名（見 vosk/catalog，固定官方 URL allowlist，不收任意 URL）。
-    // 背景落 zip 再自己 unzip 到 sdcard 頂層，完了自動 load。進度經
-    // vosk_download event＋download_status 查，不用輪詢 models。
+    // Model download + auto unzip (for the download card on the experiments tab).
+    // model = directory name (see vosk/catalog; a fixed official URL allowlist, no arbitrary URLs).
+    // The zip is downloaded in the background and then unzipped to the top level of
+    // sdcard by itself; when done it loads automatically. Progress goes via the
+    // vosk_download event + download_status query; no need to poll models.
     public HttpServer.ApiResponse voskDownload(Map<String, String> query) {
         HttpServer.ApiResponse need = voskOrError();
         if (need != null) return need;
@@ -334,8 +354,11 @@ public final class VoskApi {
         }
         String err = vosk.startDownload(id);
         if (err != null) {
-            // 已經有 model 就不當錯（前端問完先來，可能另一邊已落好）：回 ok+exists
-            // 等前端直接 refresh。already downloading 都一樣回狀態等前端跟進度。
+            // An existing model is not an error (the frontend may arrive after
+            // asking; the other side may already have finished): return
+            // ok+exists so the frontend refreshes directly. "already
+            // downloading" returns the status the same way, so the frontend
+            // follows the progress.
             if (err.startsWith("already exists") || err.startsWith("already downloading")) {
                 return HttpServer.ApiResponse.ok(vosk.downloadStatusJson());
             }
@@ -358,8 +381,9 @@ public final class VoskApi {
         return HttpServer.ApiResponse.ok(vosk.downloadStatusJson());
     }
 
-    // 全部可下載模型 catalog（id/lang/sizeMb/downloaded，
-    // 純檔案掃描 static，API 19 都用得，同 models 一樣不經 voskOrError 熔斷）。
+    // Catalog of all downloadable models (id/lang/sizeMb/downloaded; a pure
+    // file scan, static, works on API 19 too; like models, it does not go
+    // through the voskOrError circuit breaker).
     public HttpServer.ApiResponse voskCatalog() {
         return HttpServer.ApiResponse.ok(VoskController.catalogJson());
     }

@@ -23,16 +23,21 @@ public class WebSocketServer {
     private static final String TAG = "WebSocketServer";
     private static final String GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-    // 每個 process 起身派一個新 bootId（APK 重裝／app 重啟即轉）：瀏覽器 tab
-    // 如果係舊 JS（裝機嗰陣開住無 reload），WS 斷線重連嗰陣見到 bootId 唔同
-    // 即 location.reload() 攞新版——以後裝完機唔使人手 F5，見前端 connectWs。
+    // Each process start mints a fresh bootId (it changes on APK reinstall / app restart):
+    // if a browser tab still runs old JS (it was open at install time and never reloaded),
+    // a WS reconnect that sees a different bootId triggers location.reload() to fetch the
+    // new version -- after an install there is no manual F5 needed anymore; see the
+    // frontend connectWs.
     public static final String BOOT_ID = java.util.UUID.randomUUID().toString();
 
-    // 2026-08 新增: 見下面 handleUpgrade() 的 comment - 用來偵測「半開」殭屍
-    // connection。10 秒 SO_TIMEOUT, 逾時就送 ping 探一探, 連續兩次 (共 20 秒)
-    // 都沒有任何回應 (包括 pong) 才當死, 不會誤殺一條正常但剛好沒 event 可送、
-    // 也沒 ping/pong 往來的正常 idle connection (瀏覽器還會定期送 ping 過來,
-    // readLoop() 收到會立刻 answer pong, 一樣算「有收到東西」, 不會被計入逾時)。
+    // Added 2026-08: see the comment in handleUpgrade() below - used to detect
+    // "half-open" zombie connections. A 10-second SO_TIMEOUT; on timeout, send a
+    // ping to probe. Only after two consecutive timeouts (20 seconds total) with
+    // no response at all (not even a pong) is the connection considered dead. This
+    // does not kill a healthy idle connection that merely has no event to send and
+    // no ping/pong traffic (the browser still sends pings periodically; when
+    // readLoop() receives one it answers a pong immediately, which also counts as
+    // "something received" and does not count toward the timeout).
     private static final int IDLE_TIMEOUT_MS = 10000;
     private static final int MAX_CONSECUTIVE_TIMEOUTS = 2;
 
@@ -54,22 +59,27 @@ public class WebSocketServer {
             out.write(response.getBytes(StandardCharsets.ISO_8859_1));
             out.flush();
 
-            // 2026-08 新增: 手機瀏覽器背景/鎖屏/切換網路的時候, TCP connection 可能
-            // 變成「半開」— 對面 (瀏覽器) 已經不再理這條 connection, 但沒送 FIN/RST
-            // 過來, 讓下面 readLoop() 的 in.read() 永遠 block 下去, finally 的
-            // unsubscribe() 永遠沒機會執行到。結果: client 用回 connectWs() 的
-            // 3 秒重連機制開多條新 connection, 但舊那條殭屍 connection 的 listener
-            // 一直留在 EventBus, 讓同一個 event (例如 asr_result) 經好幾個 listener
-            // 各自送去前端, 觸發前端 triggerSemanticSimulate() 好幾次 -> 同一句話
-            // TTS 講好幾次。(用戶回報: 語音tab, ASR重複兩次TTS。實測 logcat 見到
-            // publish() 一直印 "5 listener(s) subscribed", 但整個 session 只有
-            // "WebSocket upgrade accepted" 兩次、"closed normally" 一次 - 證明有
-            // 3~4 條是讀不到 close 事件的殭屍 connection。)
+            // Added 2026-08: when the phone browser goes to the background / the screen
+            // locks / the network changes, the TCP connection can become "half-open" -
+            // the peer (the browser) no longer pays attention to this connection, but
+            // does not send FIN/RST, so the in.read() in readLoop() below blocks forever
+            // and the unsubscribe() in finally never gets a chance to run. Result: the
+            // client uses the connectWs() 3-second reconnect to open several new
+            // connections, but the listener of the old zombie connection stays in the
+            // EventBus, so the same event (e.g. asr_result) is sent to the frontend by
+            // several listeners, each triggering the frontend triggerSemanticSimulate()
+            // once -> the same sentence is spoken by TTS several times. (User report:
+            // voice tab, ASR triggers TTS twice. Real-device logcat shows publish()
+            // printing "5 listener(s) subscribed" continuously, but the whole session
+            // has only two "WebSocket upgrade accepted" and one "closed normally" -
+            // proving 3~4 connections were zombies that never read the close event.)
             //
-            // 修法: 幫這個 socket 設 SO_TIMEOUT, 讓 in.read() 不會永遠 block, 逾時就
-            // 送一個 WebSocket ping frame 探一探這條 connection 還在不在; 連續兩次
-            // (即總共 idle 夠 2×IDLE_TIMEOUT_MS) 都沒收到任何東西 (連 pong 都沒) 就
-            // 當它死了, 主動關閉, 讓 finally 的 unsubscribe() 一定會執行到。
+            // Fix: set SO_TIMEOUT on this socket so in.read() does not block forever; on
+            // timeout, send a WebSocket ping frame to probe whether the connection is
+            // still alive. After two consecutive timeouts (i.e. idle for a total of
+            // 2 x IDLE_TIMEOUT_MS) with nothing received (not even a pong), consider it
+            // dead and close it actively, so the unsubscribe() in finally is guaranteed
+            // to run.
             socket.setSoTimeout(IDLE_TIMEOUT_MS);
 
             final Connection conn = new Connection(socket, out);
@@ -132,12 +142,14 @@ public class WebSocketServer {
                 try {
                     b0 = in.read();
                 } catch (java.net.SocketTimeoutException e) {
-                    // SO_TIMEOUT 到 - 未必代表這條 connection 死了 (也可能純粹是
-                    // 沒 event 可送、瀏覽器又沒送 ping 過來的正常 idle 狀態),
-                    // 主動送一個 ping 探一探。如果這條 connection 還活著,
-                    // 瀏覽器的 WebSocket 實現會自動回 pong, 下一次 loop 再進來
-                    // 就會在下面收到、reset 計數器。連續 timeout 達
-                    // MAX_CONSECUTIVE_TIMEOUTS 次都探不到任何回應, 才當死。
+                    // SO_TIMEOUT fired - this does not necessarily mean the connection
+                    // is dead (it may simply be a normal idle state with no event to
+                    // send and no ping from the browser); probe by sending a ping. If
+                    // the connection is still alive, the browser's WebSocket
+                    // implementation answers a pong automatically, and the next loop
+                    // iteration receives it below and resets the counter. Only when
+                    // MAX_CONSECUTIVE_TIMEOUTS consecutive timeouts get no response at
+                    // all is it considered dead.
                     consecutiveTimeouts++;
                     if (consecutiveTimeouts >= MAX_CONSECUTIVE_TIMEOUTS) {
                         Log.i(TAG, "WebSocket idle timeout x" + consecutiveTimeouts
@@ -147,7 +159,7 @@ public class WebSocketServer {
                     try {
                         sendFrame((byte) 0x89, new byte[0]); // ping
                     } catch (IOException sendFailed) {
-                        // send 都失敗, 這條 connection 一定死了, 不用等下一round timeout。
+                        // Even the send failed: this connection is definitely dead; no need to wait for the next round of timeouts.
                         return;
                     }
                     continue;
@@ -162,13 +174,15 @@ public class WebSocketServer {
                 boolean masked = (b1 & 0x80) != 0;
                 long len = b1 & 0x7F;
 
-                // 2026-08 修正: 之前這兩個分支裡面的 in.read() 完全沒檢查 -1 (EOF) ——
-                // 如果連線剛好在讀 16-bit/64-bit length 的時候斷了, `-1 & 0xFF` 會
-                // 變成 255, 悄悄地拿到一個錯誤的 length 值而不是被發現是 EOF, 接著
-                // 下去可能用著一個垃圾 length 去讀 payload, 有機會卡死或者讀入垃圾
-                // 資料。現在改用 readByteOrThrow(), 一旦撞到 EOF 就立刻拋
-                // IOException, 交回 handleUpgrade() 那一層現有的 catch (IOException e)
-                // 接住, 和一般連線中斷沒差別地結束這個 loop。
+                // Fixed 2026-08: the in.read() calls in these two branches previously
+                // did not check -1 (EOF) at all - if the connection dropped exactly
+                // while reading the 16-bit/64-bit length, `-1 & 0xFF` would become 255,
+                // silently yielding a wrong length value instead of revealing the EOF,
+                // and the code could then read the payload with a garbage length,
+                // possibly hanging or reading garbage data. Now readByteOrThrow() is
+                // used; on hitting EOF it throws IOException immediately, which the
+                // existing catch (IOException e) at the handleUpgrade() level catches,
+                // ending this loop exactly like any ordinary connection drop.
                 if (len == 126) {
                     len = (readByteOrThrow(in) << 8) | readByteOrThrow(in);
                 } else if (len == 127) {
@@ -178,13 +192,15 @@ public class WebSocketServer {
                     }
                 }
 
-                // 2026-08 新增: 之前這裡沒對 len 做任何上限檢查 —— 一個惡意 client
-                // 可以送一個 opcode=127 (64-bit length) 的 frame header, 聲稱 payload
-                // 有幾 GB, `new byte[(int) len]` 就算 len cast 到 int 沒溢出都可以立刻
-                // 讓這條 pool thread 拋 OutOfMemoryError (Error, 接不住)。這個 panel
-                // 從頭到尾都不期望瀏覽器送任何有意義的 data frame 回來 (見上面
-                // class javadoc), 所以上限可以定得多保守都行 - 1MB 已經遠超任何
-                // 這個 panel 會用到的入站 frame (ping/pong payload 通常只有幾個 byte)。
+                // Added 2026-08: there was previously no upper-bound check on len here -
+                // a malicious client could send a frame header with opcode=127
+                // (64-bit length) claiming a payload of several GB; `new byte[(int) len]`
+                // would instantly throw OutOfMemoryError on this pool thread even when
+                // the int cast of len does not overflow (Error, cannot be caught). This
+                // panel never expects the browser to send any meaningful data frame back
+                // (see the class javadoc above), so the limit can be as conservative as
+                // we like - 1MB already far exceeds any inbound frame this panel will
+                // use (ping/pong payloads are usually only a few bytes).
                 final long MAX_FRAME_PAYLOAD_BYTES = 1024 * 1024;
                 if (len < 0 || len > MAX_FRAME_PAYLOAD_BYTES) {
                     Log.w(TAG, "Rejecting WebSocket frame with payload length " + len
