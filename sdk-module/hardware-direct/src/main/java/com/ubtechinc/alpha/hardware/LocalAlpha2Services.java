@@ -4,13 +4,14 @@ import android.content.Context;
 import android.util.Log;
 
 /**
- * 1.1.7.3 這一代 alpha2services 的最小本地替代（pure-direct）。
- * 不複製 3.002 的 9991 個類，只實現對 open-alpha2 真正重要的胸/頭直驅：
- *   - DirectSerialPort (胸 /dev/ttyS1，頭 /dev/ttyS3)
- *   - 5-mic LED 的 JNI 分支（DirectLedController）
+ * 1.1.7.3 Minimal local replacement for this generation of alpha2services (pure-direct).
+ * Does not copy the 9991 classes of 3.002. Implements only the chest/head direct drive
+ * that open-alpha2 truly needs:
+ *   - DirectSerialPort (chest /dev/ttyS1, head /dev/ttyS3)
+ *   - 5-mic LED JNI branch (DirectLedController)
  *
- * <p>機身已無 com.ubtechinc.alpha2services，無 binder fallback：
- * start() 失敗則調用方直接報錯。</p>
+ * <p>The robot no longer has com.ubtechinc.alpha2services. No binder fallback:
+ * if start() fails, the caller reports the error directly.</p>
  */
 public final class LocalAlpha2Services {
     private static final String TAG = "LocalAlpha2Services";
@@ -20,7 +21,7 @@ public final class LocalAlpha2Services {
         this.direct = HardwareDirectManager.get(ctx);
     }
 
-    /** 在 MainActivity.onCreate 的後臺線程調用 */
+    /** Call on the background thread of MainActivity.onCreate */
     public boolean start() {
         boolean ok = direct.tryEnableDirect();
         Log.i(TAG, "LocalAlpha2Services start direct=" + ok);
@@ -31,7 +32,7 @@ public final class LocalAlpha2Services {
 
     public boolean isDirectActive() { return direct.isDirectAvailable(); }
 
-    // LED 走 JNI，不依賴串口是否可用
+    // LED uses JNI. Does not depend on whether the serial port is available.
     public boolean ledHead(int color) { return DirectLedController.headSolid(color); }
     public boolean ledMouthBreathe(int speed) { return DirectLedController.setMouth(Integer.MAX_VALUE, speed, 0, Integer.MAX_VALUE, 1); }
     public boolean ledOff() { return DirectLedController.clear(); }

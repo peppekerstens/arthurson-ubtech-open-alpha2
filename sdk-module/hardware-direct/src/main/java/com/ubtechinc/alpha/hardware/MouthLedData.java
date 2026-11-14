@@ -39,11 +39,12 @@ package com.ubtechinc.alpha.hardware;
  *                              (e.g. matching header_ledSetEye5Mic's own "dual"=3) is
  *                              unconfirmed - only 1 is known to work.
  *
- * 控制路径说明：全部嘴燈經 {@link DirectLedController#setMouth} 排隊
- * （DRIVER_LOCK 全局驅動鎖），同頭/眼/pad/wifi 燈排同一條隊，一次一個
- * open→ioctl→close。絕對唔可以直接 LedControl.open() 另起爐灶——舊驅動
- * 頂唔順併發 open，disco 每秒 refresh 個嘴撞正頭/眼 10Hz 已經試過硬 hang
- * 成部機（無 ANR、adb 齊死，幾日後隨時發作）。
+ * Control path: every mouth LED call goes through {@link DirectLedController#setMouth},
+ * queued under the global DRIVER_LOCK. The mouth LED shares the same queue as the
+ * head/eye/pad/wifi LEDs, one at a time, open → ioctl → close. Never open() a second
+ * driver directly - the old driver cannot tolerate concurrent open. Refreshing the mouth
+ * LED once per second during a disco while the head/eye LEDs ran at 10Hz was tested and
+ * hard-hung the whole machine (no ANR, adb dead, can trigger days later at any time).
  */
 public final class MouthLedData {
     /** No confirmed effect on this hardware; true purpose unknown. */

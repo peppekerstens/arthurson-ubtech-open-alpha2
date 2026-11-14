@@ -1,19 +1,19 @@
 package com.ubtechinc.alpha.hardware;
 
 /**
- * 2026-09: 由 sdk-module/ubtechalpha2robot 的 StaticValue 搬入（脫離
- * Alpha2OpenSdk 的一部分）。只收錄 pure-direct 下仲有用嘅 wire 值，
- * 其他（全部為已不存在嘅 alpha2services binder/broadcast 設計嘅常數）
- * 隨舊 module 一齊刪除。
+ * 2026-09: Moved in from the StaticValue of sdk-module/ubtechalpha2robot (part of
+ * leaving Alpha2OpenSdk). Records only the wire values still used under pure-direct.
+ * The rest (all constants designed for the no-longer-existing alpha2services
+ * binder/broadcast) were deleted with the old module.
  *
- * <p>每一個值都係同機身 MCU／係統 broadcast 嘅 wire contract，必須逐 byte
- * 一致，唔可以改。
+ * <p>Every value is a wire contract with the robot MCU / the system broadcast.
+ * It must match byte for byte. Do not change it.
  */
 public final class RobotWire {
     private RobotWire() {
     }
 
-    // -- Broadcast action strings (第三方 app 接收用) --------------------------
+    // -- Broadcast action strings (for third-party apps to receive) --------------------------
     public static final String CHEST_ACTION = "com.ubtechinc.services.chest";
     public static final String SONAR_DISTANCE_ACTION = "com.ubtechinc.sonar.distance";
     public static final String SONAR_DISTANCE_EXTRA = "sonar_distance";
@@ -28,26 +28,26 @@ public final class RobotWire {
     public static final byte CHES_CMD_UPDATE_PAGE = 49;
     public static final byte CHES_CMD_UPDATE_END = 50;
     public static final byte CHEST_READ_VERSION = 51;
-    /** 已死：播放唔行呢個（行 cmd 3），留低只防同 52 撞名，唔好用。 */
+    /** Dead: playback does not work on this (uses cmd 3). Kept only to avoid a name clash with 52. Do not use. */
     @Deprecated
     public static final byte CHEST_SET_ALL_ANGLE = 52;
-    /** 讀舵機 trim/cmd13（DirectChestController.readServo）。 */
+    /** Read servo trim / cmd13 (DirectChestController.readServo). */
     public static final byte CHEST_CMD_READ_SERVO = 13;
-    /** 寫舵機 trim/cmd12（DirectChestController.writeServoTrim，EEPROM 掉電保持）。 */
+    /** Write servo trim / cmd12 (DirectChestController.writeServoTrim, EEPROM holds across power loss). */
     public static final byte CHEST_CMD_WRITE_TRIM = 12;
-    /** 群舵機播放幀：a.m 私有發送原文 cmd 3 [20軸byte + short time]（smali 實證，勿與 52 混用）。 */
+    /** Group servo play frame: a.m sends the raw cmd 3 [20 axis bytes + short time] (proven by smali, do not mix with 52). */
     public static final byte CHEST_CMD_SENDMOTOR = 3;
-    /** 修改舵機 ID/cmd10（DirectChestController.modifyServoId，payload [舊id][新id]，servo 碼 205）。 */
+    /** Modify servo ID / cmd10 (DirectChestController.modifyServoId, payload [old id][new id], servo code 205). */
     public static final byte CHEST_CMD_MODIFY_SERVO_ID = 10;
-    /** 讀舵機韌體版本/cmd14（DirectChestController.readMotorVersion，payload [id]，胸板經 FC CF 轉發 servo 碼 1）。 */
+    /** Read servo firmware version / cmd14 (DirectChestController.readMotorVersion, payload [id], chest board forwards servo code 1 via FC CF). */
     public static final byte CHEST_CMD_READ_MOTOR_VERSION = 14;
-    /** 讀舵機硬件資訊/cmd33（DirectChestController.readMotorHardware，payload [id]，servo 碼 18）。 */
+    /** Read servo hardware info / cmd33 (DirectChestController.readMotorHardware, payload [id], servo code 18). */
     public static final byte CHEST_CMD_READ_MOTOR_HARDWARE = 33;
-    /** 舵機韌體升級開始/cmd16（DirectChestController.startMotorUpdate，payload [id][len BE32]，推斷見 ServoUpgrade）。 */
+    /** Servo firmware upgrade start / cmd16 (DirectChestController.startMotorUpdate, payload [id][len BE32], inference see ServoUpgrade). */
     public static final byte CHEST_CMD_UPGRADE_MOTOR_START = 16;
-    /** 舵機韌體升級資料頁/cmd17（DirectChestController.updateMotorPage，payload [id][0x01][seqHi][seqLo][64B]）。 */
+    /** Servo firmware upgrade data page / cmd17 (DirectChestController.updateMotorPage, payload [id][0x01][seqHi][seqLo][64B]). */
     public static final byte CHEST_CMD_UPGRADE_MOTOR_PAGE = 17;
-    /** 舵機韌體升級結果上行碼 134 [status][id]（status 0 = 成功）。 */
+    /** Servo firmware upgrade result uplink code 134 [status][id] (status 0 = success). */
     public static final int CHEST_EVENT_MOTOR_UPGRADE = 134;
     public static final byte CHEST_READ_SID_EEPROM = 55;
     /** cmd 0x40 power save. [01 ..] (enter) can start "Sit down" on V142 (alpha2-brain#24). See ChestSafety. */
