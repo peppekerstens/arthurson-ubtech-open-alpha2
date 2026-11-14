@@ -908,7 +908,9 @@ public final class ApiDispatcher {
                 int time = ApiValidator.optionalIntRange(query, "time", ApiValidator.SERVO_TIME_MIN_MS, ApiValidator.SERVO_TIME_MAX_MS, 500);
                 return motionGate.guardAll(() -> {
                     // setAllServos internally already translates to cmd03 (cmd52 has an ACK but no action).
-                    boolean sent = HardwareDirectManager.get(appContext).chest().setAllServos(arr, (short) time);
+                    // The move goes between two stream read cycles (alpha2-rl#217).
+                    boolean sent = ServoReadStream.moveBetweenCycles(() ->
+                            HardwareDirectManager.get(appContext).chest().setAllServos(arr, (short) time));
                     if (!sent) return HttpServer.ApiResponse.error("direct not ready");
                     ubxPlayer.notePose(arr);
                     return HttpServer.ApiResponse.okTrue();
