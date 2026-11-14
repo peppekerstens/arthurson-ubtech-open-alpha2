@@ -1,29 +1,37 @@
 package com.ubtechinc.alpha.hardware;
 
 /**
- * 命令位姿追踪（dead reckoning）：記下最後一次經本 App 發出的 20 軸命令值。
+ * Command pose tracking (dead reckoning): records the last 20-axis command value
+ * sent by this App.
  *
- * <p>2026-09-06 修正舊認知：cmd 13 回包<b>不是</b>恒定的——官方 PC tuner
- * 實測回的是會變的 signed 實測值（且本 App 已改行 live 實讀）；cmd 5
- *（05 00 頭）<b>能</b>驱动本机舵机（官方 tuner ＋用戶目視確認）。舊「只有
- * cmd 3 能動、cmd13 恒定」結論疑似源於舊 00 00 發送頭，作廢。</p>
+ * <p>2026-09-06 corrected an old belief: the cmd 13 reply is <b>not</b> constant -
+ * the official PC tuner measured a varying signed real value (and this App now
+ * reads live); cmd 5 (05 00 header) <b>can</b> drive the servo on this machine
+ * (official tuner + user visual confirmation). The old conclusion "only cmd 3 can
+ * move, cmd13 is constant" is suspected to come from the old 00 00 send header,
+ * and is now void.</p>
  *
- * <p>追踪值只代表「最後一次命令」，不等於實際位置，跳舞/重啟/官方 tuner
- * 郁過之後即過時——因此<b>禁止</b>用佢嚟補齊全幀發送（曾導致 19 軸齊扯錯位
- * 的「發狂」事故）。單舵機一律走 cmd05 只郁目標一粒。開機到首次全量發送
- * 之前位姿未知（{@link #snapshot()} 返回 null），調用方須如實報 unknown，
- * 不可编造。</p>
+ * <p>The tracked value only means "the last command", not the real position. It
+ * goes stale after dancing / reboot / the official tuner moves it - so it is
+ * <b>forbidden</b> to use it to fill in a full-frame send (it once caused a
+ * "madness" incident where all 19 axes pulled to the wrong position). Single-servo
+ * always goes through cmd05 and moves only the target one. From boot until the
+ * first full send, the pose is unknown ({@link #snapshot()} returns null); the
+ * caller must report unknown as-is and must not fabricate.</p>
  */
 public final class ServoPoseTracker {
     private final int[] pose = new int[22];
     private volatile boolean known = false;
-    // 2026-09-08 新增：逐軸 known 旗（servoAngleAllResponse 命令位姿榜用）。
-    // 背景：全量 known 要等一次 servo/all 全發，開機後好耐都未知；但單軸
-    // servo/one 成功即代表嗰一軸肯定喺命令位（±1° 誤差內），逐軸記低，
-    // 使個榜儘快有嘢睇——依然零 wire，依然唔保證其他軸（跳舞／重啟後過時）。
+    // 2026-09-08 added: per-axis known flags (for the servoAngleAllResponse command
+    // pose board).
+    // Background: full known has to wait for one servo/all full send, and stays
+    // unknown for a long time after boot; but a single-axis servo/one success means
+    // that axis is definitely at the command position (within ±1° error), so record
+    // it per axis to get something on the board as fast as possible - still zero
+    // wire, still no guarantee for the other axes (stale after dancing / reboot).
     private final boolean[] knownIdx = new boolean[22];
 
-    /** 记录一次成功的 cmd3 发送（20 軸舊全量或 22 軸全量；20 只更新前 20 軸，21/22 保持原值）。 */
+    /** Record a successful cmd3 send (20-axis old full or 22-axis full; 20 updates only the first 20 axes, 21/22 keep their value). */
     public synchronized void update(int[] angles) {
         if (angles == null || (angles.length != 20 && angles.length != 22)) return;
         System.arraycopy(angles, 0, pose, 0, angles.length);
@@ -31,19 +39,19 @@ public final class ServoPoseTracker {
         known = true;
     }
 
-    /** 记录一次成功的 cmd05 单发（只 mark 嗰一軸 known，其餘唔郁）。 */
+    /** Record a successful cmd05 single send (only mark that one axis known, the rest are not touched). */
     public synchronized void updateOne(int id, int angle) {
         if (id < 1 || id > 22) return;
         pose[id - 1] = angle;
         knownIdx[id - 1] = true;
     }
 
-    /** 当前命令位姿拷贝；未知返回 null。 */
+    /** Copy of the current command pose; returns null when unknown. */
     public synchronized int[] snapshot() {
         return known ? pose.clone() : null;
     }
 
-    /** 逐軸版 snapshot：未知嗰軸回 null（servoAngleAllResponse 直接用嚟填榜）。 */
+    /** Per-axis snapshot: an unknown axis returns null (servoAngleAllResponse uses it directly to fill the board). */
     public synchronized Integer[] snapshotBoxed() {
         Integer[] out = new Integer[22];
         for (int i = 0; i < 22; i++) {
