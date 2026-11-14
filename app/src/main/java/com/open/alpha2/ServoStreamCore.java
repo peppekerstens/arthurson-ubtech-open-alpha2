@@ -273,6 +273,11 @@ final class ServoStreamCore {
      * for the write at the gate. The write never drops: after the limit it goes out anyway
      * (move_forced). When the stream does not run, no cycle waits and the write starts at once.
      * Order of the locks: gate, then lock (the same as the cycle).
+     *
+     * Two moves queued at the gate wait in turn. The second move can wait up to
+     * {@code maxWaitMs} (60 ms, {@code ServoReadStream.MOVE_WAIT_MS}) plus the write time
+     * of the first move. The wait is bounded per move, so the total wait of N queued moves
+     * is at most N times that bound.
      */
     <T> T writeBetweenCycles(long maxWaitMs, Write<T> w) {
         long limitNs = clock.nanoTime() + Math.max(0, maxWaitMs) * 1_000_000L;
@@ -296,6 +301,9 @@ final class ServoStreamCore {
                     }
                 }
             }
+            // moveWaits and moveForced are volatile longs, and ++ is not atomic. This is
+            // safe: only the thread that holds gate writes them, and synchronized (gate)
+            // wraps the whole method body.
             if (waited) moveWaits++;
             if (forced) moveForced++;
             return w.run();
