@@ -108,6 +108,10 @@ public final class MotionGate {
                 + " does not allow it. Both motion settings are off by default and after each restart.";
     }
 
+    /** Servo firmware write (chest cmd 0x10, 0x11): refused with the gate on or off (D-197, alpha2-servo#15). */
+    public static final String SERVO_FIRMWARE_REFUSAL = "Refused: chest cmd 0x10 and 0x11 write the servo firmware."
+            + " There is no servo backup yet (owner rule D-197), so debug/serial/send never sends them.";
+
     /**
      * The refusal text for chest data of debug/serial/send that is not one or more
      * complete frames (alpha2-brain#130): the scan for a move command skips a frame
@@ -136,6 +140,7 @@ public final class MotionGate {
      */
     public String refusalForSerialSend(String port, byte[] data) {
         if (!"chest".equals(port)) return null;
+        if (ChestSafety.findServoFirmwareCommand(data) >= 0) return SERVO_FIRMWARE_REFUSAL;
         if (ChestSafety.findChestMoveCommand(data) >= 0) return refusalForChestMove();
         if (refusalForChestMove() != null && ChestSafety.checkWholeFrames(data) != null) {
             return refusalForUnparseableChest();
@@ -151,6 +156,7 @@ public final class MotionGate {
      */
     public static String refusalWithoutGate(String port, byte[] data) {
         if (!"chest".equals(port)) return null;
+        if (ChestSafety.findServoFirmwareCommand(data) >= 0) return SERVO_FIRMWARE_REFUSAL;
         if (ChestSafety.findChestMoveCommand(data) >= 0) {
             return "Motion is refused: debug/serial/send has no motion gate.";
         }

@@ -48,6 +48,20 @@ public final class ChestSafety {
     public static final int CMD_MOVE_ONE = 0x03;
     public static final int CMD_MOVE_ALL = 0x05;
     public static final int CMD_READ_RELEASE = 0x06;
+    // Other chest commands that move a servo or change its state (alpha2-brain#130). The
+    // chest table is alpha2-firmware-re chest/V142/dispatch.md. The purpose of 0x4A, 0x4C,
+    // 0x53 and 0x59 is only "servo command" there, so they count as moves (fail closed).
+    public static final int CMD_CHANGE_SERVO_ID = 0x0A;
+    public static final int CMD_WRITE_SERVO_TRIM = 0x0C;
+    public static final int CMD_SERVO_GROUP = 0x23;
+    public static final int CMD_SET_ALL_ANGLE = 0x34;
+    public static final int CMD_SERVO_4A = 0x4A;
+    public static final int CMD_SERVO_4C = 0x4C;
+    public static final int CMD_PC_SERVO_53 = 0x53;
+    public static final int CMD_PC_SERVO_59 = 0x59;
+    // Servo firmware write (owner rule D-197, alpha2-servo#15): never through debug/serial/send.
+    public static final int CMD_SERVO_FW_START = 0x10;
+    public static final int CMD_SERVO_FW_PAGE = 0x11;
 
     public static final String SIT_DOWN_19 = "cmd 0x19 [00] is not a servo power off."
             + " It starts the 'Sit down' move of the chest (firmware V142 and V352,"
@@ -96,12 +110,37 @@ public final class ChestSafety {
 
     /**
      * The first chest move command in the raw frames (alpha2-brain#130): cmd 0x03
-     * (move one), 0x05 (move all) or 0x06 (read with release). Returns the command
+     * (move one), 0x05 (move all), 0x06 (read with release), and the servo commands
+     * 0x0A, 0x0C, 0x23, 0x34, 0x4A, 0x4C, 0x53 and 0x59. Returns the command
      * byte, or -1 when no move command is present. Read commands (for example 0x17,
      * 0x39, 0x0E) are not move commands. A frame with a bad checksum, length or tail
      * is not a complete frame, so the scan skips it (checkChestFrames refuses it).
      */
     public static int findChestMoveCommand(byte[] data) {
+        return findCommand(data, false);
+    }
+
+    /**
+     * The first servo firmware write command (cmd 0x10 or 0x11) in the raw frames, or -1
+     * (owner rule D-197). Same scan as {@link #findChestMoveCommand}.
+     */
+    public static int findServoFirmwareCommand(byte[] data) {
+        return findCommand(data, true);
+    }
+
+    private static boolean isMoveCommand(int cmd) {
+        switch (cmd) {
+            case CMD_MOVE_ONE: case CMD_MOVE_ALL: case CMD_READ_RELEASE:
+            case CMD_CHANGE_SERVO_ID: case CMD_WRITE_SERVO_TRIM: case CMD_SERVO_GROUP:
+            case CMD_SET_ALL_ANGLE: case CMD_SERVO_4A: case CMD_SERVO_4C:
+            case CMD_PC_SERVO_53: case CMD_PC_SERVO_59:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static int findCommand(byte[] data, boolean firmware) {
         if (data == null) return -1;
         int n = data.length;
         for (int i = 0; i + 1 < n; i++) {
@@ -114,7 +153,7 @@ public final class ChestSafety {
                 total = shortLength(data, i);
                 if (total >= 0) cmd = data[i + 3] & 0xFF;
             }
-            if (cmd == CMD_MOVE_ONE || cmd == CMD_MOVE_ALL || cmd == CMD_READ_RELEASE) return cmd;
+            if (firmware ? (cmd == CMD_SERVO_FW_START || cmd == CMD_SERVO_FW_PAGE) : isMoveCommand(cmd)) return cmd;
         }
         return -1;
     }
