@@ -3,16 +3,20 @@ package com.ubtechinc.alpha.hardware;
 import android.util.Log;
 
 /**
- * 5-mic 頭/眼/嘴 LED 的 JNI 直驅。
- * 完全繞過 alpha2services 的 AIDL，直接走 libhead_led.so 的 ioctl。
- * 3.002 版（/dev/led_eye，ioctl 號與 1.1.7.3 逐個相同：On=0x4c00/OFF=0x4c01/
- * Eye=0x4c02/Head=0x4c03/Mouth=0x4c04，反匯編核對過）。
- * 已在 open-alpha2 的 MouthLedData 驗證過。
+ * JNI direct drive for the 5-mic head/eye/mouth LEDs.
+ * Bypasses the AIDL of alpha2services entirely and goes straight to the
+ * ioctl of libhead_led.so.
+ * 3.002 version (/dev/led_eye, ioctl numbers identical to 1.1.7.3 one by one:
+ * On=0x4c00/OFF=0x4c01/Eye=0x4c02/Head=0x4c03/Mouth=0x4c04, checked by
+ * disassembly).
+ * Already verified in open-alpha2's MouthLedData.
  *
- * <p>為避免 sdk-module 硬件層與 app 層的循環依賴，這裡用反射調用
- * {@code com.ubtechinc.alpha.jni.LedControl}（3.002 原裝包名；舊
- * {@code com.ubtechinc.mic5.LedControl} 保留文件但不再引用）。
- * 這樣 hardware-direct 編譯期不依賴 app，執行時通過自身 dex 找到類。</p>
+ * <p>To avoid a circular dependency between the sdk-module hardware layer and
+ * the app layer, this calls {@code com.ubtechinc.alpha.jni.LedControl} via
+ * reflection (the 3.002 stock package name; the old
+ * {@code com.ubtechinc.mic5.LedControl} file is kept but no longer referenced).
+ * This way hardware-direct has no compile-time dependency on the app, and at
+ * runtime it finds the class through its own dex.</p>
  */
 public final class DirectLedController {
     private static final String TAG = "DirectLedController";
@@ -20,10 +24,10 @@ public final class DirectLedController {
 
     private DirectLedController() {}
 
-    // 複用 AIDL_REFERENCE 3.1 的已驗證參數表
-    // p1 color 1紅2綠3藍4黄5紫6青7白, p2 亮度1-9, p5/p6 時序, p7 runTime, p8 mode
-    // p3/p4 用全 mask（31/31，跟上面講嘅原 binder 行為；之前誤傳 color，
-    // 搞到同一隻色比 LedCenter preset 暗一截）。
+    // Reuse the verified parameter table from AIDL_REFERENCE 3.1
+    // p1 color 1 red 2 green 3 blue 4 yellow 5 purple 6 cyan 7 white, p2 brightness 1-9, p5/p6 timing, p7 runTime, p8 mode
+    // p3/p4 use the full mask (31/31, matching the original binder behavior noted above. An earlier
+    // version passed the color there, which made the same color a notch darker than the LedCenter preset).
     public static boolean setHead5Mic(int color, int bright, int p5, int p6, int runTime, int mode) {
         boolean ok = callLedReflect("ledSetHead",
                 new Object[]{color, bright, 31, 31, p5, p6, runTime, mode}, "head color=" + color + " mode=" + mode);
@@ -40,9 +44,9 @@ public final class DirectLedController {
     }
 
     public static boolean setOff() {
-        // 3.002 簽名 ledSetOFF(I)：反匯編證實該 int 只進 log（mov r3,r4 → __android_log_print），不落硬件，傳 0。
-        // 注意：呢個 ioctl 號本身會連 wifi 12/13 一起清——硬件上頭+眼係一齊熄，
-        // 所以成功嗰陣兩邊 mirror 一齊記 off。咀通道一樣會死，即刻補返（之前呼吸緊先補）。
+        // 3.002 signature ledSetOFF(I): disassembly shows the int only goes to the log (mov r3,r4 → __android_log_print), not to the hardware, so pass 0.
+        // Note: this ioctl number also clears wifi 12/13. On the hardware the head and eye go off together,
+        // so on success both mirrors record off. The mouth channel dies too, so restore it right away (it was restored only while breathing).
         boolean ok = callLedReflect("ledSetOFF", new Object[]{0}, "ledSetOFF");
         if (ok) {
             recordHeadOff();
@@ -52,8 +56,8 @@ public final class DirectLedController {
         return ok;
     }
 
-    // 反射快取：之前每次打燈都 Class.forName + getMethod 全套（disco 高頻下
-    // 每秒十幾次，又跑喺 Visualizer callback thread）。而家 resolve 一次留用。
+    // Reflection cache: every light call used to run the full Class.forName + getMethod sequence (under disco high frequency,
+    // more than ten times per second, on the Visualizer callback thread). Now resolve once and keep it.
     private static final Object INIT_LOCK = new Object();
     private static volatile boolean sInitDone = false;
     private static volatile boolean sInitOk = false;
@@ -77,8 +81,8 @@ public final class DirectLedController {
                 try {
                     sClose = sCls.getMethod("close");
                 } catch (NoSuchMethodException e) {
-                    // close 唔存在＝下面直接拒絕，唔好每次 open 漏一個 fd——
-                    // 高頻打燈會拖死成部機，大聲 log 出嚟等 logcat 睇到。
+                    // close missing: refuse below. Leaking one fd per open would
+                    // stall the whole machine under high-frequency lighting. Log loudly so logcat shows it.
                     Log.e(TAG, "LedControl.close() NOT FOUND - refusing LED calls to avoid leaking an fd per open()");
                     sClose = null;
                 }
@@ -91,13 +95,13 @@ public final class DirectLedController {
                 sMouth = sCls.getMethod("ledSetMouth", i5);
                 sOn = sCls.getMethod("ledSetOn", i1);
                 sOff = sCls.getMethod("ledSetOFF", i1);
-                // 核心三件齊＋close 在先至算得；mouth/on/off 缺唔致命
-                // （對應功能單獨回 false），唔好拖累頭/眼。
+                // open/head/eye plus close must all be present to count. mouth/on/off missing is not fatal
+                // (the matching function returns false). Do not drag down head/eye.
                 ok = sOpen != null && sHead != null && sEye != null && sClose != null;
             } catch (Throwable t) {
                 Log.w(TAG, "LED reflect init failed: " + t.getMessage());
             }
-            // 衰咗唔 latch——遲載入嘅 .so 下次再試（之前 latch 死要等 reboot）。
+            // On failure, do not latch — a late-loading .so is retried next time (the old latch stayed dead until reboot).
             sInitOk = ok;
             sInitDone = ok;
             return ok;
@@ -113,16 +117,16 @@ public final class DirectLedController {
         return null;
     }
 
-    // 全局驅動鎖：disco 線程／pad 燈線程／HTTP 線程／wifi 燈／嘴燈全部經呢度打
-    // /dev/led_eye，舊驅動疑似頂唔順併發 open（幾次硬 hang 無 ANR、adb 齊死
-    // 都係 disco 高頻期）。一齊排隊，一次一個，慢幾 ms 好過死機。
-    // 注意：任何直接掂 LedControl（open→ioctl→close）嘅路都要經呢個鎖，
-    // 唔可以自己另起爐灶，否則同排緊隊嘅打燈撞 open 即有機會 wedge 成部機。
+    // Global driver lock: the disco thread / pad light thread / HTTP thread / wifi light / mouth light all light
+    // /dev/led_eye through here. The old driver is suspected of failing on concurrent open (several hard hangs
+    // with no ANR, adb itself dead, all during the disco high-frequency period). Queue them up, one at a time. A few ms slower beats a dead machine.
+    // Note: any path that touches LedControl directly (open→ioctl→close) must go through this lock.
+    // Do not build your own, or it collides with the open of a queued light call and can wedge the whole machine.
     private static final Object DRIVER_LOCK = new Object();
 
-    /** 把一段直接掂 LedControl（open→ioctl→close）嘅 code 包入全局驅動鎖，
-     *  同所有經 callLedReflect 嘅打燈排同一條隊。鎖淨係包 ioctl 本身，
-     *  重試 sleep 留喺出面，唔好塞住其他燈。r 掟出嚟嘅 Throwable 照 propagate。 */
+    /** Wrap a piece of code that touches LedControl directly (open→ioctl→close) in the global driver lock.
+     *  It joins the same queue as all light calls through callLedReflect. The lock wraps only the ioctl itself.
+     *  The retry sleep stays outside, so other lights are not blocked. The Throwable thrown out by r still propagates. */
     public static void runExclusive(Runnable r) {
         synchronized (DRIVER_LOCK) {
             r.run();
@@ -135,12 +139,12 @@ public final class DirectLedController {
         }
     }
 
-    // -- 批量 ioctl ---------------------------------------------------------
-    // 一次 open → N 個 ioctl → 一次 close（同一個 DRIVER_LOCK 內）。
-    // 慳 fd 開關＋反射，成組燈一次過換，中間無黑場——pad 獨立熄（OFF＋補燈）、
-    // disco 每轉多燈齊推用，後者仲順手減輕驅動負載。全部成功先回 true；
-    // 衰一步即停（後面唔做，唔 hammer wedged 緊嘅驅動），回 false。
-    // state mirror 照逐個記（最後一個贏，同逐個打一致）。
+    // -- Batch ioctl ---------------------------------------------------------
+    // One open → N ioctls → one close (inside the same DRIVER_LOCK).
+    // Saves fd open/close plus reflection. The whole set of lights swaps at once, no black gap in the middle — used for the pad independent off (OFF plus restore),
+    // and for the disco per-turn multi-light push, which also lightens the driver load. Only return true when all succeed.
+    // On failure, stop at once (skip the rest, do not hammer the wedged driver). Return false.
+    // The state mirror is still recorded one by one (the last one wins, same as lighting one by one).
     public static final class LedOp {
         final String method;
         final Object[] args;
@@ -192,7 +196,7 @@ public final class DirectLedController {
                         }
                         Object r = m.invoke(null, op.args);
                         boolean raw = r instanceof Boolean ? (Boolean) r : false;
-                        // 同 callLedReflectLocked 一樣：返回值係反嘅（成功＝0/false）。
+                        // Same as callLedReflectLocked: the return value is inverted (success = 0/false).
                         boolean ok = !raw;
                         Log.d(TAG, (ok ? "LED OK: " : "LED FAIL: ") + op.desc + " raw=" + raw);
                         if (!ok) {
@@ -200,9 +204,9 @@ public final class DirectLedController {
                             break;
                         }
                         recordOp(op);
-                        // OFF 會連咀通道一齊清——即刻同一個 open 入面補返
-                        // （之前呼吸緊先補；後面有顯式 mouth op 嗰陣唔使，佢會覆寫）。
-                        // 唔補嘅話個咀永久黑（disco 變先推、TTS 一次過，唔會自己返嚟）。
+                        // OFF clears the mouth channel too — restore it right away inside the same open
+                        // (it was restored only while breathing. Skip it when an explicit mouth op follows, since that one overwrites).
+                        // Without the restore the mouth stays black forever (disco pushes first, TTS all at once, it does not come back on its own).
                         if ("ledSetOFF".equals(op.method) && !hasMouthOpLater(ops, oi)) {
                             restoreMouthLocked();
                         }
@@ -220,7 +224,7 @@ public final class DirectLedController {
         }
     }
 
-    /** batch 入面 OFF 後面仲有冇顯式 mouth op（有就唔使自動補）。 */
+    /** Is there an explicit mouth op after an OFF in the batch (if yes, no auto-restore needed). */
     private static boolean hasMouthOpLater(java.util.List<LedOp> ops, int idx) {
         for (int i = idx + 1; i < ops.size(); i++) {
             if ("ledSetMouth".equals(ops.get(i).method)) return true;
@@ -228,8 +232,8 @@ public final class DirectLedController {
         return false;
     }
 
-    /** 同一個 open 入面補返個咀（之前呼吸緊先做；record 唔郁）。
-     *  出面（burst／setOff）嗰啲自己 open／close，行下面個 public 版。 */
+    /** Restore the mouth inside the same open (previously only done while breathing. The record is untouched).
+     *  The outside callers (burst / setOff) open and close on their own. They use the public version below. */
     private static void restoreMouthLocked() {
         if (sMouth == null || sMouthMode != 1) return;
         try {
@@ -242,7 +246,7 @@ public final class DirectLedController {
         }
     }
 
-    /** 出面用：全局 OFF 之後補返個咀（之前呼吸緊先做）。自己開關一次。 */
+    /** For outside use: restore the mouth after a global OFF (previously only done while breathing). Opens and closes once on its own. */
     public static boolean restoreMouthAfterOff() {
         synchronized (DRIVER_LOCK) {
             try {
@@ -264,7 +268,7 @@ public final class DirectLedController {
         }
     }
 
-    /** batch 成功嗰陣逐個記 mirror（同逐個打一致；OFF 清頭+眼，唔掂咀 record）。 */
+    /** When the batch succeeds, record the mirror one by one (same as lighting one by one. OFF clears head+eye and does not touch the mouth record). */
     private static void recordOp(LedOp op) {
         if ("ledSetOFF".equals(op.method)) {
             recordHeadOff();
@@ -303,7 +307,7 @@ public final class DirectLedController {
                     try { sClose.invoke(null); } catch (Exception ignore) {}
                 }
             }
-            // libhead_led.so 的返回值是反的：ioctl 成功返回 0(false)，失敗返回 0xF2(true)，見 MouthLedData:100
+            // The return value of libhead_led.so is inverted: ioctl success returns 0(false), failure returns 0xF2(true), see MouthLedData:100
             boolean ok = !raw;
             Log.d(TAG, (ok ? "LED OK: " : "LED FAIL: ") + desc + " raw=" + raw);
             return ok;
@@ -314,10 +318,10 @@ public final class DirectLedController {
     }
 
     /**
-     * 全參數直驅（p1..p8 原樣透傳）。MainActivity 原來經 binder 調
+     * Full-parameter direct drive (p1..p8 passed through as-is). MainActivity used to call
      * header_ledSetHead5Mic(color, brightness, 31, 31, p5, p6, MAX, p8) /
-     * header_ledSetEye5Mic(color, brightness, 255, 255, p5, p6, MAX, p8)，
-     * pure-direct 下 p3/p4 保持原值，行為不變。
+     * header_ledSetEye5Mic(color, brightness, 255, 255, p5, p6, MAX, p8) over binder.
+     * Under pure-direct, p3/p4 keep their original values. The behavior does not change.
      */
     public static boolean setHead5MicRaw(int p1, int p2, int p3, int p4, int p5, int p6, int p7, int p8) {
         boolean ok = callLedReflect("ledSetHead",
@@ -333,17 +337,17 @@ public final class DirectLedController {
         return ok;
     }
 
-    // 預設：與 MainActivity 的 translateColor 等價
+    // Default: equivalent to MainActivity's translateColor
     public static boolean headSolid(int color) {
         return setHead5Mic(color, 9, Integer.MAX_VALUE, 0, Integer.MAX_VALUE, 0);
     }
     public static boolean clear() { return setOff(); }
 
     /**
-     * pure-direct 下取代 AIDL stop5MicEarLED / stop5MicEyeLED。
-     * 獨立停：空 mask（p3/p4=0）寫返同一個 zone——淨熄自己，
-     * 眼／頭／wifi／pad 互不影響。以前行 ledSetOFF（一鑊清晒），
-     * 而家要成組熄先用 clear()/setOff()。
+     * Under pure-direct, replaces the AIDL stop5MicEarLED / stop5MicEyeLED.
+     * Independent stop: an empty mask (p3/p4=0) written back to the same zone — it only turns itself off.
+     * eye / head / wifi / pad do not affect each other. The old path ran ledSetOFF (cleared everything in one shot).
+     * To turn off the whole set now, use clear()/setOff() first.
      */
     public static boolean stopHead5Mic() {
         boolean ok = setHead5MicRaw(7, 9, 0, 0, Integer.MAX_VALUE, 0, Integer.MAX_VALUE, 0);
@@ -356,11 +360,11 @@ public final class DirectLedController {
         return ok;
     }
 
-    // -- 最後燈態 mirror --------------------------------------------------
-    // 硬件 write-only，讀唔返——呢度記低經呢個 class 打出去嘅最後一轉參數，
-    // 畀 /api/led/state/get 回前端畫 mirror（逐粒撳試燈用）。淨係成功嗰陣記；
-    // -1＝開機以嚟未打過。注意：debugJniLed 直透 raw 唔經呢度，嗰段時間
-    // mirror 會滯後（佢收尾多數會送返個 stop，嗰下就會同步返）。
+    // -- Last light-state mirror --------------------------------------------------
+    // The hardware is write-only and cannot be read back — record here the last round of parameters sent through this class,
+    // so /api/led/state/get can return them to the front end for the mirror (used for pressing each light to test). Only recorded on success.
+    // -1 = never lit since boot. Note: debugJniLed passes raw straight through and does not go through here, so during that time
+    // the mirror lags (it usually sends a stop at the end, and that syncs it back).
     private static volatile int sHeadP1 = -1;
     private static volatile int sHeadP2 = -1;
     private static volatile int sHeadP3 = -1;
@@ -392,8 +396,8 @@ public final class DirectLedController {
         sEyeP1 = 0; sEyeP2 = 0; sEyeP3 = 0; sEyeP4 = 0;
     }
 
-    /** 最後頭/眼參數（p1-p4）——ledPadSet 獨立熄之後補燈用。
-     *  未打過（-1）／熄咗（0）回 null，唔好補。 */
+    /** Last head/eye parameters (p1-p4) — used to restore the light after ledPadSet turns it off independently.
+     *  Returns null when never lit (-1) / turned off (0). Do not restore. */
     public static int[] lastHeadParams() {
         if (sHeadP1 <= 0) return null;
         return new int[]{sHeadP1, sHeadP2, sHeadP3, sHeadP4};
@@ -402,7 +406,7 @@ public final class DirectLedController {
         if (sEyeP1 <= 0) return null;
         return new int[]{sEyeP1, sEyeP2, sEyeP3, sEyeP4};
     }
-    /** 最後燈態 JSON（全部 int，無需 escape）：未打過＝-1，熄咗＝0。 */
+    /** Last light-state JSON (all int, no escaping needed): never lit = -1, turned off = 0. */
     public static String lastStateJson() {
         return "{\"ok\":true,\"head\":{\"color\":" + sHeadP1
                 + ",\"brightness\":" + sHeadP2

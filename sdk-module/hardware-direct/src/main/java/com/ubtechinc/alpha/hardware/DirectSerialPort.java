@@ -13,18 +13,22 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 不依賴 alpha2services 的直驅串口（pure-direct 下唯一的胸/頭控制通路）。
+ * Direct serial port with no dependency on alpha2services (the only chest/head
+ * control path under pure-direct).
  *
- * <p>打開順序（依次嘗試主/備/備2設備）：
- * 1) JNI 路徑：{@code com.ubtechinc.alpha.jni.SerialPortFile}（libserial_port.so，
- *    native 內走 termios 配好 115200 8N1 raw）。此類與 .so 同模塊打包，
- *    Class.forName 一般都能找到；找不到才走 2)。
- * 2) 純 File 路徑：FileInputStream/FileOutputStream 直開，之後用 busybox stty
- *    把波特率改成 115200（實測係統預設 9600，不改 MCU 收到的全是亂碼——2026-09
- *    實測 servo TX 發得出但舵機不動的根因之一）。</p>
+ * <p>Open order (try the primary/alt/alt2 devices in sequence):
+ * 1) JNI path: {@code com.ubtechinc.alpha.jni.SerialPortFile} (libserial_port.so,
+ *    the native side sets termios to 115200 8N1 raw). This class and the .so ship
+ *    in the same module, so Class.forName normally finds it. Only when it does
+ *    not does the open fall to 2).
+ * 2) Plain File path: open with FileInputStream/FileOutputStream directly, then
+ *    busybox stty changes the baud rate to 115200 (the system default is 9600.
+ *    Without the change the MCU receives only garbage — one of the root causes,
+ *    measured 2026-09, of servo TX going out while the servos stay still).</p>
  *
- * <p>本機 ttyS1/ttyS3 為 777，普通應用也可 open；失敗則 isAvailable()=false，
- * 調用方直接報錯，無任何 binder 回退。</p>
+ * <p>Local ttyS1/ttyS3 are 777, so a normal app can open them. On failure
+ * isAvailable()=false, the caller reports the error directly, and there is no
+ * binder fallback of any kind.</p>
  */
 public final class DirectSerialPort {
     private static final String TAG = "DirectSerialPort";
@@ -41,17 +45,17 @@ public final class DirectSerialPort {
     private volatile InputStream input;
     private volatile OutputStream output;
     private FileDescriptor fd;
-    private Object serialPortFileObj; // JNI 路徑時持有，供 close() 用
+    private Object serialPortFileObj; // held for the JNI path, used by close()
     private volatile String openedPath;
     private Thread readerThread;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final CopyOnWriteArraySet<OnFrameListener> listeners = new CopyOnWriteArraySet<>();
-    // 跨實例獨佔：胸/頭 ALT2 同指 /dev/ttyS0，兩邊齊開會分流幀互搶。
-    // 開咗嘅 path 記低，另一邊見到就跳過試下一個。
+    // Cross-instance exclusivity: chest and head ALT2 both point to /dev/ttyS0. If both sides open at once, frames split and fight.
+    // Record the opened path. The other side sees it and skips to the next candidate.
     private static final java.util.Set<String> sOpenedPaths =
             java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
 
-    /** 該 path 係咪已經被另一個 port 攞咗（獨佔檢查用）。 */
+    /** Has another port already taken this path (the exclusivity check)? */
     private static boolean claimPath(String path) {
         synchronized (sOpenedPaths) {
             if (sOpenedPaths.contains(path)) return false;
@@ -101,12 +105,12 @@ public final class DirectSerialPort {
 
     public synchronized boolean open() {
         if (running.get()) return true;
-        // 1) JNI 路徑（自帶 termios 配 baud）
+        // 1) JNI path (termios sets the baud itself)
         if (tryOpenViaJni(primaryPath) || tryOpenViaJni(altPath) || (altPath2 != null && tryOpenViaJni(altPath2))) {
             startReader();
             return true;
         }
-        // 2) 純 File 路徑 + stty 配 baud
+        // 2) Plain File path + stty sets the baud
         if (tryOpenViaFile(primaryPath) || tryOpenViaFile(altPath) || (altPath2 != null && tryOpenViaFile(altPath2))) {
             startReader();
             return true;
@@ -150,9 +154,9 @@ public final class DirectSerialPort {
                     f.setAccessible(true);
                     jfd = (FileDescriptor) f.get(obj);
                 }
-            } catch (Exception ignore) { /* fd 可選，有則存，無亦可 */ }
+            } catch (Exception ignore) { /* the fd is optional. Store it if present, fine without it */ }
             if (!claimPath(path)) {
-                Log.w(TAG, path + " already held by another port, skipping (獨佔，防分流幀)");
+                Log.w(TAG, path + " already held by another port, skipping (exclusive, prevents split frames)");
                 try { cls.getMethod("close").invoke(obj); } catch (Exception ignore) {}
                 return false;
             }
@@ -166,8 +170,8 @@ public final class DirectSerialPort {
         } catch (ClassNotFoundException e) {
             Log.d(TAG, "SerialPortFile class not found, fallback to File: " + e.getMessage());
         } catch (Throwable t) {
-            // UnsatisfiedLinkError/NoSuchMethodError（Error 非 Exception）唔接會
-            // 穿透撞死調用線程；一律當開唔到，試下一個。
+            // UnsatisfiedLinkError/NoSuchMethodError (Error, not Exception). If not caught,
+            // it punches through and kills the calling thread. Treat it as "cannot open" and try the next path.
             Log.d(TAG, "JNI open failed for " + path + " (" + t.getClass().getSimpleName() + "): " + t.getMessage());
         }
         return false;
@@ -181,7 +185,7 @@ public final class DirectSerialPort {
             return false;
         }
         if (!claimPath(path)) {
-            Log.w(TAG, path + " already held by another port, skipping (獨佔，防分流幀)");
+            Log.w(TAG, path + " already held by another port, skipping (exclusive, prevents split frames)");
             return false;
         }
         FileInputStream fin = null;
@@ -191,7 +195,7 @@ public final class DirectSerialPort {
             try {
                 fout = new FileOutputStream(dev);
             } catch (Exception e) {
-                // 第二步炸咗要閂返第一個 fd，唔係漏。
+                // The second step threw. Close the first fd back. That is not a leak.
                 try { fin.close(); } catch (Exception ignore) {}
                 fin = null;
                 throw e;
@@ -201,8 +205,8 @@ public final class DirectSerialPort {
             try { this.fd = fin.getFD(); } catch (Exception ignore) {}
             this.serialPortFileObj = null;
             this.openedPath = path;
-            // 純 Java 開不出 termios，必須用 stty 把波特率從預設 9600 改到 115200，
-            // 否則 MCU 侧全是亂碼（2026-09 實測教訓）。busybox 自帶 stty。
+            // Plain Java cannot set termios. stty must change the baud rate from the default 9600 to 115200,
+            // otherwise the MCU side sees only garbage (a measured 2026-09 lesson). busybox ships stty.
             configureBaudStty(path, baudrate);
             Log.i(TAG, "opened via File: " + path);
             return true;
@@ -214,7 +218,7 @@ public final class DirectSerialPort {
         }
     }
 
-    /** 用 busybox stty 配波特率+8N1 raw（File 路徑專用，JNI 路徑 native 已配好）。 */
+    /** Set baud rate + 8N1 raw with busybox stty (File path only. The JNI path has it set in native). */
     private static void configureBaudStty(String path, int baudrate) {
         String[] cmds = {
                 "busybox stty -F " + path + " " + baudrate + " cs8 -cstopb -parenb raw -echo",
@@ -230,15 +234,15 @@ public final class DirectSerialPort {
                     StringBuilder sb = new StringBuilder();
                     String line;
                     while ((line = r.readLine()) != null) sb.append(line).append(' ');
-                    // stdout 讀完都要排乾 stderr，唔係子進程寫滿 pipe 會卡死 waitFor。
+                    // Drain stderr after reading stdout, or the child process fills the pipe and waitFor hangs.
                     java.io.InputStream err = p.getErrorStream();
                     try {
                         byte[] drain = new byte[256];
-                        while (err.available() > 0 && err.read(drain) > 0) { /* 掉棄 */ }
+                        while (err.available() > 0 && err.read(drain) > 0) { /* discard */ }
                     } catch (Exception ignore) {}
                     p.waitFor();
                     Log.i(TAG, "stty " + path + " [" + cmd.split(" ")[0] + "] -> " + sb.toString().trim());
-                    if (sb.toString().contains(String.valueOf(baudrate))) return; // 配好了就不用試下一條
+                    if (sb.toString().contains(String.valueOf(baudrate))) return; // the baud is set. No need to try the next command
                 } finally {
                     try { r.close(); } catch (Exception ignore) {}
                 }
@@ -265,14 +269,14 @@ public final class DirectSerialPort {
             Log.w(TAG, "send failed: " + e.getMessage());
             return false;
         } catch (RuntimeException e) {
-            // encode() 參數超限（plen>248）等：唔好送壞幀落 MCU，直接失敗。
+            // encode() parameter out of range (plen>248) and the like: do not send a bad frame to the MCU. Fail directly.
             Log.w(TAG, "send rejected (" + e.getMessage() + ")");
             return false;
         }
     }
 
-    /** 升級幀直發（官方 upgrade APK 同款 ID/INDEX 頭，見 SerialFrameCodec.encodeUpgrade；
-     *  servo/LED 等 LAP 流量行上面 send()，唔好混用）。 */
+    /** Send the upgrade frame directly (same ID/INDEX header as the official upgrade APK, see SerialFrameCodec.encodeUpgrade.
+     *  LAP traffic such as servo/LED goes over send() above. Do not mix the two). */
     public synchronized boolean sendUpgrade(byte id, byte index, byte cmd, byte[] param) {
         OutputStream out = output;
         if (!isAvailable() || out == null) return false;
@@ -291,7 +295,7 @@ public final class DirectSerialPort {
         }
     }
 
-    /** 透傳原始幀 (繞過 encode)，用於 set_uuid/version fallback 等手寫長式幀 */
+    /** Pass through a raw frame (bypasses encode), used for hand-written long frames such as set_uuid / version fallback */
     public synchronized boolean sendRaw(byte[] rawFrame) {
         OutputStream out = output;
         if (!isAvailable() || out == null || rawFrame == null) return false;
@@ -322,7 +326,7 @@ public final class DirectSerialPort {
                         int off = 0;
                         while (off < avail) {
                             SerialFrameCodec.DecodeResult r = SerialFrameCodec.tryDecode(buf, off, avail - off);
-                            if (r == null) break; // 不夠一幀
+                            if (r == null) break; // not enough for one frame
                             if (r.frame != null) {
                                 for (OnFrameListener l : listeners) {
                                     try { l.onFrame(r.frame); } catch (Exception ignore) {}
@@ -331,7 +335,7 @@ public final class DirectSerialPort {
                             }
                             off += r.consumed;
                         }
-                        // 未消費的殘餘搬到頭部
+                        // Move the unconsumed remainder to the front
                         if (off > 0 && off < avail) {
                             System.arraycopy(buf, off, buf, 0, avail - off);
                             pos = avail - off;
@@ -341,7 +345,7 @@ public final class DirectSerialPort {
                             pos = avail;
                             if (pos >= buf.length - 256) {
                                 Log.w(TAG, "reader dropping " + pos + "B garbage (no F8 8F head)");
-                                pos = 0; // 防溢出，丟棄
+                                pos = 0; // prevent overflow, drop it
                             }
                         }
                     } catch (Exception e) {
@@ -358,9 +362,9 @@ public final class DirectSerialPort {
     private int heartbeatSuppressed = 0;
     private long heartbeatLastLogMs = 0;
 
-    /** 收幀 log：心跳（0x8B/0x8D）逐幀印會洗 logcat（實測 0x8D 洪水），呢度淨係
-     *  唔印，dispatch 照行（上唔上 WebSocket 由 MainActivity.onDirectChestFrame
-     *  決定，嗰邊一樣濾咗呢兩隻）。60 秒報一次數，等人知串口仲生勾勾。 */
+    /** RX frame log: printing the heartbeats (0x8B/0x8D) frame by frame would wash out logcat (measured 0x8D flood), so here they are simply
+     *  not printed, while dispatch still runs (whether they go up the WebSocket is decided by MainActivity.onDirectChestFrame,
+     *  which filters the same two). Report a count once per 60 seconds, so a person knows the serial port is still alive. */
     private void logRxFrame(byte[] frame) {
         if (isHeartbeat(frame)) {
             heartbeatSuppressed++;
@@ -374,7 +378,7 @@ public final class DirectSerialPort {
         Log.d(TAG, "RX(" + openedPath + ") " + SerialFrameCodec.toHex(frame));
     }
 
-    /** 長式 F8 8F LEN SRC DST CMD…：SRC 05/00、DST 00、CMD 8B/8D 即心跳。 */
+    /** Long form F8 8F LEN SRC DST CMD…: SRC 05/00, DST 00, CMD 8B/8D means a heartbeat. */
     private static boolean isHeartbeat(byte[] frame) {
         if (frame == null || frame.length < 8) return false;
         if ((frame[0] & 0xFF) != 0xF8 || (frame[1] & 0xFF) != 0x8F) return false;
@@ -386,16 +390,16 @@ public final class DirectSerialPort {
 
     public synchronized void close() {
         running.set(false);
-        // 先閂 stream 鬆開 blocking read（FileInputStream.read 唔食 interrupt，
-        // 唔閂就 join 實超時留孤兒線程），再 join。
+        // Close the streams first to release the blocking read (FileInputStream.read does not take an interrupt.
+        // Without the close, join times out for sure and leaves an orphan thread). Then join.
         closeQuietly();
         if (readerThread != null) { try { readerThread.interrupt(); readerThread.join(500); } catch (InterruptedException ignore) {} readerThread = null; }
     }
 
     private void closeQuietly() {
-        // JNI 路徑：input/output 係 SerialPortFile 包住同一個 native fd 嘅 view，
-        // 逐個 close 再加 native close = double-close（fd 號復用會誤關別人文件）。
-        // 呢條路只行 native close 一次。File 路徑：fin/fout 係兩個獨立 fd，兩個都要閂。
+        // JNI path: input/output are views over the same native fd that SerialPortFile wraps.
+        // Closing each of them plus a native close = double-close (a reused fd number would close someone else's file by mistake).
+        // This path runs the native close once only. File path: fin/fout are two independent fds, both must close.
         if (serialPortFileObj != null) {
             try { serialPortFileObj.getClass().getMethod("close").invoke(serialPortFileObj); } catch (Exception ignore) {}
         } else {

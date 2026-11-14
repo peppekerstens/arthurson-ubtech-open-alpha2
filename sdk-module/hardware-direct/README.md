@@ -1,6 +1,6 @@
 # hardware-direct
 
-> Language: English (this file) | [繁體中文](README_zh-Hant.md)
+> Language: English (this file)
 
 Android library module: the direct hardware layer between the app and the
 Alpha2 chest/head boards. It owns the serial ports, the LED / head-key JNI
@@ -9,10 +9,10 @@ parser/player. Zero project dependencies (`versionName "1.0-direct"`).
 
 ## Device wiring
 
-- Chest MCU: `/dev/ttyS1`; head MCU: `/dev/ttyS3`; 115200 baud.
+- Chest MCU: `/dev/ttyS1`. Head MCU: `/dev/ttyS3`. Both run at 115200 baud.
 - Frames (encode/decode in `SerialFrameCodec`, tail `ED`): long form
-  `F8 8F LEN ID INDEX CMD PARAM SUM ED` (checksum over LEN+ID+INDEX+CMD+PARAM);
-  legacy short form `F8 8F LEN CMD PARAM SUM ED` is still decoded as a fallback.
+  `F8 8F LEN ID INDEX CMD PARAM SUM ED` (checksum over LEN+ID+INDEX+CMD+PARAM).
+  The legacy short form `F8 8F LEN CMD PARAM SUM ED` is still decoded as a fallback.
 - Head +/- pads: `/dev/input/event0`, consumed via `HeadKeyPoller`.
 - Head/eye/mouth LEDs: `libhead_led.so` via `LedControl`.
 - The device nodes are world-accessible, so a normal user app (no system
@@ -33,17 +33,17 @@ Serial (`com.ubtechinc.alpha.hardware`):
 - `DirectLedController` / `MouthLedData` — LED drivers and mouth-LED frames.
 - JNI shims: `jni/SerialPortFile`, `jni/LedControl`, `jni/headkey/HeadKeyMgr`.
 - `HeadKeyPoller` — head-pad press/hold/release events.
-- `ServoPoseTracker` — tracks the 22-joint command pose (accepts legacy
-  20- or full 22-joint frames; 20 only refreshes the first 20 joints).
-- `HardwareDirectManager` / `LocalAlpha2Services` — single entry point the
-  app starts on a background thread; reports whether direct mode is active.
+- `ServoPoseTracker` — tracks the 22-joint command pose (legacy 20-joint or
+  full 22-joint frames). A 20-joint frame refreshes only the first 20 joints.
+- `HardwareDirectManager` / `LocalAlpha2Services` — single entry point. The
+  app starts it on a background thread. It reports whether direct mode is active.
 
 `.ubx` playback (`...hardware/ubx`):
 
 - `UbxFile` / `UbxParser` — action-file parse.
-- `UbxPlayer` — drift-free tick playback with 0.5/0.67/1/1.5/2x speed shift;
-  `stop()` halts holding the last pose (the app-level stop plays the recovery
-  action on top).
+- `UbxPlayer` — drift-free tick playback with a 0.5/0.67/1/1.5/2x speed shift.
+  `stop()` halts and holds the last pose. The app-level stop plays the
+  recovery action on top.
 - `VoiceStream` — per-action background music, locked to the same clock.
 
 Native libs (`src/main/jniLibs/armeabi-v7a`): `libhead_led.so`,
@@ -51,7 +51,7 @@ Native libs (`src/main/jniLibs/armeabi-v7a`): `libhead_led.so`,
 
 ## Integration
 
-`settings.gradle` already includes the module; `app/build.gradle` depends on
+`settings.gradle` already includes the module. `app/build.gradle` depends on
 it with `implementation project(':sdk-module:hardware-direct')`. The app
 starts it once on a background thread:
 

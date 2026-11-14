@@ -1,34 +1,35 @@
 package com.ubtechinc.alpha.hardware;
 
-// 2026-09: StaticValue/DeveloperPacketData 已由 ubtechalpha2robot module 搬入
-// 本 package (RobotWire/DeveloperPacketData)，不再依賴 SDK。
+// 2026-09: StaticValue/DeveloperPacketData moved in from the ubtechalpha2robot
+// module into this package (RobotWire/DeveloperPacketData). No SDK dependency.
 
 /**
- * 胸板 MCU 的直驅封裝：舵機、聲納、PIR、固件升級。
- * 協議來自 1.1.7.3.20 的 StaticValue + AIDL_REFERENCE 第5章，
- * 但走 DirectSerialPort 而不是 Alpha2SerialServiceUtil 的 binder。
- * 正常中文注釋：便於後續維護。
+ * Direct driver for the chest MCU: servos, sonar, PIR, firmware upgrade.
+ * The protocol comes from StaticValue of 1.1.7.3.20 plus chapter 5 of
+ * AIDL_REFERENCE, but it runs over DirectSerialPort, not the binder of
+ * Alpha2SerialServiceUtil.
+ * Comments stay plain for easier maintenance.
  */
 public final class DirectChestController {
     private final DirectSerialPort port;
 
     public DirectChestController(DirectSerialPort port) { this.port = port; }
 
-    /** 0-255 鉗位（防靜默截 byte wrap 猛扯舵機）。 */
+    /** Clamps to 0-255. A silent byte wrap would jerk the servo. */
     private static int clampAngle(int v) {
         if (v < 0) { android.util.Log.w("DirectChest", "angle clamp 0 (was " + v + ")"); return 0; }
         if (v > 255) { android.util.Log.w("DirectChest", "angle clamp 255 (was " + v + ")"); return 255; }
         return v;
     }
 
-    /** time 20-32767 鉗位（spec 上限，見 servo/one）。 */
+    /** Clamps time to 20-32767 (the spec limit, see servo/one). */
     private static short clampTime(int time) {
         if (time < 20) return 20;
         if (time > 32767) return 32767;
         return (short) time;
     }
 
-    /** 0-255 靜默鉗位（聲納／群舵機用，唔 log）。 */
+    /** Silent clamp to 0-255 (sonar / group servo use, no log). */
     private static int clampByte(int v) {
         if (v < 0) return 0;
         if (v > 255) return 255;
@@ -40,11 +41,12 @@ public final class DirectChestController {
     public boolean isAvailable() { return port.isAvailable(); }
     public void setFrameListener(DirectSerialPort.OnFrameListener l) { port.addListener(l); }
 
-    /** 單舵機：用本 package 的 DeveloperPacketData 打包，保持與原廠完全一致 */
+    /** Single servo: packs with DeveloperPacketData from this package, byte-for-byte like the stock implementation */
     public boolean setSingleServo(byte id, int angle, short time) {
         if (id < 1 || id > 22) return false;
-        // 角度單位同 servo/one 一致（0-255；MCP schema 同 spec 上限）：唔鉗位直接
-        // 截 byte 會 wrap 猛扯。time 照舊下限 20，上限跟 spec 32767。
+        // The angle unit matches servo/one (0-255; the MCP schema uses the spec limit).
+        // Without a clamp, a direct byte cast wraps and jerks the servo.
+        // time keeps the lower bound 20 and the spec upper bound 32767.
         angle = clampAngle(angle);
         time = clampTime(time);
         DeveloperPacketData p = new DeveloperPacketData(5);
@@ -56,9 +58,12 @@ public final class DirectChestController {
     }
 
     /**
-     * 群舵機播放幀（跳舞/.ubx）：cmd 3 [20軸byte + short time]，a.m 原文。
-     * 注意：setAllServos 的 cmd 52 係另一用途，保持不動，播放一律走此方法。
-     * 兼容 20 或 22 軸：22 時前 20 走 cmd3，21/22 各補一發 cmd05（同 time）。
+     * Group servo play frame (dance / .ubx): cmd 3 [20 axis bytes + short time],
+     * as in the a.m original.
+     * Note: the cmd 52 of setAllServos is a different purpose, left unchanged.
+     * Playback always goes through this method.
+     * Accepts 20 or 22 axes: with 22, the first 20 go over cmd 3, and 21/22
+     * each get one extra cmd 05 (same time).
      */
     public boolean playAllServos(int[] angles, short time) {
         if (angles == null || (angles.length != 20 && angles.length != 22)) return false;
@@ -79,21 +84,23 @@ public final class DirectChestController {
     }
 
     /**
-     * 全舵機 20/22 個角度。注意：cmd 52 有 ACK 但舵机不动（旧实测），故播放/全組
-     * 位姿一律走 cmd 3（dance 通道，a.m 私有发送原文）。單舵機微調則走 cmd 5
-     *（setSingleServo，2026-09-06 官方 PC tuner 實測可郁，用戶目視確認）。
-     * 位姿追踪见 {@link ServoPoseTracker}。
+     * All servos: 20/22 angles. Note: cmd 52 has an ACK but the servos do not
+     * move (old field test), so playback and full-pose moves always go over
+     * cmd 3 (the dance channel, a.m private send original). Single-servo
+     * fine-tuning goes over cmd 5 (setSingleServo, verified on the official
+     * PC tuner on 2026-09-06, confirmed by the user by eye).
+     * Pose tracking: see {@link ServoPoseTracker}.
      */
     public boolean setAllServos(int[] angles, short time) {
         return playAllServos(angles, time);
     }
 
-    /** 聲納配置：1.1.7.3 正確值為 subCmd=10, 距離 cm（byte 範圍，超限鉗 0-255 防 wrap） */
+    /** Sonar config: 1.1.7.3 uses subCmd=10 and the distance in cm. Clamp out-of-range values to 0-255 to prevent a byte wrap. */
     public boolean configureSonar(int distanceCm) {
         return port.send(RobotWire.CHEST_CMD_SETTING, new byte[]{10, (byte) clampByte(distanceCm)});
     }
 
-    /** PIR 使能：cmd=72，實測 1.1.7.3 固件有效 */
+    /** PIR enable: cmd=72, verified on 1.1.7.3 firmware */
     public boolean setPirEnabled(boolean enabled) {
         return port.send((byte) 72, new byte[]{(byte) (enabled ? 1 : 0)});
     }
@@ -139,18 +146,21 @@ public final class DirectChestController {
         return port.send(RobotWire.CHEST_SERVO_POWER, new byte[]{(byte) (on ? 1 : 0)});
     }
 
-    /** 讀舵機角度 (cmd 13) - 回幀走 OnFrameListener 解析 */
+    /** Read servo angle (cmd 13). The reply frame is parsed via OnFrameListener */
     public boolean readServo(byte servoId) {
         if (servoId < 1 || servoId > 22) return false;
         return port.send(RobotWire.CHEST_CMD_READ_SERVO, new byte[]{servoId});
     }
 
     /**
-     * 寫舵機 trim/偏差 (cmd 12, param [id][BE16 signed])。2026-09-06 官方 PC
-     * tuner 實測還原：editor 約每分鐘自動全組寫一次，值≈3×(命令角度−home)；
-     * 回覆 {@code 09 05 00 0c 00 <id>} = OK，{@code 01 <id>} = 該軸無回授。
-     * 寫入掉電保持（官方寫入值橫跨多次重啟照讀返，見 2026-09-06 分析），即
-     * chest EEPROM——亂寫會改出廠校準，調用方須經用戶明確寫入動作先好 call。
+     * Write servo trim / offset (cmd 12, param [id][BE16 signed]). Restored
+     * from a field test on the official PC tuner on 2026-09-06: the editor
+     * writes the full group once per minute, value = 3 x (command angle - home).
+     * Reply {@code 09 05 00 0c 00 <id>} = OK, {@code 01 <id>} = no feedback on
+     * that axis. The write survives power loss (official values still read back
+     * after repeated reboots, see the 2026-09-06 analysis). This is the chest
+     * EEPROM. A wrong write changes the factory calibration. The caller must
+     * go through an explicit user write action before calling.
      */
     public boolean writeServoTrim(byte servoId, int trim) {
         if (servoId < 1 || servoId > 22) return false;
@@ -161,9 +171,11 @@ public final class DirectChestController {
     }
 
     /**
-     * 修改舵機 ID (cmd 10, payload [舊id][新id]，胸板再經 servo 碼 205 轉發落 bus)。
-     * 寫入舵機 EEPROM 掉電保持——調用方須經用戶明確寫入動作先好 call。
-     * 注意：同一 bus 上唔可以有兩粒同 ID，改之前確保目標新 ID 無被佔用。
+     * Change servo ID (cmd 10, payload [old id][new id]. The chest forwards it
+     * to the bus via servo code 205). The write survives power loss in the
+     * servo EEPROM. The caller must go through an explicit user write action
+     * before calling. Note: two servos on the same bus must not share an ID.
+     * Make sure the target new ID is free before changing.
      */
     public boolean modifyServoId(byte oldId, byte newId) {
         if (oldId < 1 || oldId > 22) return false;
@@ -172,9 +184,10 @@ public final class DirectChestController {
     }
 
     /**
-     * 讀舵機韌體版本 (cmd 14, payload [id])。胸板經 FC CF 頭轉發 servo 碼 1 落 bus，
-     * 回覆經 OnFrameListener 以 cmd=14 幀送回，由 ChestQuery 認領／解析。
-     * 純讀，唔寫任何 EEPROM。
+     * Read servo firmware version (cmd 14, payload [id]). The chest forwards
+     * servo code 1 to the bus under an FC CF header. The reply comes back as
+     * a cmd=14 frame via OnFrameListener, claimed and parsed by ChestQuery.
+     * Read only. It writes no EEPROM.
      */
     public boolean readMotorVersion(byte servoId) {
         if (servoId < 1 || servoId > 22) return false;
@@ -182,9 +195,9 @@ public final class DirectChestController {
     }
 
     /**
-     * 讀舵機硬件資訊 (cmd 33, payload [id]，servo 碼 18)。
-     * 回覆經 OnFrameListener 以 cmd=33 幀送回，由 ChestQuery 認領／解析。
-     * 純讀，唔寫任何 EEPROM。
+     * Read servo hardware info (cmd 33, payload [id], servo code 18).
+     * The reply comes back as a cmd=33 frame via OnFrameListener, claimed and
+     * parsed by ChestQuery. Read only. It writes no EEPROM.
      */
     public boolean readMotorHardware(byte servoId) {
         if (servoId < 1 || servoId > 22) return false;
@@ -192,10 +205,13 @@ public final class DirectChestController {
     }
 
     /**
-     * 開始舵機韌體升級 (cmd 16, payload [id][len BE32])。payload 格式係推斷
-     * （見 ServoUpgrade：胸板 cmd48 同款 [len BE32]＋全部舵機命令 id 行頭），
-     * 官方 upgrade APK 無舵機升級實現，真機未驗證。
-     * 注意：START 之後 chest／servo 可能已入升級態，調用方須成個流程跟到底。
+     * Start servo firmware upgrade (cmd 16, payload [id][len BE32]). The
+     * payload format is inferred (see ServoUpgrade: the chest cmd 48 uses the
+     * same [len BE32] plus an id line head on every servo command). The
+     * official upgrade APK has no servo upgrade implementation. Not verified
+     * on hardware.
+     * Note: after START the chest / servo may already be in the upgrade
+     * state. The caller must follow the whole flow to the end.
      */
     public boolean startMotorUpdate(byte servoId, int fileLen) {
         if (servoId < 1 || servoId > 22) return false;
@@ -210,10 +226,12 @@ public final class DirectChestController {
     }
 
     /**
-     * 舵機韌體升級資料頁 (cmd 17, payload [id][0x01][seqHi][seqLo][64B])。
-     * 64B 頁對應舵機 bootloader 嘅 64-byte flash 頁（112 頁＝7168B app 區，
-     * 白牌 mega8 反彙編實證）；bank 1＝寫頁（2 保留，見 ServoUpgrade）。
-     * data 不足 64B 時調用方先補零（doc 話補零至 68 byte）。
+     * Servo firmware upgrade data page (cmd 17, payload [id][0x01][seqHi][seqLo][64B]).
+     * The 64B page matches the 64-byte flash page of the servo bootloader
+     * (112 pages = 7168B app area, proven by disassembly of a no-name mega8).
+     * bank 1 = page write (2 is reserved, see ServoUpgrade).
+     * If data is under 64B, the caller pads with zero first (the doc says
+     * pad with zero to 68 bytes).
      */
     public boolean updateMotorPage(byte servoId, int seq, byte[] data64) {
         if (servoId < 1 || servoId > 22) return false;
@@ -227,27 +245,31 @@ public final class DirectChestController {
         return port.send(RobotWire.CHEST_CMD_UPGRADE_MOTOR_PAGE, p);
     }
 
-    /** 讀胸板固件版本 cmd 51 */
+    /** Read chest firmware version, cmd 51 */
     public boolean readVersion() {
         return port.send(RobotWire.CHEST_READ_VERSION, null);
     }
 
-    /** 讀機器人 SN/UUID (chest EEPROM, cmd 55 CHEST_READ_SID_EEPROM)。
-     *  pure-direct 下取代經 alpha2services broadcast 查詢 (機身已無此 APK,
-     *  robot.requestRobotUUID() 發出的 broadcast 永遠無人回覆, 見 misc/request_uuid)。
-     *  無參數: 編碼後 wire 幀為 F8 8F 07 00 00 37 3E ED。回覆經 OnFrameListener
-     *  以 cmd=55 (0x37) 幀送回, 由 MainActivity.queryChestRobotUuid() 等待/解析。 */
+    /** Read the robot SN/UUID (chest EEPROM, cmd 55 CHEST_READ_SID_EEPROM).
+     *  Under pure-direct this replaces the alpha2services broadcast query
+     *  (the APK is no longer on the device, so the broadcast sent by
+     *  robot.requestRobotUUID() never gets a reply, see misc/request_uuid).
+     *  No parameter: the encoded wire frame is F8 8F 07 00 00 37 3E ED.
+     *  The reply comes back as a cmd=55 (0x37) frame via OnFrameListener,
+     *  waited on and parsed by MainActivity.queryChestRobotUuid(). */
     public boolean readSidEeprom() {
         return port.send(RobotWire.CHEST_READ_SID_EEPROM, null);
     }
 
-    /** 官方升級請求 ID（upgrade APK Alpha2SerialProtocol 请求一律 ID=1；
-     *  05 係 LAP 頭，升級誤用會令 MCU 回 NAK——之前假 success 即咁嚟）。 */
+    /** Official upgrade request ID (the upgrade APK Alpha2SerialProtocol
+     *  always uses ID=1. 05 is the LAP header. Misusing it makes the MCU
+     *  answer NAK, which caused the earlier fake success). */
     public static final byte UPGRADE_ID = 1;
 
-    /** 開始升級 chest：cmd 48 + 4B fileLen 大端（fileLen 必須 >0，負數編出嚟
-     *  MCU 會當巨文件，有變磚風險，直接拒）。index 須 1..127（官方 getUnusedIndex
-     *  從不用 0，ChestUpgrade 滾動分配）。 */
+    /** Start the chest upgrade: cmd 48 + 4-byte big-endian fileLen
+     *  (fileLen must be > 0. A negative value encodes as a huge file and
+     *  risks bricking the MCU, so it is refused). index must be 1..127 (the
+     *  official getUnusedIndex never uses 0. ChestUpgrade allocates rolling). */
     public boolean startUpdate(int fileLen, int index) {
         if (fileLen <= 0) return false;
         byte[] p = new byte[4];
@@ -259,7 +281,7 @@ public final class DirectChestController {
     }
 
     public boolean updatePage(byte[] pageData, int pageLen, int index) {
-        // pageLen 無檢查會 NegativeArraySize/OOM/arraycopy 越界，壞包直落 MCU。
+        // An unchecked pageLen causes NegativeArraySize/OOM/arraycopy out-of-bounds. Bad packets would reach the MCU.
         if (pageData == null || pageLen < 0 || pageLen > pageData.length) return false;
         if (pageLen == 0) return false;
         byte[] p = new byte[pageLen + 2];
@@ -274,7 +296,7 @@ public final class DirectChestController {
         return port.sendUpgrade(UPGRADE_ID, (byte) index, RobotWire.CHES_CMD_UPDATE_END, md5_16);
     }
 
-    /** 原始幀透傳（debug/serial/send、set_uuid、version fallback 用）。pure-direct 下取代 robot.chest_sendRawData。 */
+    /** Raw frame pass-through (used by debug/serial/send, set_uuid, version fallback). Under pure-direct this replaces robot.chest_sendRawData. */
     public boolean sendRaw(byte[] rawFrame) {
         return sendRaw(rawFrame, false);
     }
