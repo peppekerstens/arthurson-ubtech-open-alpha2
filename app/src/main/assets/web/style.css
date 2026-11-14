@@ -281,7 +281,7 @@ pre {
 .xiaozhi-msg-user .xiaozhi-msg-meta { color: rgba(255,255,255,0.85); }
 .xiaozhi-msg-assistant .xiaozhi-msg-meta { color: var(--muted); }
 
-/* MCP tool call card - follows the "🔧 工具呼叫" card style of the 「歷史對話」 screen in the
+/* MCP tool call card - follows the "🔧 Tool Call" card style of the "Chat History" screen in the
    xiaozhi.me console: a separate, centered card, wider than a normal chat bubble, so you see at
    once this is a protocol action, not chat text. */
 .xiaozhi-mcp-card { max-width: 92%; margin: 6px auto; border: 1px solid var(--border); border-radius: 10px;
@@ -379,7 +379,7 @@ pre {
   border-color: var(--sub-tab-color, var(--accent));
 }
 
-/* Second-level sub-category tabs (e.g. 移動類/手勢類/... within 基本) - visually one
+/* Second-level sub-category tabs (e.g. Movement/Gesture/... within Basic) - visually one
    step smaller/lighter than the main category tabs above them. Only populated when
    the active main category has sub-categories from action_classification.json. */
 .sub-sub-tab-bar {
