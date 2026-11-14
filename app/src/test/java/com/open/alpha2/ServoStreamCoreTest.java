@@ -422,6 +422,22 @@ public class ServoStreamCoreTest {
         eq(0L, f.core.moveForced(), "move.notForced");
         eq(0L, f.core.missedReads(), "move.noMissedReads");
 
+        // The same stream, but the writes skip writeBetweenCycles. Most of them land while
+        // the replies are due: this is the case the wait above removes (alpha2-rl#217).
+        final FakeEnv h = env();
+        h.replyDelayMs = 30;
+        h.core.start(new int[]{2, 3, 5, 6, 17, 18, 19, 20}, 20, 3000, false);
+        final AtomicInteger noWaitOverlaps = new AtomicInteger();
+        final AtomicInteger noWaitWrites = new AtomicInteger();
+        for (int i = 0; i < 20; i++) {
+            sleep(13 + (i % 5) * 7);
+            noWaitWrites.incrementAndGet();
+            if (System.nanoTime() < h.replyDueNs) noWaitOverlaps.incrementAndGet();
+        }
+        h.core.stop("move no-wait test");
+        eq(20, noWaitWrites.get(), "move.noWaitAllWritten");
+        eq(true, noWaitOverlaps.get() > 0, "move.overlapWithoutWait");
+
         // The limit: replies that never come (cycle waits 48 ms), a short limit. The write still goes out.
         final FakeEnv g = env();
         g.replyDelayMs = 300;
