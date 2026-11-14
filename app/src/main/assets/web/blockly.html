@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title data-i18n="page_title">Open Alpha2 — Blockly 積木編程</title>
+<title data-i18n="page_title">Open Alpha2 — Blockly Programming</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="blockly.css">
 </head>
@@ -12,42 +12,42 @@
 <div id="errorBanner" class="error-banner"></div>
 
 <header class="bk-header">
-  <a href="index.html" class="bk-back" data-i18n="page_back_title" data-i18n-attr="title" title="返回控制面板">←</a>
-  <h1 data-i18n="page_h1">🧩 Alpha2 積木編程</h1>
-  <span id="blocklyVersionBadge" class="bk-version-badge" data-i18n="page_version_badge_title" data-i18n-attr="title" title="Blockly library 版本 (核心 blockly_compressed.js + 標準 blocks_compressed.js)"></span>
+  <a href="index.html" class="bk-back" data-i18n="page_back_title" data-i18n-attr="title" title="Back to control panel">←</a>
+  <h1 data-i18n="page_h1">🧩 Alpha2 Blockly</h1>
+  <span id="blocklyVersionBadge" class="bk-version-badge" data-i18n="page_version_badge_title" data-i18n-attr="title" title="Blockly library version (core blockly_compressed.js + standard blocks_compressed.js)"></span>
   <span class="lang-toggle bk-lang-toggle">
     <button type="button" data-ui-lang-btn="zh" onclick="setUiLanguage('zh')">中文</button>
     <button type="button" data-ui-lang-btn="en" onclick="setUiLanguage('en')">English</button>
   </span>
   <div class="bk-header-status">
     <span id="wsStatusDot" class="run-status-dot idle"></span>
-    <span id="wsStatusText" data-i18n="page_ws_disconnected">WebSocket: 未連接</span>
+    <span id="wsStatusText" data-i18n="page_ws_disconnected">WebSocket: disconnected</span>
   </div>
 </header>
 
 <div class="bk-toolbar">
   <div class="bk-toolbar-group">
-    <button id="runBtn" class="bk-btn bk-btn-primary" onclick="AlphaBlockly.run()" data-i18n="page_run_btn">▶ 執行</button>
-    <button id="stopBtn" class="bk-btn bk-btn-danger" onclick="AlphaBlockly.stop()" disabled data-i18n="page_stop_btn">⏹ 停止</button>
+    <button id="runBtn" class="bk-btn bk-btn-primary" onclick="AlphaBlockly.run()" data-i18n="page_run_btn">▶ Run</button>
+    <button id="stopBtn" class="bk-btn bk-btn-danger" onclick="AlphaBlockly.stop()" disabled data-i18n="page_stop_btn">⏹ Stop</button>
     <span id="runStatusDot" class="run-status-dot idle"></span>
-    <span id="runStatusText" data-i18n="page_run_status_idle">閒置</span>
+    <span id="runStatusText" data-i18n="page_run_status_idle">Idle</span>
   </div>
 
   <div class="bk-toolbar-group">
-    <input id="saveNameInput" class="bk-input" placeholder="程式名稱" data-i18n="page_save_name_placeholder" data-i18n-attr="placeholder" style="width:120px">
-    <button class="bk-btn" onclick="doSaveNamed()" data-i18n="page_save_btn">💾 儲存</button>
+    <input id="saveNameInput" class="bk-input" placeholder="Program name" data-i18n="page_save_name_placeholder" data-i18n-attr="placeholder" style="width:120px">
+    <button class="bk-btn" onclick="doSaveNamed()" data-i18n="page_save_btn">💾 Save</button>
     <select id="savedProgramSelect" class="bk-input"></select>
-    <button class="bk-btn" onclick="doLoadNamed()" data-i18n="page_load_btn">📂 載入</button>
-    <button class="bk-btn bk-btn-danger-outline" onclick="doDeleteNamed()" data-i18n="page_delete_btn">🗑 刪除</button>
+    <button class="bk-btn" onclick="doLoadNamed()" data-i18n="page_load_btn">📂 Load</button>
+    <button class="bk-btn bk-btn-danger-outline" onclick="doDeleteNamed()" data-i18n="page_delete_btn">🗑 Delete</button>
   </div>
 
   <div class="bk-toolbar-group">
-    <button class="bk-btn" onclick="AlphaBlockly.exportXmlFile()" data-i18n="page_export_btn">⬇ 匯出 .xml</button>
+    <button class="bk-btn" onclick="AlphaBlockly.exportXmlFile()" data-i18n="page_export_btn">⬇ Export .xml</button>
     <label class="bk-btn bk-btn-file">
-      <span data-i18n="page_import_btn">⬆ 匯入 .xml</span>
+      <span data-i18n="page_import_btn">⬆ Import .xml</span>
       <input type="file" id="importFileInput" accept=".xml" style="display:none" onchange="onImportFile(this)">
     </label>
-    <button class="bk-btn bk-btn-danger-outline" onclick="onClearWorkspace()" data-i18n="page_clear_workspace_btn">🧹 清空畫布</button>
+    <button class="bk-btn bk-btn-danger-outline" onclick="onClearWorkspace()" data-i18n="page_clear_workspace_btn">🧹 Clear workspace</button>
   </div>
 </div>
 
@@ -59,15 +59,15 @@
       floating button (when expanded it straddles the canvas and panel edge, and the 32px
       gutter strip is gone). The arrow rotates by pure CSS with .bk-side-collapsed. -->
     <div class="bk-side-trigger" id="bkSideTrigger" onclick="toggleSidePanel()"
-      data-i18n="page_side_toggle_title" data-i18n-attr="title" title="收起/展開執行紀錄面板">
+      data-i18n="page_side_toggle_title" data-i18n-attr="title" title="Collapse/expand the run log panel">
       <svg viewBox="0 0 8 16" width="8" height="16"><path d="M7 1L1 8l6 7"/></svg>
     </div>
     <div class="bk-side-body">
     <div class="bk-side-header">
-      <h2 data-i18n="page_run_log_title">執行紀錄</h2>
+      <h2 data-i18n="page_run_log_title">Run log</h2>
       <div class="row">
-        <button class="bk-btn bk-btn-small" onclick="document.getElementById('runLog').innerHTML=''" data-i18n="page_clear_log_btn">清空</button>
-        <label class="bk-small-label"><input type="checkbox" id="runAutoScroll" checked> <span data-i18n="page_auto_scroll_label">自動捲動</span></label>
+        <button class="bk-btn bk-btn-small" onclick="document.getElementById('runLog').innerHTML=''" data-i18n="page_clear_log_btn">Clear</button>
+        <label class="bk-small-label"><input type="checkbox" id="runAutoScroll" checked> <span data-i18n="page_auto_scroll_label">Auto-scroll</span></label>
       </div>
     </div>
     <pre id="runLog" class="run-log"></pre>
