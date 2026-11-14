@@ -29,7 +29,10 @@ import java.util.Map;
  *   <li>Only the servos that answer cmd 0x17 are allowed (2, 3, 5, 6, 17 to 22). Other ids
  *       give 400 (alpha2-brain#29).</li>
  *   <li>A move of {@code servo/all} waits for the replies of the cycle in flight, and the next
- *       cycle waits for the move frame (alpha2-rl#217). See {@link #moveBetweenCycles}.</li>
+ *       cycle waits for the move frame (alpha2-rl#217). The servo bus is busy with the move
+ *       frame and its replies after the move write: a read cycle that starts in the settle
+ *       time after the move write is paused (paused_cycles), not missed (alpha2-rl#217).
+ *       See {@link #moveBetweenCycles}.</li>
  *   <li>It writes one frame batch for each cycle through {@code DirectSerialPort.sendRaw}, which is
  *       synchronized. Thus other chest frames (app commands, heartbeat handling) go out between
  *       two batches and never inside a frame.</li>
