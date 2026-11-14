@@ -10,35 +10,51 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * .ubx 動作播放器（pure-direct，clean-room）。
+ * .ubx motion player (pure-direct, clean-room).
  *
- * <p>播放語義按 1.1.7.3 smali 原文：
+ * <p>Play semantics follow the 1.1.7.3 smali original:
  * <pre>
- * f/i$a.run：每輪 sleep(i) 後 a/d.c(1) 前進 1 tick，其中 i = a/p.f() = static
- *   timeBase（type-0 塊第一個 int，單位 ms；a/p.b 只是循環 cap 上限，非周期）。
- * a/m.a(I)：tick 累加入 b；b &gt;= c 時切下一幀並即時發送。幀 i 槽位 = (b_i + c_i)
- *   tick（b()=start 為動作時長部，c()=end 為保持部）；發送 time 實參 = b_i * timeBase。
- * 發送包：胸 cmd 3 [20軸byte + short time]，angles[i] = LE32(e[i*8+8..+4]) &amp; 0xFF。
- * 例 tiny.ubx：槽 (20+10)+(20+40)+(20+10)=120 tick × 50ms = 6s。
- * 配樂（a/d type==4 → a/j/a/o，與舵機同一 unit clock 並行）：
- *   每 voice 幀槽位起：打斷上一首，起新 o$a 線程播 path = ubx去擴展名/music名；
- *   播至多 b*timeBase（自停），切幀/停止時打斷；pause 連歌同停。
+ * f/i$a.run: each round, after sleep(i), a/d.c(1) advances 1 tick, where i = a/p.f() =
+ *   static timeBase (the first int of the type-0 block, unit ms; a/p.b is only the
+ *   loop cap, not the period).
+ * a/m.a(I): tick accumulates into b; when b &gt;= c, switch to the next frame and send
+ *   immediately. Frame i slot = (b_i + c_i)
+ *   tick (b()=start is the motion duration part, c()=end is the hold part); send time
+ *   actual param = b_i * timeBase.
+ * Send packet: chest cmd 3 [20 axis bytes + short time], angles[i] = LE32(e[i*8+8..+4]) &amp; 0xFF.
+ * Example tiny.ubx: slots (20+10)+(20+40)+(20+10)=120 tick × 50ms = 6s.
+ * Music (a/d type==4 → a/j/a/o, in parallel with the servo on the same unit clock):
+ *   at each voice frame slot start: interrupt the previous track, start a new o$a thread
+ *   playing path = ubx minus extension / music name;
+ *   play at most b*timeBase (auto-stop), interrupt on frame switch / stop; pause stops
+ *   the music too.
  * </pre>
- * v1 簡化：
+ * v1 simplification:
  * <ul>
- *   <li>只播 a.d 鏈定時幀（servo 看 groupBytes&gt;0；d.f 關鍵幀表不發送）。</li>
- *   <li>幀序按官方鏈式次序（smali f/b.f＋f/c.a 實證：入口 (-1,0) 葉起，
- *       leaf.c 對 d/a.e 選段，v7 gate＋c==-2 終止，段完按出索引跟鏈；
- *       見 UbxParser.computePlayOrder）。撳唔出序先回退解析序。
- *       鏈終止（c==-2）即全動作完，後續 track 唔播；多 track 首尾相接；
- *       a.h/a.j 視窗偏移忽略。</li>
- *   <li>自然播完停喺尾格：唔加送任何修正幀，播乜就係乜（stop() 中斷同樣
- *       保持末位姿）。</li>
- *   <li>單調 deadline 調度，累計漂移消除；stop() 中斷雙線，舵機保持末位姿。</li>
- *   <li>變速（0.5/0.67/1/1.5/2，黏性）：舵機槽位與 move 時長同除以倍率；
- *       配樂 1x 走 MediaPlayer（即時起播），非 1x 走 decode+線性重採樣“磁帶式”
- *       變速（不變調，0.5x 低沉、2x 尖細，機身 API 22 無 PlaybackParams）。
- *       播緊途中改速由調用方停舊重播即時生效（player 內快照隔離進行中計劃）。</li>
+ *   <li>only play the a.d chain timed frames (servo by groupBytes&gt;0; the d.f keyframe
+ *   table is not sent).</li>
+ *   <li>frame order by the official chained order (proven by smali f/b.f + f/c.a: entry
+ *   from the (-1,0) leaf,
+ *       leaf.c selects the segment against d/a.e, v7 gate + c==-2 terminates, after a
+ *   segment follows the chain by the out index;
+ *       see UbxParser.computePlayOrder). Fall back to parse order when the order cannot
+ *   be derived.
+ *       Chain terminated (c==-2) means the whole action is done, no later track plays;
+ *   multiple tracks are head to tail;
+ *       a.h/a.j window offsets are ignored.</li>
+ *   <li>natural end stops at the last cell: send no correction frames, play what is
+ *   there (a stop() interrupt also
+ *       keeps the last pose).</li>
+ *   <li>monotonic deadline scheduling, cumulative drift removed; stop() interrupts both
+ *   lines, the servo keeps the last pose.</li>
+ *   <li>speed (0.5/0.67/1/1.5/2, sticky): the servo slot and move duration are both
+ *   divided by the factor;
+ *       music at 1x uses MediaPlayer (starts at once), non-1x uses decode + linear
+ *   resampling "tape-style"
+ *       speed (no pitch change, 0.5x low, 2x shrill, the robot API 22 has no
+ *   PlaybackParams).
+ *       A speed change mid-play takes effect at once, the caller stops the old and
+ *   replays (a snapshot inside the player isolates the in-flight plan).</li>
  * </ul>
  * </p>
  */
@@ -58,31 +74,31 @@ public final class UbxPlayer {
     private volatile String voiceSong = "";
     private android.media.MediaPlayer voicePlayer;
     private volatile VoiceStream curStream;
-    /** 命令位姿（最后一次成功 cmd3 的 20 轴；开机未动过则未知）。 */
+    /** Command pose (the 20 axes of the last successful cmd3; unknown if not moved since boot). */
     private final ServoPoseTracker poseTracker = new ServoPoseTracker();
 
-    /** 当前命令位姿拷贝；未知返回 null（调用方须如实报 unknown）。 */
+    /** Copy of the current command pose; returns null when unknown (the caller must report unknown as-is). */
     public int[] pose() { return poseTracker.snapshot(); }
 
     public boolean poseKnown() { return poseTracker.isKnown(); }
 
-    /** 外部 cmd3 发送成功后同步位姿（如 servo/all 直发）。 */
+    /** Sync the pose after an external cmd3 send succeeds (e.g. servo/all direct send). */
     public void notePose(int[] angles20) { poseTracker.update(angles20); }
 
-    /** 外部 cmd05 单发成功后同步嗰一軸位姿（如 servo/one 直发）。 */
+    /** Sync that one axis pose after an external cmd05 single send succeeds (e.g. servo/one direct send). */
     public void notePoseOne(int id, int angle) { poseTracker.updateOne(id, angle); }
 
-    /** 逐軸版位姿（未知嗰軸 null；servoAngleAllResponse 命令位姿榜用）。 */
+    /** Per-axis pose (an unknown axis is null; used by the servoAngleAllResponse command pose board). */
     public Integer[] poseBoxed() { return poseTracker.snapshotBoxed(); }
 
-    /** 流播路徑用：標記當前歌名（供 status），與 startVoiceLocked 對等。 */
+    /** For the stream path: mark the current song name (for status), equivalent to startVoiceLocked. */
     private synchronized void setVoiceSong(String s) { voiceSong = s != null ? s : ""; }
-    /** 變速倍率（黏性，作用於下次播放；播緊途中改只影響下一次）。 */
+    /** Speed factor (sticky, applies to the next play; a change mid-play only affects the next). */
     private volatile float speed = 1.0f;
 
     private static final float[] SPEEDS = new float[]{0.5f, 0.67f, 1.0f, 1.5f, 2.0f};
 
-    /** 設變速（僅 0.5/0.67/1/1.5/2 合法）；播緊時由調用方重播即時生效，返回是否接受。 */
+    /** Set speed (only 0.5/0.67/1/1.5/2 are legal); while playing, the caller replays for it to take effect at once, returns whether accepted. */
     public synchronized boolean setSpeed(float s) {
         for (float v : SPEEDS) {
             if (Math.abs(v - s) < 0.001f) {
@@ -96,28 +112,28 @@ public final class UbxPlayer {
 
     public float getSpeed() { return speed; }
 
-    /** 一幀的播放項：沿用官方 leaf-order 幀列，槽位與發送時長按 a.m 原文分別計算。 */
+    /** One frame's play item: follow the official leaf-order frame list, the slot and send duration are computed separately per the a.m original. */
     private static final class Slot {
         final UbxFile.UbxServoFrame sf;
-        final long slotMs;  // (start+end) * T：本幀槽位
-        final int moveMs;   // start * timeBase：cmd3 time 實參（解析器已預計算 moveTimeHintMs）
+        final long slotMs;  // (start+end) * T: this frame's slot
+        final int moveMs;   // start * timeBase: cmd3 time actual param (the parser pre-computed moveTimeHintMs)
         Slot(UbxFile.UbxServoFrame sf, long slotMs, int moveMs) {
             this.sf = sf; this.slotMs = slotMs; this.moveMs = moveMs;
         }
     }
 
-    /** voice 播放項：同 clock 下並行 schedule，起播/自停按 a/o 原文。 */
+    /** voice play item: schedule in parallel on the same clock, start/auto-stop per the a/o original. */
     private static final class VSong {
-        final long startMs; // 本槽起點（共享 clock 下偏移）
-        final long boundMs; // b*timeBase：mp3 自停上限
-        final File file;    // 已解析出的本地 mp3（null 表缺文件，槽照走）
+        final long startMs; // this slot's start (offset under the shared clock)
+        final long boundMs; // b*timeBase: mp3 auto-stop upper bound
+        final File file;    // the resolved local mp3 (null means the file is missing, the slot still runs)
         final String name;
         VSong(long startMs, long boundMs, File file, String name) {
             this.startMs = startMs; this.boundMs = boundMs; this.file = file; this.name = name;
         }
     }
 
-    /** T 回退：track.timeBaseMs &gt; 0 用它；否則用文件 timeBase；再否則 50。 */
+    /** T fallback: use track.timeBaseMs when &gt; 0; else the file timeBase; else 50. */
     static int resolveTickMs(UbxFile ubx, UbxFile.UbxTrack t) {
         int base = t != null ? t.timeBaseMs : -1;
         if (base <= 0 && ubx != null) base = ubx.timeBaseMs;
@@ -125,9 +141,9 @@ public final class UbxPlayer {
     }
 
     /**
-     * 官方 leaf-order 幀列（smali f/b.f 實證，見 UbxParser.computePlayOrder）。
-     * playOrder==null（無葉列）先回退解析序，行為同舊版一致；
-     * 空表＝官方指明唔播，跟播零格。
+     * Official leaf-order frame list (proven by smali f/b.f, see UbxParser.computePlayOrder).
+     * playOrder==null (no leaf list) first falls back to parse order, behavior same as the old version;
+     * an empty table = the official says do not play, follow by playing zero cells.
      */
     static List<UbxFile.UbxServoFrame> orderedFrames(UbxFile.UbxTrack t) {
         if (t == null) return new ArrayList<UbxFile.UbxServoFrame>();
@@ -145,8 +161,9 @@ public final class UbxPlayer {
     }
 
     /**
-     * 配樂文件解析（a/o.b(I) 原文）：path = ubx去擴展名/music名。
-     * music 精確命中優先，搵唔到退回目錄下第一首 *.mp3；無音樂返回 null（槽照走）。
+     * Music file resolution (a/o.b(I) original): path = ubx minus extension / music name.
+     * An exact music hit wins; when not found, fall back to the first *.mp3 in the
+     * directory; no music returns null (the slot still runs).
      */
     static File resolveVoiceFile(File ubxFile, String base, String music) {
         if (ubxFile == null || music == null || music.isEmpty()) return null;
@@ -168,14 +185,14 @@ public final class UbxPlayer {
         return null;
     }
 
-    /** 開始播放（已在播則返回 false）。ubxFile 供配樂尋址（null 則無聲）。 */
+    /** Start playing (returns false if already playing). ubxFile is for music addressing (null means no sound). */
     public synchronized boolean play(UbxFile ubx, String name, DirectChestController chest, File ubxFile) {
         if ((playThread != null && playThread.isAlive())
                 || (voiceThread != null && voiceThread.isAlive())) {
             lastError = "already playing " + currentName;
             return false;
         }
-        final float sp = speed; // 本次播放快照；途中改速不影響正在播的
+        final float sp = speed; // snapshot for this play; a mid-play speed change does not affect the one playing
         List<Slot> seq = new ArrayList<>();
         List<VSong> vsongs = new ArrayList<>();
         String base = name != null && name.endsWith(".ubx") ? name.substring(0, name.length() - 4) : name;
@@ -188,8 +205,10 @@ public final class UbxPlayer {
                         if (ubxFile == null) continue;
                         String music = sf.music != null ? sf.music : t.musicName;
                         File mf = resolveVoiceFile(ubxFile, base, music);
-                        // 配樂自停上限不鉗 30000（那是胸協議 move 的鉗位；歌可長達數分鐘，
-                        // 鉗了會提前腰斬——0.67x 下 69s bound 曾被誤殺成 30s）。
+                        // The music auto-stop upper bound is not clamped to 30000 (that
+                        // is the chest protocol move clamp; a song can run for minutes,
+                        // clamping it would cut it short - a 69s bound at 0.67x was once
+                        // wrongly killed to 30s).
                         long boundMs = scaleTime((long) sf.moveTimeHintMs, sp);
                         long slotMs = scaleTime((long) (sf.start + sf.end) * (long) tickMs, sp);
                         vsongs.add(new VSong(voiceElapsed, boundMs, mf,
@@ -197,13 +216,15 @@ public final class UbxPlayer {
                         voiceElapsed += slotMs;
                         continue;
                     }
-                    if (sf.groupBytes <= 0) continue; // d.f 關鍵幀表葉：只作位姿參考不發送
+                    if (sf.groupBytes <= 0) continue; // d.f keyframe table leaf: pose reference only, not sent
                     int moveMs = scaleTime(sf.moveTimeHintMs, sp);
                     long slotMs = scaleTime((long) (sf.start + sf.end) * (long) tickMs, sp);
                     seq.add(new Slot(sf, slotMs, moveMs));
                 }
-                // 鏈終止（c==-2，smali f/c.a completed 分支）：全動作完，
-                // 後續 track 唔播——前進/後退收步段就係咁被 skip（真機片實證）。
+                // Chain terminated (c==-2, smali f/c.a completed branch): the whole
+                // action is done,
+                // no later track plays - the forward/reverse step-retraction segment is
+                // skipped that way (proven by the real machine video).
                 if (t.chainTerminated) {
                     Log.i(TAG, "play " + name + " chain terminated after track "
                             + t.id + " (skipping later tracks)");
@@ -236,7 +257,7 @@ public final class UbxPlayer {
             playThread.start();
         }
         if (!vplan.isEmpty()) {
-            final float vsp = sp; // 配樂同舵機用同一個快照：播音起線前改速唔好聲畫分裂
+            final float vsp = sp; // the music and servo use the same snapshot: a speed change before the voice line starts keeps audio and video in sync
             voiceThread = new Thread(new Runnable() {
                 @Override public void run() { voiceLoop(vplan, vsp); }
             }, "ubx-voice");
@@ -249,7 +270,7 @@ public final class UbxPlayer {
         return true;
     }
 
-    /** 變速縮放：long 核心（配樂 bound/slot 用，不鉗）；int 版加鉗 [20,30000] 保胸協議。 */
+    /** Speed scaling: long core (for music bound/slot, not clamped); the int version adds the [20,30000] clamp to protect the chest protocol. */
     private static long scaleTime(long ms, float sp) {
         long v = Math.round(ms / (double) sp);
         return v < 0 ? 0 : v;
@@ -262,7 +283,7 @@ public final class UbxPlayer {
         return (int) v;
     }
 
-    /** 兼容舊三參（無聲版，配樂禁用）。 */
+    /** Compatible with the old three-param (no-sound version, music disabled). */
     public synchronized boolean play(UbxFile ubx, String name, DirectChestController chest) {
         return play(ubx, name, chest, null);
     }
@@ -277,13 +298,13 @@ public final class UbxPlayer {
                 for (int i = 0; i < 20; i++) angles[i] = s.sf.angles20[i] & 0xFF;
                 try {
                     if (chest.playAllServos(angles, (short) s.moveMs)) {
-                        poseTracker.update(angles); // 命令位姿追踪（成功发送才记）
+                        poseTracker.update(angles); // command pose tracking (record only on a successful send)
                     }
                 } catch (Exception e) {
                     Log.w(TAG, "send failed: " + e.getMessage());
                 }
                 framesSent++;
-                elapsed += s.slotMs; // 下一槽邊界（單調，不隨發送耗時漂移）
+                elapsed += s.slotMs; // next slot boundary (monotonic, does not drift with send time)
                 long wait = monoStart + elapsed - System.nanoTime() / 1000000L;
                 if (wait > 0) {
                     try {
@@ -293,9 +314,12 @@ public final class UbxPlayer {
                     }
                 }
             }
-            // 自然播完唔加送任何額外位姿：停喺 .ubx 尾格，播乜就係乜
-            //（曾試過補送 HOME 收尾，真機實證反而整出十字手，故成段唔要；
-            // 要回企直就手動再播一次蹲下站起 / SERVO 全組回中）。
+            // A natural end sends no extra pose: stop at the .ubx last cell, play what
+            // is there
+            // (a HOME was once tried to close out, the real machine proved it made a
+            // cross hand, so the whole thing is dropped;
+            // to stand straight, manually replay crouch-stand-up / SERVO all-group
+            // to center).
         } finally {
             Log.i(TAG, "play end " + currentName + " sent=" + framesSent + "/" + framesTotal);
         }
@@ -317,7 +341,7 @@ public final class UbxPlayer {
                 }
                 if (voiceStopReq || Thread.currentThread().isInterrupted()) break;
                 long nextStart = (i + 1 < plan.size()) ? plan.get(i + 1).startMs : Long.MAX_VALUE;
-                long playUntil = Math.min(v.startMs + v.boundMs, nextStart); // 自停或被下首打斷
+                long playUntil = Math.min(v.startMs + v.boundMs, nextStart); // auto-stop or interrupted by the next track
                 if (v.file == null || !v.file.isFile()) {
                     Log.w(TAG, "voice missing: " + v.name);
                 } else if (sp == 1.0f) {
@@ -337,7 +361,7 @@ public final class UbxPlayer {
                         curStream = null;
                         setVoiceSong("");
                     }
-                    continue; // 流播內已處理自停/打斷，直接下首
+                    continue; // the stream path already handled auto-stop/interrupt, go straight to the next
                 }
                 long wait2 = monoStart + playUntil - System.nanoTime() / 1000000L;
                 if (wait2 > 0) {
@@ -355,7 +379,7 @@ public final class UbxPlayer {
         }
     }
 
-    /** 起一首（打斷上一首；prepare 同步，無 looper 要求，與 o$a 一致）。 */
+    /** Start a track (interrupt the previous; prepare is synchronous, no looper requirement, same as o$a). */
     private synchronized void startVoiceLocked(VSong v) {
         stopVoiceLocked();
         voiceSong = "";
@@ -371,9 +395,11 @@ public final class UbxPlayer {
             mp.setOnCompletionListener(new android.media.MediaPlayer.OnCompletionListener() {
                 @Override public void onCompletion(android.media.MediaPlayer mpc) {
                     synchronized (UbxPlayer.this) {
-                        // 只 release 當前仍在用嗰個；舊歌已被 stopVoiceLocked
-                        // release 過就唔再掂（防雙 release native crash），
-                        // 已被新歌取代就唔好誤殺新 player。
+                        // release only the one still in use; the old track already
+                        // released by stopVoiceLocked
+                        // is not touched again (prevents a double release native crash),
+                        // if already replaced by a new track, do not wrongly kill the new
+                        // player.
                         if (voicePlayer == self) {
                             try { self.release(); } catch (Exception ignore) {
                                 // ignore
@@ -387,14 +413,14 @@ public final class UbxPlayer {
             mp.prepare();
             mp.start();
             voicePlayer = mp;
-            mp = null; // 已交接，catch 唔再 release
+            mp = null; // handed off, catch does not release again
             voiceSong = v.name;
             Log.i(TAG, "voice start " + v.name);
         } catch (Exception e) {
             Log.w(TAG, "voice failed " + v.name + ": " + e.getMessage());
             if (mp != null) {
                 try { mp.release(); } catch (Exception ignore) {
-                    // prepare/start 炸咗唔 release 會漏 native mediaplayer fd
+                    // if prepare/start blew up without release, a native mediaplayer fd leaks
                 }
             }
         }
@@ -409,7 +435,7 @@ public final class UbxPlayer {
             try {
                 voicePlayer.stop();
             } catch (Exception ignored) {
-                // 中途狀態 race，照 release，吞掉。
+                // mid-state race, release anyway, swallow it.
             }
             try {
                 voicePlayer.release();
@@ -420,8 +446,10 @@ public final class UbxPlayer {
         }
     }
 
-    /** join 唔可以喺鎖內做：voiceLoop 尾 finally 同 OnCompletion 都要同一把鎖，
-     * 揸住鎖 join 會同收尾線程互等（帶聲 stop 卡足 2s）。先快照、解鎖 join、再返嚟清。 */
+    /** join cannot be done inside the lock: the voiceLoop tail finally and OnCompletion
+     * both need the same lock,
+     * a join while holding the lock deadlocks with the finishing thread (a voiced stop
+     * hangs the full 2s). Snapshot first, unlock and join, then come back to clean up. */
     private static void joinQuietly(Thread t) {
         if (t == null) return;
         try {
@@ -431,14 +459,14 @@ public final class UbxPlayer {
         }
     }
 
-    /** 停止播放（中斷雙線，停歌，舵機保持末位姿）。 */
+    /** Stop playing (interrupt both lines, stop the music, the servo keeps the last pose). */
     public void stop() {
         final Thread pt;
         final Thread vt;
         synchronized (this) {
             stopReq = true;
             voiceStopReq = true;
-            // 先 abort 流（AudioTrack.write 阻塞時 interrupt 叫不醒，須 track.stop 鬆綁），再 join。
+            // abort the stream first (when AudioTrack.write blocks, interrupt cannot wake it, track.stop is needed to loosen it), then join.
             if (playThread != null) playThread.interrupt();
             if (voiceThread != null) voiceThread.interrupt();
             stopVoiceLocked();
@@ -454,7 +482,7 @@ public final class UbxPlayer {
         }
     }
 
-    /** 只停配樂（本地音樂等搶聲場景），舵機繼續。join 同樣唔可以喺鎖內（見 stop）。 */
+    /** Stop only the music (the local-music sound-steal scenario), the servo continues. join also cannot be inside the lock (see stop). */
     public void stopVoice() {
         final Thread vt;
         synchronized (this) {
@@ -485,7 +513,7 @@ public final class UbxPlayer {
 
     public String lastError() { return lastError; }
 
-    /** /api/ubx/status 直接用的 JSON（調用方包一層 ok 即成）。 */
+    /** JSON used directly by /api/ubx/status (the caller wraps one ok layer and it is done). */
     public synchronized String statusJson() {
         boolean playing = (playThread != null && playThread.isAlive())
                 || (voiceThread != null && voiceThread.isAlive());
