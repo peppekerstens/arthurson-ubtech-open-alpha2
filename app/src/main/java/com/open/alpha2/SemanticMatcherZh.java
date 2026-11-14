@@ -112,7 +112,6 @@ import android.content.Context;
  * device no longer uses permanently. Only the name was misleading. The
  * rename to SemanticMatcherZh removes that (behavior unchanged).
  */
- */
 public class SemanticMatcherZh extends SemanticMatcherBase {
     private static final String TAG = "SemanticMatcherZh";
     private static final String ASSET_PATH = "semantic/semantic_zh.json";
