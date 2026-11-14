@@ -328,6 +328,33 @@ public final class MotionGateTest {
         check(com.ubtechinc.alpha.hardware.ChestSafety.checkChestFrames(fShortBad, true) == null,
                 "short form, bad checksum: the sit-down check passes with allow_sit_down");
         check(gate.refusalForSerialSend("chest", fShortBad) != null, "gate off, a short-form frame with a bad checksum refused");
+        // More servo commands (alpha2-brain#130, firmware-re chest/V142/dispatch.md): refused
+        // with the gate off (also with head only), allowed with the gate on.
+        final int[] moreCmds = {0x0A, 0x0C, 0x23, 0x34, 0x4A, 0x4C, 0x53, 0x59};
+        for (int c : moreCmds) {
+            String nm = "cmd 0x" + Integer.toHexString(c);
+            gate = new MotionGate();
+            String w = gate.refusalForSerialSend("chest", chestFrame(c, 0x01, 0x02));
+            check(w != null && w.contains("motion_enabled"), "gate off, " + nm + " refused, text names the setting");
+            gate.setHeadOnlyEnabled(true);
+            check(gate.refusalForSerialSend("chest", chestFrame(c, 0x01, 0x02)) != null, "head only, " + nm + " refused");
+            check(gate.refusalForSerialSend("head", chestFrame(c, 0x01, 0x02)) == null, "head port, " + nm + " not checked");
+            gate.setMotionEnabled(true);
+            check(gate.refusalForSerialSend("chest", chestFrame(c, 0x01, 0x02)) == null, "gate on, " + nm + " allowed");
+            check(MotionGate.refusalWithoutGate("chest", chestFrame(c, 0x01, 0x02)) != null, "no gate, " + nm + " refused");
+        }
+        // Servo firmware write (D-197): refused also with the gate on.
+        for (int c : new int[]{0x10, 0x11}) {
+            String nm = "cmd 0x" + Integer.toHexString(c);
+            gate = new MotionGate();
+            gate.setMotionEnabled(true);
+            check(MotionGate.SERVO_FIRMWARE_REFUSAL.equals(gate.refusalForSerialSend("chest", chestFrame(c, 0x01, 0x02))),
+                    "gate on, " + nm + " (servo firmware) still refused");
+            check(MotionGate.SERVO_FIRMWARE_REFUSAL.equals(gate.refusalForSerialSend("chest", concat(fRead, chestFrame(c, 0x01)))),
+                    "gate on, " + nm + " inside a batch still refused");
+            check(MotionGate.refusalWithoutGate("chest", chestFrame(c, 0x01, 0x02)) != null, "no gate, " + nm + " refused");
+            check(gate.refusalForSerialSend("head", chestFrame(c, 0x01, 0x02)) == null, "head port, " + nm + " not checked");
+        }
         // The no-gate fallback (the defensive path of LedCenter): as strict as a gate
         // that allows nothing.
         check(MotionGate.refusalWithoutGate("chest", split) != null, "no gate, a split frame refused");
