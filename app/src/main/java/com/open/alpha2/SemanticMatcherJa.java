@@ -3,38 +3,51 @@ package com.open.alpha2;
 import android.content.Context;
 
 /**
- * 日文語意配對引擎 - 和 SemanticMatcherZh (中文版)／SemanticMatcherEn
- * (英文版)／SemanticMatcherEs (西班牙文版)／SemanticMatcherFr (法文版)
- * 同一套語意配對機制, 專門處理日文。
+ * Japanese semantic matching engine. Uses the same matching mechanism as
+ * SemanticMatcherZh (Chinese) / SemanticMatcherEn (English) /
+ * SemanticMatcherEs (Spanish) / SemanticMatcherFr (French). It handles
+ * Japanese only.
  *
- * 資料來源: assets/semantic/semantic_ja.json (v2 grouped 格式, 同其他語言同一個
- * schema - 見 SemanticMatcherBase.load())。85 ACTION (同西版同 op/actionId,
- * 通用日文答案 5 句＋jp800.txt 精選對白／歌詞／俚語按意配對，英文・中文句已剔除)
- * ＋200 日常 CHAT (ja.daily.001-200，每組 5 問法＋口語答案 5 句起，生活話題，
- * 中文版覆蓋為參照)。聽不懂 fallback 用 jp800 未配對剩句全池 (664 句，去重保序)，
- * 動作全 __RANDOM__ - 同 SemanticMatcherZh 的 fallback 做法一致。
+ * Data source: assets/semantic/semantic_ja.json (v2 grouped format, same
+ * schema as the other languages - see SemanticMatcherBase.load()).
+ * 85 ACTION (same op/actionId as the Spanish version, 5 generic Japanese
+ * answers plus matched dialogue/lyrics/slang picked from jp800.txt by
+ * meaning; English and Chinese sentences removed) plus 200 daily CHAT
+ * (ja.daily.001-200, each group has 5 question forms and 5 or more
+ * colloquial answers, everyday topics; the Chinese version is the
+ * reference). The fallback for unheard input uses the full pool of
+ * unmatched jp800 sentences (664 sentences, deduplicated, order kept).
+ * All actions are __RANDOM__ - same fallback approach as
+ * SemanticMatcherZh.
  *
- * 這個 class 只負責「文字 -> 配對結果」, 不負責執行 TTS/動作 - 跟著這個 project
- * 一貫的分層方式，執行那一步留給呼叫方 (SemanticCenter 的 handleSemanticMatch)
- * 做, 方便測試和重用。
+ * This class maps "text -> match result" only. It does not run TTS or
+ * actions. This follows the layering of this project. The caller
+ * (SemanticCenter.handleSemanticMatch) runs that step. This keeps
+ * testing and reuse easy.
  *
- * 只做日文 - 和其他語言版各自獨立, 沒在這個 class 裡加 language 參數
- * (因為機身 ASR 引擎本身一次只能選到一種語言, matcher 不會同時用）。
- * SemanticCenter.handleSemanticMatch() 根據對話語言／文字判斷結果, 選用哪一個。
- * 載入/比對/分類 random 的實際邏輯全部在 SemanticMatcherBase, 這裡只提供
- * 日文專屬的 TAG/assets 路徑/fallback 問法組。
+ * Japanese only. It stays separate from the other language versions.
+ * This class has no language parameter (the device ASR engine selects
+ * one language at a time, so the matcher never runs two languages at
+ * once). SemanticCenter.handleSemanticMatch() selects the matcher from
+ * the conversation language/text judgment. All load/compare/classify/
+ * random logic lives in SemanticMatcherBase. This class only provides
+ * the Japanese-specific TAG/asset path/fallback question group.
  *
- * Zero-third-party-dependency: 只用 org.json (Android 內建, 經 base class), 沒額外
- * library。
+ * Zero third-party dependencies: uses org.json only (built into Android,
+ * via the base class). No extra libraries.
  */
 public class SemanticMatcherJa extends SemanticMatcherBase {
     private static final String TAG = "SemanticMatcherJa";
     private static final String ASSET_PATH = "semantic/semantic_ja.json";
 
-    /** fallback 答句池 - jp800.txt 用剩的未配對句全數搬過嚟 (generated, 唔好手改；
-     *  要加減句請改 jp_raw_lines.json + semantic_ja.json 配對結果再 rerun)。
-     *  聽唔明就隨機噏一句，動作全部 __RANDOM__ (SemanticCenter 見到會即場由隨機
-     *  filler 池 60 個裡面選一個)，次次唔同 - 同 SemanticMatcherZh 的 fallback 做法一致。 */
+    /** Fallback answer pool - all unmatched leftover sentences from
+     *  jp800.txt (generated, do not edit by hand; to add or remove
+     *  sentences, edit jp_raw_lines.json + the semantic_ja.json pairing
+     *  result, then rerun). If the input is not understood, the robot
+     *  says one random sentence. All actions are __RANDOM__
+     *  (SemanticCenter picks one at runtime from a random filler pool of
+     *  60). Each time is different - same fallback approach as
+     *  SemanticMatcherZh. */
     private static final String[] FALLBACK_QUESTIONS = {
             "最後のキスは タバコのflavorがした 苦くて切ない香り",
             "縦の糸はあなた 横の糸は私 織りなす布は いつか誰かを 暖めうるかもしれない",
@@ -706,8 +719,9 @@ public class SemanticMatcherJa extends SemanticMatcherBase {
         super(context, TAG, ASSET_PATH, FALLBACK_QUESTIONS, randomActions());
     }
 
-    /** fallback 動作全部 __RANDOM__：幾多答句就幾多個位，SemanticCenter
-     *  見到呢個標記會即場隨機選動作 (見 ActionDirect.resolveRandomActionId())。 */
+    /** All fallback actions are __RANDOM__: one slot per answer sentence.
+     *  When SemanticCenter sees this marker it picks a random action at
+     *  runtime (see ActionDirect.resolveRandomActionId()). */
     private static String[] randomActions() {
         String[] a = new String[FALLBACK_QUESTIONS.length];
         for (int i = 0; i < a.length; i++) {

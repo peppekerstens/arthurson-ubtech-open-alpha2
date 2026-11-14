@@ -3,84 +3,129 @@ package com.open.alpha2;
 import android.content.Context;
 
 /**
- * 中文語意配對引擎 - 由「悠聊」(UbtechIflytekMix, com.ubtech.iflytekmix) 這個原廠 APK
- * 反編譯還原回來的本地問法/答案/動作對照表, 目的是完全取代悠聊, 讓 OpenAlpha2 自己都
- * 認得「聽到一句話 -> 決定說什麼 + 做什麼動作」, 不用再靠悠聊那個 package。
+ * Chinese semantic matching engine. A local question/answer/action table
+ * restored by decompiling the OEM APK YouLiao (UbtechIflytekMix,
+ * com.ubtech.iflytekmix). The goal is to replace YouLiao completely, so
+ * OpenAlpha2 itself maps "heard a sentence -> decide what to say + what
+ * action to do" without relying on the YouLiao package.
  *
- * 資料來源: 悠聊 APK 的 assets/local_semantic (一份 XLS 問法對照表, 850 條問法) 經
- * androguard 反編譯 + 人手核對 202_actions_classified.txt 之後轉出來的
- * assets/semantic/semantic_zh.json (2026-09 起 v2 grouped 格式:
- * {"version":2,"lang":"zh","intents":[{"id","type","op","slot","actionId",
- * "a":答案句,"qs":問法陣列}]}, 同 intent 共用同一組答案/動作, 免重複 -
- * 詳見該 JSON 檔頭註解/對話 history, 載入邏輯見 SemanticMatcherBase.load())。
- *  2026-09 追加 ZH+157 CHAT (zh.mix.001-157: 電影／名言／歌／潮語打散混合
- *  785 句，每組書面語問法＋5 個繁體原生答案，來自 cn800.txt，已存在
- *  11 句剔除＋湊整 4 句；問法全部係 toTraditional 定點，簡繁輸入都中)。
- *  2026-09 日常重建: 508 個舊 CHAT 全刪, 新建 zh.daily.001-200
- *  (每組繁體書面語 5 問法＋5 個答案: 001-040 問候天氣、041-080 飲食、
- *  081-120 家庭家居寵物、121-160 工作學習健康、161-200 休閒旅行日常;
- *  同英法西日版一樣，200 日常組動作全 __RANDOM__ (fallback 60 池，
- *  播嗰刻先 resolve，同 fallback 做法一致)。72 ACTION 對齊英文版
- *  改到 85 組 (id/op/actionId 全同英文版一致, slot 清一色 None；問法≥5
- *  (原表同組多行變體保留, 未刪)、答案≥5；笑面併入 express、雙手併入
-  *  handsup.3；答案沿用原有通用句)；13 FUNCTION (要求外的 beginconnect/connect/sleep 已刪)。
- *  cn800 (電影／名言／歌詞／潮語各 200) 啱意境的 119 句按意配入 70 個日常組
- *  答案 (18 句暴力／粗口／陰暗／純英文剔除唔用)；剩低 662 句全入下面
- *  fallback (舊 265 句池丟棄)；對白尾巴普通話翻譯括號＋潮語解釋括號已剝走，
- *  免 TTS 讀兩次。
- *  2026-09 chinese_5849 (5849 句中英電影對白／名言／歌詞) 重配一次：
- *  關鍵詞規則配入 935 句（數量不限，最大組 150 句），47 句粗口／威脅／
- *  自殺／謀殺／槍械／純英文剔除，剩低 4860 句重寫 fallback（舊 662 句池
- *  丟棄）；57 處尾巴括號全剝、3 處簡體字修正。
- * 每個 intent 內:
- *   q      - 用戶問法 (例如 "跳舞", "你好嗎")
- *   a      - 候選答案句 (0~3句, 隨機選一句做 TTS; 部分 FUNCTION 類沒答案句)
- *   type   - ACTION (有動作) | FUNCTION (系統操作, 例如音量/連線) | CHAT (日常對答, 動作 __RANDOM__)
- *   op     - 悠聊原本的 operation 代號 (例如 "DANCE"), ACTION/FUNCTION 才有
- *   slot   - 方向/情緒等參數 (例如 "LEFT"), 只有部分 ACTION 有
- *   actionId - 已經由 operation+slot 對應好的、202 動作清單裡面的真實 action id
- *              (也就是 xiaozhi_actions.json 那 202 個裡面其中一個), 只有 ACTION 才有。
-  *              兩種特殊值: "__RANDOM__" (TFBOY 這類沒固定動作, 隨機 filler 池 60 個裡面隨便選一個
- *              - 見 resolveRandomActionId()); "__RANDOM_CATEGORY__<key>" (2026-08 新增
- *              - 用戶說到分類名但沒說出具體哪個動作, 例如「跳舞」「玩個瑜伽」, 要在
- *              那個分類裡面隨機選一個 - 見 resolveCategoryRandomActionId())
+ * Data source: the XLS question table in the YouLiao APK's
+ * assets/local_semantic (850 question lines) was converted with an
+ * androguard decompile plus a manual check of 202_actions_classified.txt
+ * into assets/semantic/semantic_zh.json (from 2026-09 in v2 grouped
+ * format: {"version":2,"lang":"zh","intents":[{"id","type","op","slot",
+ * "actionId","a":answer lines,"qs":question array}]}; the same intent
+ * shares one answer/action group, no duplication - see the JSON header
+ * comment and the conversation history; the load logic is in
+ * SemanticMatcherBase.load()).
+ *  2026-09: added ZH+157 CHAT (zh.mix.001-157: film / quotes / songs /
+ *  slang mixed together, 785 lines, each group has written-form question
+ *  lines plus 5 native Traditional Chinese answers, from cn800.txt; 11
+ *  existing lines removed plus 4 added to round out the groups; all
+ *  question lines are anchored with toTraditional, so both Simplified
+ *  and Traditional input match).
+ *  2026-09 daily rebuild: all 508 old CHAT groups deleted, new
+ *  zh.daily.001-200 (each group has 5 written-form Traditional question
+ *  lines plus 5 answers: 001-040 greetings and weather, 041-080 food and
+ *  drink, 081-120 home and pets, 121-160 work, study and health,
+ *  161-200 leisure, travel and daily life; like the English, French,
+ *  Spanish and Japanese versions, all 200 daily group actions are
+ *  __RANDOM__ (pool of 60, resolved at play time, same approach as the
+ *  fallback)). 72 ACTION groups aligned with the English version,
+ *  changed to 85 groups (id/op/actionId all identical to the English
+ *  version, slot all None; questions >=5 (multi-line variants of the
+ *  original table kept, not removed), answers >=5; smile-face merged
+ *  into express, two-hands merged into handsup.3; answers reuse the
+ *  existing generic lines); 13 FUNCTION (beginconnect/connect/sleep
+ *  outside the requirement are already removed).
+ *  From cn800 (200 each of film / quotes / lyrics / slang), 119 lines
+ *  that fit the mood are matched by meaning into the answers of 70 daily
+ *  groups (18 lines of violence / swearing / dark content / pure English
+ *  removed). The remaining 662 lines all go into the fallback below (the
+ *  old pool of 265 lines is discarded); the trailing Mandarin-translation
+ *  brackets and slang-explanation brackets are stripped so TTS does not
+ *  read them twice.
+ *  2026-09: chinese_5849 (5849 lines of Chinese-English film dialogue /
+ *  quotes / lyrics) was matched again: keyword rules matched in 935 lines
+ *  (no limit on the count, largest group 150 lines), 47 lines of
+ *  swearing / threats / suicide / murder / firearms / pure English
+ *  removed, the remaining 4860 lines rewritten into the fallback (the
+ *  old pool of 662 lines discarded); 57 trailing brackets all stripped,
+ *  3 Simplified-character fixes.
+ * Within each intent:
+ *   q      - user question line (for example "跳舞", "你好嗎")
+ *   a      - candidate answer lines (0 to 3 lines, one is picked at
+ *            random for TTS; some FUNCTION types have no answer line)
+ *   type   - ACTION (has an action) | FUNCTION (system operation, for
+ *            example volume/connection) | CHAT (daily dialogue, action
+ *            __RANDOM__)
+ *   op     - the original YouLiao operation code (for example "DANCE"),
+ *            only ACTION/FUNCTION have it
+ *   slot   - direction/mood parameters (for example "LEFT"), only some
+ *            ACTION have it
+ *   actionId - the real action id from the 202-action list, already
+ *              mapped from operation+slot (that is, one of the 202 in
+ *              xiaozhi_actions.json), only ACTION have it.
+ *              Two special values: "__RANDOM__" (things like TFBOY have
+ *              no fixed action, one is picked at random from a filler
+ *              pool of 60 - see resolveRandomActionId());
+ *              "__RANDOM_CATEGORY__<key>" (added 2026-08 - the user
+ *              names a category but not a concrete action, for example
+ *              "跳舞" or "玩個瑜伽"; one is picked at random within that
+ *              category - see resolveCategoryRandomActionId())
  *
- * 分類 random (__RANDOM_CATEGORY__): 202 個動作本身分成 5 大類 17 個子分類 (見用戶
- * 提供的 202_actions_classified.txt), 目標是「說到具體動作名就直接做那個, 只說到
- * 分類名 (例如「瑜伽」「跳舞」「講故事」) 就在那類裡面隨機選一個」, 三層 fallback:
- * 具體動作名 (原有 32 operation) > 子分類 (例如 DANCE_KIDS) > 大分類 (例如
- * DANCE_ANY)。分類 -> action id pool 的對照表存在
- * assets/semantic/action_category_pools.json, 由 SemanticMatcherBase 讀入。
+ * Category random (__RANDOM_CATEGORY__): the 202 actions themselves are
+ * split into 5 main categories and 17 subcategories (see the user-
+ * provided 202_actions_classified.txt). Goal: a concrete action name
+ * triggers that action directly; only a category name (for example
+ * "瑜伽", "跳舞", "講故事") picks one at random within that category.
+ * Three-level fallback: concrete action name (the original 32 operations)
+ * > subcategory (for example DANCE_KIDS) > main category (for example
+ * DANCE_ANY). The category -> action id pool table is in
+ * assets/semantic/action_category_pools.json, read by
+ * SemanticMatcherBase.
  *
- * 這個 class 只負責「文字 -> 配對結果」, 不負責執行 TTS/動作 - 跟著這個 project
- * 一貫的分層方式 (就像 resolveActionId() 只負責解析、不負責 call
- * robot.action_PlayActionName() 那樣), 執行那一步留給呼叫方 (SemanticCenter 的
- * handleSemanticMatch) 做, 方便測試和重用。
+ * This class maps "text -> match result" only. It does not run TTS or
+ * actions. This follows the layering of this project (just like
+ * resolveActionId() only resolves and does not call
+ * robot.action_PlayActionName()). The caller (SemanticCenter.
+ * handleSemanticMatch) runs that step. This keeps testing and reuse
+ * easy.
  *
- * 只做中文 - 英文 ASR 引擎那邊已經另有 SemanticMatcherEn 用另一份
- * semantic_en.json, 不在這個 class 裡加 language 參數 (因為機身 ASR 引擎
- * 本身一次只能選到一種語言, 兩個 matcher 不會同時用)。載入/比對/分類 random 的實際
- * 邏輯 (和英文版逐字相同) 全部在 SemanticMatcherBase, 這裡只提供中文專屬的
- * TAG/assets 路徑/fallback 問法組 (2026-09 抽出共用 base 前, 這個 class 和
- * SemanticMatcherEn 是兩份幾乎逐字重複的完整實作)。
+ * Chinese only. The English ASR engine side already has
+ * SemanticMatcherEn with its own semantic_en.json, so this class has no
+ * language parameter (the device ASR engine selects one language at a
+ * time, the two matchers never run at once). All load/compare/category-
+ * random logic (word for word identical to the English version) lives in
+ * SemanticMatcherBase. This class only provides the Chinese-specific
+ * TAG/asset path/fallback question group (before the shared base was
+ * extracted in 2026-09, this class and SemanticMatcherEn were two
+ * nearly word-for-word duplicated complete implementations).
  *
- * Zero-third-party-dependency: 只用 org.json (Android 內建, 經 base class), 沒額外
- * library。
+ * Zero third-party dependencies: uses org.json only (built into Android,
+ * via the base class). No extra libraries.
  *
- * 命名備註: 2026-09 之前這個 class 叫 IflytekSemanticMatcher - 個名純粹歷史原因
- * (問法資料最初由 iFlytek APK 反編譯還原), 同機身已經永久不再用的 Nuance/iFlytek
- * binder TTS/ASR 引擎完全沒有關係, 僅個名容易誤導。改名為 SemanticMatcherZh
- * 消除這個誤導 (功能行為完全不變)。
+ * Naming note: before 2026-09 this class was called
+ * IflytekSemanticMatcher - the name is purely historical (the question
+ * data was first restored from an iFlytek APK decompile). It has no
+ * connection to the Nuance/iFlytek binder TTS/ASR engines that the
+ * device no longer uses permanently. Only the name was misleading. The
+ * rename to SemanticMatcherZh removes that (behavior unchanged).
  */
 public class SemanticMatcherZh extends SemanticMatcherBase {
     private static final String TAG = "SemanticMatcherZh";
     private static final String ASSET_PATH = "semantic/semantic_zh.json";
 
-    /** fallback 答句池 - cn800.txt 用剩的未配對句全數搬過嚟 (generated, 唔好手改；
-     *  要加減句請改 chinese_raw_lines.json + semantic_zh.json 配對結果再 rerun；
-     *  舊 265 句台詞池唔要；黑幫暴力/粗口/死亡陰暗/中英混雜句已剔除，唔入池)。
-     *  聽唔明就隨機噏一句，動作全部 __RANDOM__ (SemanticCenter 見到會即場由隨機
-     *  filler 池 60 個裡面選一個)，次次唔同 - 同英法西日版的 fallback 做法一致。 */
+    /** Fallback answer pool - all unmatched leftover lines from
+     *  cn800.txt (generated, do not edit by hand; to add or remove
+     *  lines, edit chinese_raw_lines.json + the semantic_zh.json
+     *  pairing result, then rerun; the old pool of 265 lines is not
+     *  used; mafia-violence / swearing / death-dark / mixed
+     *  Chinese-English lines are removed, not put in the pool). If the
+     *  input is not understood, the robot says one random line. All
+     *  actions are __RANDOM__ (SemanticCenter picks one at runtime from
+     *  a filler pool of 60). Each time is different - same fallback
+     *  approach as the English, French, Spanish and Japanese versions. */
     private static final String[] FALLBACK_QUESTIONS = {
             "坦白說，親愛的，我一點也不在乎。",
             "我會給他一個他無法拒絕的條件。",
@@ -4948,8 +4993,9 @@ public class SemanticMatcherZh extends SemanticMatcherBase {
         super(context, TAG, ASSET_PATH, FALLBACK_QUESTIONS, randomActions());
     }
 
-    /** fallback 動作全部 __RANDOM__：幾多答句就幾多個位，SemanticCenter
-     *  見到呢個標記會即場隨機選動作 (見 ActionDirect.resolveRandomActionId())。 */
+    /** All fallback actions are __RANDOM__: one slot per answer sentence.
+     *  When SemanticCenter sees this marker it picks a random action at
+     *  runtime (see ActionDirect.resolveRandomActionId()). */
     private static String[] randomActions() {
         String[] a = new String[FALLBACK_QUESTIONS.length];
         for (int i = 0; i < a.length; i++) {

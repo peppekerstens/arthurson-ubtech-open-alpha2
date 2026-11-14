@@ -3,37 +3,47 @@ package com.open.alpha2;
 import android.content.Context;
 
 /**
- * 韓文語意配對引擎 - 和 SemanticMatcherZh (中文版)／SemanticMatcherEn
- * (英文版)／SemanticMatcherEs (西班牙文版)／SemanticMatcherFr (法文版)／
- * SemanticMatcherJa (日文版) 同一套語意配對機制, 專門處理韓文。
+ * Korean semantic matching engine. Uses the same matching mechanism as
+ * SemanticMatcherZh (Chinese) / SemanticMatcherEn (English) /
+ * SemanticMatcherEs (Spanish) / SemanticMatcherFr (French) /
+ * SemanticMatcherJa (Japanese). It handles Korean only.
  *
- * 骨架：assets/semantic/semantic_ko.json 目前有 85 ACTION (id/op/slot/actionId
- * 全同英文版；每組韓文 5 問法＋5 答案，答句 해요體) ＋200 日常 CHAT
- * (ko.daily.001-200，每組 5 問法＋5 答案：001-040 問候天氣、041-080 飲食、
- * 081-120 家庭家居寵物、121-160 工作學習健康、161-200 休閒旅行日常；
- * 動作全 __RANDOM__)。
- * ko800（電影／名言／歌詞／潮語各 200）啱意境的已按意配入日常組答案
- * （每組最多加 3 句）；61 句暴力／粗口／陰暗／純英文剔除唔用；
- * 剩低 490 句全入下面 fallback，動作全 __RANDOM__（60 池）。
+ * Skeleton: assets/semantic/semantic_ko.json currently has 85 ACTION
+ * (id/op/slot/actionId all the same as the English version; each group
+ * has 5 Korean question forms plus 5 answers, in the polite hae-yo
+ * style) plus 200 daily CHAT (ko.daily.001-200, each group has 5
+ * question forms plus 5 answers: 001-040 greetings and weather,
+ * 041-080 food and drink, 081-120 home and pets, 121-160 work, study
+ * and health, 161-200 leisure, travel and daily life; all actions are
+ * __RANDOM__).
+ * From ko800 (200 each of film / quotes / lyrics / slang), the lines
+ * that fit the mood are matched by meaning into the daily group
+ * answers (at most 3 lines per group). 61 lines of violence / swearing
+ * / dark content / pure English were removed. The remaining 490 lines
+ * all go into the fallback below, all actions __RANDOM__ (pool of 60).
  *
- * 這個 class 只負責「文字 -> 配對結果」, 不負責執行 TTS/動作 - 跟著這個 project
- * 一貫的分層方式，執行那一步留給呼叫方 (SemanticCenter 的 handleSemanticMatch)
- * 做, 方便測試和重用。
+ * This class maps "text -> match result" only. It does not run TTS or
+ * actions. This follows the layering of this project. The caller
+ * (SemanticCenter.handleSemanticMatch) runs that step. This keeps
+ * testing and reuse easy.
  *
- * 只做韓文 - 和其他語言版各自獨立, 沒在這個 class 裡加 language 參數
- * (因為機身 ASR 引擎本身一次只能選到一種語言, matcher 不會同時用）。
- * SemanticCenter.handleSemanticMatch() 根據對話語言／文字判斷結果, 選用哪一個。
- * 載入/比對/分類 random 的實際邏輯全部在 SemanticMatcherBase, 這裡只提供
- * 韓文專屬的 TAG/assets 路徑/fallback 問法組。
+ * Korean only. It stays separate from the other language versions.
+ * This class has no language parameter (the device ASR engine selects
+ * one language at a time, so the matcher never runs two languages at
+ * once). SemanticCenter.handleSemanticMatch() selects the matcher from
+ * the conversation language/text judgment. All load/compare/classify/
+ * random logic lives in SemanticMatcherBase. This class only provides
+ * the Korean-specific TAG/asset path/fallback question group.
  *
- * Zero-third-party-dependency: 只用 org.json (Android 內建, 經 base class), 沒額外
- * library。
+ * Zero third-party dependencies: uses org.json only (built into Android,
+ * via the base class). No extra libraries.
  */
 public class SemanticMatcherKo extends SemanticMatcherBase {
     private static final String TAG = "SemanticMatcherKo";
     private static final String ASSET_PATH = "semantic/semantic_ko.json";
 
-    /** 骨架：fallback 空池（內容後加；base.fallback() 空池回 null，唔 crash）。 */
+    /** Skeleton: fallback pool is empty (content added later;
+     *  base.fallback() returns null for an empty pool, no crash). */
     private static final String[] FALLBACK_QUESTIONS = {
             "지나간 일에 눈물을 흘리지 마라.",
             "너 자신을 먼저 구해라.",
@@ -531,8 +541,9 @@ public class SemanticMatcherKo extends SemanticMatcherBase {
         super(context, TAG, ASSET_PATH, FALLBACK_QUESTIONS, randomActions());
     }
 
-    /** fallback 動作全部 __RANDOM__：幾多答句就幾多個位，SemanticCenter
-     *  見到呢個標記會即場隨機選動作 (見 ActionDirect.resolveRandomActionId())。 */
+    /** All fallback actions are __RANDOM__: one slot per answer sentence.
+     *  When SemanticCenter sees this marker it picks a random action at
+     *  runtime (see ActionDirect.resolveRandomActionId()). */
     private static String[] randomActions() {
         String[] a = new String[FALLBACK_QUESTIONS.length];
         for (int i = 0; i < a.length; i++) {

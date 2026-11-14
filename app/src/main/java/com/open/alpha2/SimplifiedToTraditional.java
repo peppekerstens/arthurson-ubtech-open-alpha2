@@ -4,25 +4,32 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 簡體轉繁體的單字對照表 - 純粹用來 normalize ASR 辨識結果的輸入文字, 讓
- * SemanticMatcherZh/SemanticMatcherEn 的問法比對不會因為 ASR 引擎輸出簡體字
- * (例如 "你的爸爸是谁啊") 而和 database 裡面的繁體問法
- * (semantic_zh.json 全部書面繁體中文) 配對不中。用戶已確認: 文字輸入
- * (真人說話/打字模擬) 需要繁簡兩種都認得到, 但 TTS 文字輸出只要繁體。
+ * Single-character table to convert Simplified Chinese to Traditional
+ * Chinese. This table normalizes the ASR input text. The database
+ * (semantic_zh.json) holds Traditional Chinese questions. If the ASR
+ * engine outputs Simplified characters (for example "你的爸爸是谁啊"), the
+ * match in SemanticMatcherZh or SemanticMatcherEn fails.
  *
- * 用途只是「輸入 normalize」, 不涉及 TTS 輸出 - database 本身的答案句已經是繁體,
- * match() 命中之後直接取回 e.answers/e.q 這些原文, 完全不經這個 class, 保證輸出
- * 一定是繁體, 不會因為這個轉換表被逆用而變成簡體。
+ * The user confirmed: text input (speech of a real person or typed
+ * input) must accept both scripts. TTS output needs Traditional only.
  *
- * 資料來源: OpenCC (https://github.com/BYVoid/OpenCC) 的
- * data/dictionary/STCharacters.txt, 只挑單字對單字 (排除多字詞組) 的部分,
- * 每個簡體字挑第一個 (OpenCC 排第一, 即最常用) 候選繁體字 - 這個用途只是要
- * match 得中, 不需要追求語意上最精準的字, 單字級對照已經夠用。額外排除了
- * BMP 範圍以外 (code point > U+FFFF) 的生僻/異體字 pair, 因為 Java char 本身
- * 只有 16-bit, 這些字對這個用途 (常用對話問法比對) 完全用不到。Apache-2.0 授權。
+ * This table normalizes input only. It does not touch TTS output. The
+ * database answers are already Traditional. After match() finds a match,
+ * the app returns the original e.answers or e.q lines. These lines never
+ * pass through this table, so the output stays Traditional.
  *
- * Zero-third-party-dependency, 和 project 一貫做法一致 - 純 Java 內建 HashMap,
- * 不引入整個 OpenCC library (Android 5.1 這台機器不需要詞組級別的轉換精度)。
+ * Data source: OpenCC (https://github.com/BYVoid/OpenCC), file
+ * data/dictionary/STCharacters.txt. This table keeps only
+ * single-character pairs. It drops multi-character word groups. For each
+ * Simplified character, the table takes the first Traditional candidate
+ * of OpenCC (the most common character). A match is enough. Exact
+ * meaning is not needed. The table also drops rare characters outside
+ * the BMP (code point > U+FFFF). A Java char is 16-bit. These characters
+ * are not needed to match common dialogue questions. Apache-2.0 license.
+ *
+ * No third-party dependencies, in line with the project. This class uses
+ * the built-in Java HashMap. The full OpenCC library is not needed. This
+ * Android 5.1 device does not need word-group-level conversion precision.
  */
 final class SimplifiedToTraditional {
 
