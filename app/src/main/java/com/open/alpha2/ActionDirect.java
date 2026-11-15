@@ -425,12 +425,11 @@ public final class ActionDirect {
         motionGate = gate;
     }
 
-    /** The refusal text, or null when the gate allows a whole action. Logs a refusal. */
+    /** The refusal text, or null when the gate allows a whole action. Logs a refusal.
+     *  The choice is in the pure function PlayRefusal (alpha2-brain#144), so a plain
+     *  Java test can run it. */
     private String playRefusal(String what) {
-        MotionGate g = motionGate;
-        String why = (g == null)
-                ? "Motion is refused: " + what + " has no motion gate."
-                : g.refusalForWholeBody(what);
+        String why = PlayRefusal.refusalForPlay(motionGate, what);
         if (why != null) Log.w("MotionGate", "refused: " + why);
         return why;
     }
@@ -557,6 +556,27 @@ public final class ActionDirect {
      *  What XiaoZhi passes is an action name in human language (Chinese/English); fuzzy match
      *  here finds the id of the real body file. */
     public SonarCenter.McpResult mcpPlayAction(org.json.JSONObject arguments) {
+        // Motion gate (alpha2-brain#144): the whole choice is in the pure function
+        // PlayRefusal.route, so a plain Java test can run it (PlayRefusalTest). The
+        // refusal text goes to the LLM, and it can say the motion is off. With the
+        // gate on the result is unchanged (playActionDirect keeps its own gate check).
+        return PlayRefusal.route(motionGate, "play_action",
+                new PlayRefusal.Refused<SonarCenter.McpResult>() {
+                    public SonarCenter.McpResult apply(String why) {
+                        Log.w("MotionGate", "refused: " + why);
+                        return SonarCenter.McpResult.err(why);
+                    }
+                },
+                new PlayRefusal.Play<SonarCenter.McpResult>() {
+                    public SonarCenter.McpResult get() {
+                        return mcpPlayActionBody(arguments);
+                    }
+                });
+    }
+
+    /** The play part of mcpPlayAction; the gate choice is in PlayRefusal.route
+     *  (alpha2-brain#144). */
+    private SonarCenter.McpResult mcpPlayActionBody(org.json.JSONObject arguments) {
         String actionName = arguments.optString("name", "");
         if (actionName.isEmpty()) {
             return SonarCenter.McpResult.missingArg("name");
@@ -589,8 +609,27 @@ public final class ActionDirect {
         return new SonarCenter.McpResult(!MainActivity.isOk(code), String.valueOf(code));
     }
 
-    /** Body of self.robot.play_random_action (forwarded by XiaozhiBridge). */
+    /** Body of self.robot.play_random_action (forwarded by XiaozhiBridge).
+     *  Motion gate (alpha2-brain#144): the whole choice is in the pure function
+     *  PlayRefusal.route, like mcpPlayAction. */
     public SonarCenter.McpResult mcpPlayRandomAction() {
+        return PlayRefusal.route(motionGate, "play_random_action",
+                new PlayRefusal.Refused<SonarCenter.McpResult>() {
+                    public SonarCenter.McpResult apply(String why) {
+                        Log.w("MotionGate", "refused: " + why);
+                        return SonarCenter.McpResult.err(why);
+                    }
+                },
+                new PlayRefusal.Play<SonarCenter.McpResult>() {
+                    public SonarCenter.McpResult get() {
+                        return mcpPlayRandomActionBody();
+                    }
+                });
+    }
+
+    /** The play part of mcpPlayRandomAction; the gate choice is in PlayRefusal.route
+     *  (alpha2-brain#144). */
+    private SonarCenter.McpResult mcpPlayRandomActionBody() {
         String randomId = resolveRandomActionId();
         if (randomId == null) {
             return SonarCenter.McpResult.err("no random-movement actions available");
