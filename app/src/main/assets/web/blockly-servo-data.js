@@ -1,13 +1,13 @@
-// Open Alpha2 — Blockly 專用伺服馬達分組/校準資料。
+// Open Alpha2 — servo group and calibration data for the Blockly page.
 //
-// 這份資料刻意同 app-core.js 的 SERVO_CALIBRATION / SERVO_NAMES / SERVO_GROUPS 保持
-// 完全一致 (見 app-core.js 「Servo calibration」段落的註解: min/max/home 值來自實機
-// 用「二代舵機校準軟件 1.0.0.4」量出來的硬件校準, 不是 SDK 協定原生值, 換過機
-// 就要重新量)。獨立開一份而不直接 include app-core.js, 是因為 blockly.html 不想拉埋
-// 整個控制面板的 DOM/事件邏輯做依賴 —— 這個分頁本身就設計成可以獨立開來用
-// (見 blockly-page.js 檔頭註解)。
+// This data deliberately matches SERVO_CALIBRATION / SERVO_NAMES / SERVO_GROUPS
+// in app-core.js exactly (see the "Servo calibration" notes there: the min/max/home
+// values come from real units measured with the "Gen-2 servo calibration software
+// 1.0.0.4", which is hardware calibration, not SDK-native values, so a new unit
+// needs a new measurement). It is kept separate instead of including app-core.js
+// because blockly.html must not pull in the whole control panel (this tab is designed to stand alone).
 //
-// ⚠ 如果之後在「伺服」分頁 (app-servo.js) 重新量過校準值, 這裡都要跟著手動同步一次。
+// ⚠ If the Servo tab (app-servo.js) re-measures calibration, sync this file by hand too.
 
 (function () {
   const SERVO_CALIBRATION = {
@@ -33,8 +33,8 @@
     20: { min: 105, max: 155, home: 120 },
   };
 
-  // 20 顆伺服馬達的顯示名, 中英對照直接跟 app-core.js 的 SERVO_NAMES (主控制面板
-  // 「伺服」分頁正在用那份) 保持一致, 不重新譯一次, 避免兩邊用詞不夾。
+  // Display names of the 20 servos, copied from SERVO_NAMES in app-core.js (the
+  // copy the Servo tab of the main panel uses), so the two sides never drift apart.
   const SERVO_NAMES = {
     1:  { zh: '右肩上下', en: 'R Shoulder Pitch' },
     2:  { zh: '右肩左右', en: 'R Shoulder Roll' },
@@ -57,10 +57,10 @@
     19: { zh: '頭左右',   en: 'Head Yaw' },
     20: { zh: '頭上下',   en: 'Head Pitch' },
   };
-  // 顯示用: 取回當前語言的馬達名。t() call time 計值, 每次 call 都會跟著
-  // window.getUiLanguage() 取回最新語言 (不是 module-level 計死一次) ——
-  // 同 blockly-blocks.js 個 LED_COLOURS/LED_PRESETS_HEAD 之前中招的陷阱一樣,
-  // 這個 helper 本身不 cache 結果, 僅在實際拿名那一刻先讀字典。
+  // For display: get the motor name in the current language. t() evaluates at
+  // call time, so each call re-reads window.getUiLanguage() (not a fixed
+  // module-level value — the same trap that caught LED_COLOURS/LED_PRESETS_HEAD
+  // in blockly-blocks.js). This helper caches nothing and reads the dictionary per call.
   function servoDisplayName(id) {
     const entry = SERVO_NAMES[id];
     if (!entry) return (window.t ? window.t('servo_name_fallback', { id: id }) : ('Servo ' + id));
@@ -68,18 +68,18 @@
     return lang === 'zh' ? entry.zh : entry.en;
   }
 
-  // 分組: 頭 / 右手 / 左手 / 右腳 / 左腳 (跟 app-core.js SERVO_GROUPS 一致), 每組一個
-  // 顏色, 令 Blockly 分類、以及個 block 本身的顏色都可以直接遵循這個分組。
-  // ⚠ label 這個 field 僅內部參考用, 沒有任何地方讀它來做顯示 (搜索過整個
-  // blockly-*.js 確認) —— 顯示用的分組名由 blockly-blocks-i18n-data.js 的
-  // servo_group_head/right_arm/left_arm/right_leg/left_leg 這幾個 key 提供
-  // (跟 t() 做 i18n), 不是這裡的 label。保留 label 純粹方便看 code 對得上邊組。
+  // Groups: head / right arm / left arm / right leg / left leg (same as
+  // SERVO_GROUPS in app-core.js), one colour per group, so the Blockly category
+  // and the block itself follow the grouping. ⚠ The label field is internal
+  // reference only: no code reads it for display (verified across all
+  // blockly-*.js). Display group names come from the
+  // servo_group_head/right_arm/left_arm/right_leg/left_leg keys in blockly-blocks-i18n-data.js via t(). This label only helps a reader match groups.
   const SERVO_GROUPS = [
-    { key: 'head',      label: '頭',  icon: '🧠', ids: [19, 20],             colour: '#7c3aed' },
-    { key: 'right-arm', label: '右手', icon: '💪', ids: [1, 2, 3, 17],       colour: '#2563eb' },
-    { key: 'left-arm',  label: '左手', icon: '💪', ids: [4, 5, 6, 18],       colour: '#0891b2' },
-    { key: 'right-leg', label: '右腳', icon: '🦵', ids: [7, 8, 9, 10, 11],   colour: '#ea580c' },
-    { key: 'left-leg',  label: '左腳', icon: '🦵', ids: [12, 13, 14, 15, 16], colour: '#16a34a' },
+    { key: 'head',      label: 'Head',  icon: '🧠', ids: [19, 20],             colour: '#7c3aed' },
+    { key: 'right-arm', label: 'R Arm', icon: '💪', ids: [1, 2, 3, 17],       colour: '#2563eb' },
+    { key: 'left-arm',  label: 'L Arm', icon: '💪', ids: [4, 5, 6, 18],       colour: '#0891b2' },
+    { key: 'right-leg', label: 'R Leg', icon: '🦵', ids: [7, 8, 9, 10, 11],   colour: '#ea580c' },
+    { key: 'left-leg',  label: 'L Leg', icon: '🦵', ids: [12, 13, 14, 15, 16], colour: '#16a34a' },
   ];
 
   function groupOfServoId(id) {

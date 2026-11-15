@@ -70,6 +70,46 @@ public final class ApiValidatorTest {
         }
     }
 
+    private static byte[] frame(int cmd, int... payload) {
+        int len = 7 + payload.length;
+        byte[] out = new byte[len + 1];
+        out[0] = (byte) 0xF8; out[1] = (byte) 0x8F; out[2] = (byte) len; out[3] = 0x05; out[4] = 0x00;
+        out[5] = (byte) cmd;
+        for (int i = 0; i < payload.length; i++) out[6 + i] = (byte) payload[i];
+        int sum = 0;
+        for (int i = 2; i < len - 1; i++) sum += out[i] & 0xFF;
+        out[len - 1] = (byte) sum;
+        out[len] = (byte) 0xED;
+        return out;
+    }
+
+    private static byte[] shortFrame(int cmd, int... payload) {
+        int len = 1 + payload.length;
+        byte[] out = new byte[len + 5];
+        out[0] = (byte) 0xF8; out[1] = (byte) 0x8F; out[2] = (byte) len; out[3] = (byte) cmd;
+        for (int i = 0; i < payload.length; i++) out[4 + i] = (byte) payload[i];
+        int sum = 0;
+        for (int i = 2; i < out.length - 2; i++) sum += out[i] & 0xFF;
+        out[out.length - 2] = (byte) sum;
+        out[out.length - 1] = (byte) 0xED;
+        return out;
+    }
+
+    private static byte[] concat(byte[]... parts) {
+        int n = 0;
+        for (byte[] p : parts) n += p.length;
+        byte[] out = new byte[n];
+        int o = 0;
+        for (byte[] p : parts) { System.arraycopy(p, 0, out, o, p.length); o += p.length; }
+        return out;
+    }
+
+    private static String hex(byte[] b) {
+        StringBuilder sb = new StringBuilder();
+        for (byte x : b) { if (sb.length() > 0) sb.append(' '); sb.append(String.format("%02x", x & 0xFF)); }
+        return sb.toString();
+    }
+
     public static void main(String[] args) {
         // ── 基礎 ──
         eq("v", ApiValidator.require(q("k", "v"), "k"), "require.ok");
@@ -275,6 +315,123 @@ public final class ApiValidatorTest {
         eq(120, ApiValidator.clampServoAngle(17, 120), "clamp.17mid");
         eq(0, ApiValidator.clampServoAngle(99, -5), "clamp.unknownLow");
         eq(255, ApiValidator.clampServoAngle(0, 999), "clamp.unknownHigh");
+
+        // ── servo id list (servo/stream/start) ──
+        final int[] defIds = {2, 3, 5};
+        eq("[2, 3, 5]", java.util.Arrays.toString(ApiValidator.optionalServoIdList(q(), "ids", defIds, 22)), "ids.default");
+        eq("[2, 17, 20]", java.util.Arrays.toString(ApiValidator.optionalServoIdList(q("ids", "20, 2,17,2"), "ids", defIds, 22)), "ids.sortUnique");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalServoIdList(q("ids", "0"), "ids", defIds, 22); } }, "ids.zero");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalServoIdList(q("ids", "23"), "ids", defIds, 22); } }, "ids.high");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalServoIdList(q("ids", "a,b"), "ids", defIds, 22); } }, "ids.bad");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalServoIdList(q("ids", ",,"), "ids", defIds, 22); } }, "ids.empty");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalServoIdList(q("ids", "1,2,3"), "ids", defIds, 2); } }, "ids.tooMany");
+
+        // ── chest "Sit down" guard (alpha2-brain#24, same rules as alpha2-python e98d6d1) ──
+        eq(true, ApiValidator.requireChestServoPower(q("on", "1")), "sit.servoPower.on");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestServoPower(q("on", "0")); } }, "sit.servoPower.off.refused");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestServoPower(q("on", "0", "allow_sit_down", "false")); } }, "sit.servoPower.off.false");
+        eq(false, ApiValidator.requireChestServoPower(q("on", "0", "allow_sit_down", "true")), "sit.servoPower.off.allowed");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestServoPower(q("on", "0", "allow_sit_down", "1")); } }, "sit.servoPower.off.flagOne");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestServoPower(q("on", "2")); } }, "sit.servoPower.range");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestServoPower(q("on", "0", "allow_sit_down", "yes")); } }, "sit.servoPower.badFlag");
+        // allow_sit_down is strict: the openapi spec declares type boolean
+        // (openapi/open-alpha2-openapi.yml), so only "true" and "false" are accepted.
+        eq(true, ApiValidator.optionalAllowSitDown(q("allow_sit_down", "true")), "sit.flag.true");
+        eq(false, ApiValidator.optionalAllowSitDown(q("allow_sit_down", "false")), "sit.flag.false");
+        eq(false, ApiValidator.optionalAllowSitDown(q()), "sit.flag.missing");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalAllowSitDown(q("allow_sit_down", "1")); } }, "sit.flag.one");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalAllowSitDown(q("allow_sit_down", "0")); } }, "sit.flag.zero");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalAllowSitDown(q("allow_sit_down", "TRUE")); } }, "sit.flag.upper");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalAllowSitDown(q("allow_sit_down", "")); } }, "sit.flag.empty");
+        eq(false, ApiValidator.requireChestPowerSaveEnter(q("enter", "0")), "sit.powerSave.leave");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireChestPowerSaveEnter(q("enter", "1")); } }, "sit.powerSave.enter.refused");
+        eq(true, ApiValidator.requireChestPowerSaveEnter(q("enter", "1", "allow_sit_down", "true")), "sit.powerSave.enter.allowed");
+
+        // raw frames: F8 8F LEN SRC DST CMD PAYLOAD CHK ED (CHK = sum LEN..PAYLOAD)
+        final byte[] f19off = frame(0x19, 0x00);
+        final byte[] f19on = frame(0x19, 0x01);
+        final byte[] f19empty = frame(0x19);
+        final byte[] f40enter = frame(0x40, 0x01, 0x01);
+        final byte[] f40enterOne = frame(0x40, 0x01);
+        final byte[] f40leave = frame(0x40, 0x00, 0x00);
+        final byte[] f40empty = frame(0x40);
+        final byte[] fRead = frame(0x06, 0x03);
+        eq("f8 8f 08 05 00 19 00 26 ed", hex(f19off), "sit.frame.layout"); // alpha2-python test frame
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", f19off); } }, "sit.raw.19off");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", f19empty); } }, "sit.raw.19empty");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", f40enter); } }, "sit.raw.40enter");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", f40enterOne); } }, "sit.raw.40enterOne");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", f40empty); } }, "sit.raw.40empty");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, f19off)); } }, "sit.raw.batchSecond");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", concat(new byte[]{0x00, (byte) 0xF8}, f19off)); } }, "sit.raw.junkBefore");
+        // the legacy short form F8 8F LEN CMD PAYLOAD CHK ED (LEN counts CMD)
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", shortFrame(0x19, 0x00)); } }, "sit.raw.short19off");
+        // allowed
+        int okBefore = failed;
+        ApiValidator.checkSerialSendSitDown(q(), "chest", f19on);
+        ApiValidator.checkSerialSendSitDown(q(), "chest", f40leave);
+        ApiValidator.checkSerialSendSitDown(q(), "chest", fRead);
+        ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, f19on, f40leave));
+        ApiValidator.checkSerialSendSitDown(q(), "chest", new byte[0]);
+        ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "chest", f19off);
+        ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "chest", f40enter);
+        ApiValidator.checkSerialSendSitDown(q(), "head", f19off); // head cmd 0x19 is another command
+        // alpha2-brain#60 N-1: a bad allow_sit_down gives a 400 on every port, head included.
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "1"), "head", f19off); } }, "sit.raw.head.badFlagOne");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "yes"), "head", f19off); } }, "sit.raw.head.badFlagYes");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q("allow_sit_down", ""), "head", f19off); } }, "sit.raw.head.badFlagEmpty");
+        // a valid flag on port=head still does not check the frames
+        ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "false"), "head", f19off);
+        ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "head", f19off);
+        eq(okBefore, failed, "sit.raw.allowed");
+        // alpha2-brain#25: whole frames only. Nobody checked that the chest firmware drops a
+        // frame with a bad checksum, so the guard refuses it.
+        final byte[] badSum = f19off.clone();
+        badSum[badSum.length - 2] ^= 0x01;
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", badSum); } }, "sit.raw.badChecksum");
+        final byte[] badSum40 = f40enter.clone();
+        badSum40[badSum40.length - 2] ^= 0x01;
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", badSum40); } }, "sit.raw.badChecksum40");
+        final byte[] badSumRead = fRead.clone();
+        badSumRead[badSumRead.length - 2] ^= 0x01;
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", badSumRead); } }, "sit.raw.badChecksumRead");
+        final byte[] badTail = f19off.clone();
+        badTail[badTail.length - 1] = 0x00;
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", badTail); } }, "sit.raw.badTail");
+        final byte[] badLen = f19off.clone();
+        badLen[2] = 0x09; // LEN says one more byte than the data has
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", badLen); } }, "sit.raw.badLength");
+        // a frame split over two debug/serial/send calls: each part is refused
+        final byte[] partA = java.util.Arrays.copyOfRange(f19off, 0, 6);  // F8 8F 08 05 00 19
+        final byte[] partB = java.util.Arrays.copyOfRange(f19off, 6, 9);  // 00 26 ED
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", partA); } }, "sit.split.first");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", partB); } }, "sit.split.second");
+        final byte[] onlyF8 = new byte[]{(byte) 0xF8};
+        final byte[] restAfterF8 = java.util.Arrays.copyOfRange(f19off, 1, 9);
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", onlyF8); } }, "sit.split.onlyF8");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", restAfterF8); } }, "sit.split.after8F");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", new byte[]{(byte) 0xF8, (byte) 0x8F}); } }, "sit.raw.headerOnly");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, partA)); } }, "sit.split.afterGoodFrame");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, new byte[]{0x01})); } }, "sit.raw.junkAfter");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.checkSerialSendSitDown(q(), "chest", concat(new byte[]{0x00}, partA)); } }, "sit.split.afterPadding");
+        // the opt-in sends the bytes without a check; the head port has no check
+        int okBefore2 = failed;
+        ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "chest", partA);
+        ApiValidator.checkSerialSendSitDown(q("allow_sit_down", "true"), "chest", badSum);
+        ApiValidator.checkSerialSendSitDown(q(), "head", partA);
+        ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, fRead, fRead));
+        ApiValidator.checkSerialSendSitDown(q(), "chest", concat(fRead, new byte[]{0x00})); // set_uuid form
+        ApiValidator.checkSerialSendSitDown(q(), "chest", concat(new byte[]{0x00, 0x00}, fRead, new byte[]{0x00}, fRead));
+        eq(okBefore2, failed, "sit.whole.allowed");
+        eq(null, com.ubtechinc.alpha.hardware.ChestSafety.checkWholeFrames(new byte[0]), "sit.whole.empty");
+        eq(null, com.ubtechinc.alpha.hardware.ChestSafety.checkWholeFrames(
+                new byte[]{(byte) 0xF8, (byte) 0x8F, 0x07, 0x00, 0x00, 0x33, 0x3A, (byte) 0xED}), "sit.whole.versionFrame");
+        eq(null, com.ubtechinc.alpha.hardware.ChestSafety.checkWholeFrames(shortFrame(0x06, 0x03)), "sit.whole.short");
+        eq(null, com.ubtechinc.alpha.hardware.ChestSafety.checkCommand(0x19, new byte[]{1}), "sit.cmd.19on");
+        eq(com.ubtechinc.alpha.hardware.ChestSafety.SIT_DOWN_19,
+                com.ubtechinc.alpha.hardware.ChestSafety.checkCommand(0x19, new byte[]{0}), "sit.cmd.19off");
+        eq(com.ubtechinc.alpha.hardware.ChestSafety.SIT_DOWN_40,
+                com.ubtechinc.alpha.hardware.ChestSafety.checkCommand(0x40, new byte[]{1, 0}), "sit.cmd.40enter");
 
         // ── 回應 helpers ──
         eq(true, ApiValidator.okTrue().body.contains("\"ok\":true"), "okTrue.body");

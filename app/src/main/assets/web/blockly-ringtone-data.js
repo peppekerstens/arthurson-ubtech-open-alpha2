@@ -1,17 +1,17 @@
-// Open Alpha2 — Android 系統內置鈴聲清單 (靜態資料)。
+// Open Alpha2 — built-in Android system ringtone list (static data).
 //
-// 資料來源: 實機 adb 執行 `content query --uri content://media/internal/audio/media
-// --projection _id:title:_data --where "is_ringtone=1" --sort "title"` (電話) 同
-// `--where "is_notification=1"` (通知) 抓出來的完整清單 (2026-08 抓取, 97 個電話鈴聲 +
-// 73 個通知鈴聲)。
+// Source: on a real unit, adb `content query --uri content://media/internal/audio/media
+// --projection _id:title:_data --where "is_ringtone=1" --sort "title"` (phone), plus
+// `--where "is_notification=1"` (notification), captured in 2026-08: 97 phone
+// ringtones and 73 notification sounds.
 //
-// ⚠️ 這裡僅存 title (不存 index/position/_id) —— 之前版本用 index (RingtoneManager
-// cursor 的 0-based position) 做靜態清單, 但 index 排序是否真正穩定跨機一致從未驗證過
-// (content query 手動 --sort "title" 的次序, 不保證同 RingtoneManager 內部 cursor 排序
-// 一樣)。App 本身相機分頁的快門聲/停止提示音 (playShutterCue/playStopCue) 一早就正在用
-// 「用 title 找回 Uri 播」這個做法 (見 MainActivity.findRingtoneByTitle()), 不靠 index,
-// 已經驗證穩陣, 所以這裡遵循一致做法: 選 title, 送去新增的 /api/audio/ringtones/play_by_title
-// (帶 type + title), 由 app 那邊自己用 findRingtoneByTitle() 查回 Uri, 完全不用理 index。
+// ⚠️ Only titles are stored here (no index/position/_id). An older version used
+// the index (0-based RingtoneManager cursor position), but that order was never
+// proven stable across units: the manual `--sort "title"` order here does not
+// guarantee the internal cursor order. The app camera tab already plays sounds
+// by title (playShutterCue/playStopCue, see MainActivity.findRingtoneByTitle()),
+// and that is proven safe, so this file follows it: send type + title to
+// /api/audio/ringtones/play_by_title and the app resolves the Uri itself. No index.
 
 (function () {
   window.ALPHA_RINGTONE_TITLES = {

@@ -10,28 +10,29 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * 純 Java 顏色 blob 追蹤：零額外依賴（唔用 TFLite／OpenCV／ML Kit，用戶定案）。
+ * Pure Java color blob tracking: zero extra dependencies (no TFLite/OpenCV/ML Kit, user decision).
  *
- * 鏈路：{@link CameraController} 連續預覽 JPEG 幀 → 本類按 intervalMs 抽樣 →
- * 背景線程 downscale 到 160x120（16:9 預覽 → 160x90）→ 逐像素 RGB→HSV 閾值
- * （hue wrap-aware，預設紅色 335°-25°）→ 最大連通 blob（flood fill）取質心 →
- * 歸一化偏移 dx/dy → 死區＋比例步進驅動頭部 yaw(19)/pitch(20) 跟色
- * （cmd05 單舵機，經 {@link UbxApi}）。
+ * Pipeline: {@link CameraController} continuous preview JPEG frames → this class samples every intervalMs →
+ * background thread downscales to 160x120 (16:9 preview → 160x90) → per-pixel RGB→HSV thresholding
+ * (hue wrap-aware, default red 335°-25°) → largest connected blob (flood fill) centroid →
+ * normalized offset dx/dy → deadband + proportional step drives head yaw(19)/pitch(20) color following
+ * (cmd05 single servo, via {@link UbxApi}).
  *
- * 點解唔使 ROI（同 FaceTrackCenter 分叉之處）：160x120 全圖逐像素 HSV＋flood fill
- * 喺 RK3288 上係個位數 ms，直接每幀全圖掃，ROI 省唔到嘢，反而多套狀態要維護。
- * 預設 200ms 掃一次（CPU 幾乎零感），跟到色自動轉 100ms（autoInterval）。
+ * Why no ROI (the fork point from FaceTrackCenter): per-pixel HSV + flood fill on the full 160x120 image
+ * takes a few ms on the RK3288, so scanning the full image every frame directly; an ROI would save nothing
+ * and add a second state to maintain. Default scan every 200ms (CPU nearly invisible); when color is found,
+ * automatically switch to 100ms (autoInterval).
  *
- * 互斥：同 FaceTrackCenter 爭同一對頭舵機，兩邊唔可以齊行——互斥放
- * {@link CameraApi} 層（start 一邊即停另一邊），本類唔識對方存在。
- * 人臉 WS 同理 mute：一律唔經 EventBus，只留 HTTP status 輪詢＋前端 overlay。
- * status 形狀刻意同 face/track/status 對齊（running／fx/fy/fw/fh／confidence／
- * effectiveIntervalMs／config／servo），前端同一個畫框邏輯食得落。
+ * Mutual exclusion: competes with FaceTrackCenter for the same head servos; both cannot run at once - the
+ * exclusion lives in the {@link CameraApi} layer (starting one side stops the other); this class is unaware
+ * of the other's existence. Face WS muted the same way: never through EventBus, only HTTP status polling
+ * + front-end overlay. The status shape is deliberately aligned with face/track/status (running/fx/fy/fw/fh/
+ * confidence/effectiveIntervalMs/config/servo) so the front-end's one box-drawing logic handles both.
  */
 public final class ColorTrackCenter {
     private static final String TAG = "ColorTrackCenter";
 
-    /** 頭部舵機：19 yaw（左右）、20 pitch（上下），範圍與前端校準表一致（見 app-core.js SERVO_CALIBRATION）。 */
+    /** Head servos: 19 yaw (left-right), 20 pitch (up-down); ranges match the front-end calibration table (see SERVO_CALIBRATION in app-core.js). */
     public static final int PAN_ID = 19;
     public static final int TILT_ID = 20;
     public static final int PAN_MIN = 75;
@@ -46,44 +47,44 @@ public final class ColorTrackCenter {
     public static final int DEFAULT_STEP_DEG = 17;
     public static final float DEFAULT_DEADBAND = 0.10f;
     public static final int DEFAULT_TIME_MS = 400;
-    /** 預設跟紅色：hue 335°→25°（wrap）、飽和＋明度門檻去背影／白光。 */
+    /** Default follows red: hue 335°→25° (wrap); saturation + brightness thresholds remove background/white light. */
     public static final float DEFAULT_H_MIN = 335f;
     public static final float DEFAULT_H_MAX = 25f;
     public static final float DEFAULT_S_MIN = 0.45f;
-    /** 飽和度上限（預設 1.0 即唔限；白色 preset 用 0.25 去彩色，只留低飽和白／灰白）。 */
+    /** Saturation upper limit (default 1.0 = unlimited; the white preset uses 0.25 to remove color, keeping only low-saturation white/grayish white). */
     public static final float DEFAULT_S_MAX = 1.0f;
     public static final float DEFAULT_V_MIN = 0.25f;
     public static final float DEFAULT_V_MAX = 1.0f;
     public static final int DEFAULT_MIN_PIXELS = 80;
-    // ── 行路跟（預設全關，要用 opt-in；手段＝播內建 .ubx，fileId／名／檔名皆可，見 ActionDirect）──
-    /** 行路跟總開關（預設 false：淨個頭跟，唔行；開＝偏就轉向、遠就行前、近就企定）。 */
+    // ── Walk follow (all off by default, opt-in required; means = play built-in .ubx, fileId/name/file-name all work, see ActionDirect)──
+    /** Walk-follow master switch (default false: head-only follow, no walking; on = turn when offset, step forward when far, stand still when close). */
     public static final boolean DEFAULT_WALK_FOLLOW = false;
-    /** 轉向死區（|dx| 超過先轉，預設 0.35；同頭死區 0.10 分開，身體郁大步過頭）。 */
+    /** Turn deadband (turn only when |dx| exceeds it, default 0.35; separate from the head deadband 0.10, body steps bigger than head). */
     public static final float DEFAULT_TURN_DB = 0.35f;
-    /** 夠近覆蓋率（blob／全圖，預設 0.12；大過即企定唔行，淨個頭瞄）。 */
+    /** Close-enough coverage (blob/full image, default 0.12; above it stands still and does not walk, only the head aims). */
     public static final float DEFAULT_CLOSE_COVERAGE = 0.12f;
-    /** 行路動作（fileId，見 blockly-actions-data.js 移動類；可用 config 換名／檔名）。 */
-    public static final String DEFAULT_WALK_FWD = "1508999860568"; // 前進
-    public static final String DEFAULT_WALK_LEFT = "1464835936047"; // 左轉
-    public static final String DEFAULT_WALK_RIGHT = "1464835936041"; // 右轉
-    /** 偵測圖寬鎖 160（高跟預覽比例：4:3→120，16:9→90），全圖掃都係個位數 ms。 */
+    /** Walk actions (fileId, see the movement class in blockly-actions-data.js; config can swap name/file-name). */
+    public static final String DEFAULT_WALK_FWD = "1508999860568"; // forward
+    public static final String DEFAULT_WALK_LEFT = "1464835936047"; // turn left
+    public static final String DEFAULT_WALK_RIGHT = "1464835936041"; // turn right
+    /** Detection image width locked at 160 (height follows the preview ratio: 4:3→120, 16:9→90); a full-image scan still takes a few ms. */
     public static final int DETECT_W = 160;
 
     private final CameraController cameraController;
     private final UbxApi ubxApi;
-    /** 行路跟用（播 前進／左轉／右轉 .ubx；MainActivity 後補注入，未注入即行路跟唔郁）。 */
+    /** For walk follow (plays the forward/turn-left/turn-right .ubx; MainActivity injects it late; while not injected, walk follow does not move). */
     private volatile ActionDirect actionDirect;
 
-    // ── 可調參數（volatile，HTTP 線程寫、檢測線程讀）──
+    // ── Tunable parameters (volatile, HTTP thread writes, detection thread reads)──
     private volatile boolean running = false;
     private volatile int intervalMs = DEFAULT_INTERVAL_MS;
     private volatile int trackIntervalMs = DEFAULT_TRACK_INTERVAL_MS;
     private volatile int stepDeg = DEFAULT_STEP_DEG;
     private volatile float deadband = DEFAULT_DEADBAND;
     private volatile int timeMs = DEFAULT_TIME_MS;
-    /** 追頭總開關：關＝只偵測＋畫框，頭不動；開＝19/20 齊跟。 */
+    /** Head-follow master switch: off = detect + box only, head does not move; on = 19/20 follow together. */
     private volatile boolean headFollow = true;
-    /** 自動間隔（預設開）：掃唔到用 intervalMs（慢），跟到色用 trackIntervalMs（快）；關＝一律慢速。 */
+    /** Auto interval (default on): no detection uses intervalMs (slow), color found uses trackIntervalMs (fast); off = always slow. */
     private volatile boolean autoInterval = true;
     private volatile float hMin = DEFAULT_H_MIN;
     private volatile float hMax = DEFAULT_H_MAX;
@@ -99,7 +100,7 @@ public final class ColorTrackCenter {
     private volatile String walkLeft = DEFAULT_WALK_LEFT;
     private volatile String walkRight = DEFAULT_WALK_RIGHT;
 
-    // ── 狀態／統計 ──
+    // ── State/statistics ──
     private volatile int curPan = PAN_HOME;
     private volatile int curTilt = TILT_HOME;
     private volatile long framesSeen = 0;
@@ -111,18 +112,18 @@ public final class ColorTrackCenter {
     private volatile float lastFy = -1f;
     private volatile float lastFw = 0f;
     private volatile float lastFh = 0f;
-    /** 質心 blob 覆蓋率（blob 像素／全圖像素，0-1，overlay confidence 用）。 */
+    /** Centroid blob coverage (blob pixels/full-image pixels, 0-1, used for overlay confidence). */
     private volatile float lastCoverage = 0f;
     private volatile int lastPixels = 0;
     private volatile int lastMatches = 0;
-    /** 行路跟狀態：上次播咩（fileId／名／""＝未行過）＋累計步數。 */
+    /** Walk-follow state: last thing played (fileId/name/""=never walked) + cumulative step count. */
     private volatile String lastWalk = "";
     private volatile long walkMoves = 0;
     private volatile long lastMoveMs = 0;
     private volatile int lostStreak = 0;
-    /** 上一幀檢測耗時 ms（decode＋HSV＋flood fill）。 */
+    /** Previous frame detection cost in ms (decode + HSV + flood fill). */
     private volatile long lastCostMs = 0;
-    /** 有無跟緊色（自動間隔用）：命中即 true，掃唔到即 false（唔似人臉 ROI 咁要撐 3 次——全圖掃無跟丟成本）。 */
+    /** Whether color is being followed (for the auto interval): true on a hit, false when a scan finds nothing (unlike the face ROI which must hold 3 hits - a full-image scan has no lost-track cost). */
     private volatile boolean hasTrack = false;
 
     private HandlerThread detectThread;
@@ -132,7 +133,7 @@ public final class ColorTrackCenter {
     private volatile long lastSampleMs = 0;
     private final java.util.concurrent.atomic.AtomicBoolean inFlight =
             new java.util.concurrent.atomic.AtomicBoolean(false);
-    /** 舵機指令最小間隔 ms（同 FaceTrackCenter 一致，唔 hammer 胸板串口）。 */
+    /** Minimum servo-command interval in ms (same as FaceTrackCenter, so the chest serial is not hammered). */
     private static final long SERVO_MIN_GAP_MS = 150;
     private volatile long lastServoSendMs = 0;
 
@@ -164,13 +165,13 @@ public final class ColorTrackCenter {
         this.ubxApi = ubxApi;
     }
 
-    /** MainActivity 接線用：後補 ActionDirect（起得慢過 Center；未注入時行路跟唔郁，頭照跟）。 */
+    /** For MainActivity wiring: inject ActionDirect late (it boots slower than the Center; while not injected, walk follow does not move, the head still follows). */
     public void setActionDirect(ActionDirect actionDirect) {
         this.actionDirect = actionDirect;
     }
 
-    // ── 純算法（RGB→HSV／hue 區間／最大 blob）見 ColorTrackLogic（零依賴獨立檔，
-    // 直接單元測試；呢度唔重複實現）──
+    // ── Pure algorithm (RGB→HSV/hue range/largest blob) in ColorTrackLogic (zero-dependency separate file,
+    // unit-tested directly; not re-implemented here)──
     private void ensureThreadLocked() {
         if (detectThread == null || !detectThread.isAlive()) {
             detectThread = new HandlerThread("ColorTrackThread");
@@ -185,13 +186,13 @@ public final class ColorTrackCenter {
         return v;
     }
 
-    /** 當前生效間隔（sampler 同 status 共用；自動開＝跟到色用快速，否則用慢速）。 */
+    /** Currently effective interval (shared by sampler and status; auto on = fast rate when color is found, otherwise slow rate). */
     private int effectiveIntervalMs() {
         if (autoInterval && hasTrack) return trackIntervalMs;
         return intervalMs;
     }
 
-    /** 從 query 讀可選追蹤參數並套用（start/config 共用；缺席即保留現值）。 */
+    /** Read optional tracking parameters from the query and apply them (shared by start/config; absent = keep the current value). */
     public void applyConfigFromQuery(Map<String, String> query) {
         if (query == null) return;
         intervalMs = ApiValidator.optionalIntRange(query, "intervalMs", 100, 3000, intervalMs);
@@ -225,7 +226,7 @@ public final class ColorTrackCenter {
         }
     }
 
-    /** 行路動作名驗收：非空、≤64 字、唔准帶路徑（/ \ ..）；唔合格即保留現值。 */
+    /** Walk action name validation: non-empty, ≤64 chars, no path characters (/ \ ..); if invalid, keep the current value. */
     private static String optionalActionName(Map<String, String> query, String key, String current) {
         if (query == null) return current;
         String v = query.get(key);
@@ -237,7 +238,7 @@ public final class ColorTrackCenter {
         return v;
     }
 
-    /** 啟動追蹤：先確保相機開流，再訂閱抽樣。HTTP worker 線程調用（會 block 開相機）。 */
+    /** Start tracking: first ensure the camera stream is open, then subscribe to sampling. Called on the HTTP worker thread (blocks on camera open). */
     public synchronized HttpServer.ApiResponse start(Map<String, String> query) {
         applyConfigFromQuery(query);
         CameraController.StartResult sr = cameraController.start(8000);
@@ -269,8 +270,8 @@ public final class ColorTrackCenter {
                 subscribed = false;
             }
         }
-        // 行路跟開住＋播緊步嗰陣停 tracking：截停＋蹲下站起回穩（唔係部機會保持
-        // 行路中途姿勢企喺度；掃唔到嗰陣唔截——行緊嗰步有界，播完就算）。
+        // Stopping tracking while walk follow is on and a step is playing: interrupt-stop + squat-and-rise to re-stabilize (the robot
+        // must not stand in a mid-walk pose; do not interrupt while a scan finds nothing - the step in flight is bounded, it just plays out).
         ActionDirect ad = actionDirect;
         if (walkFollow && ad != null) {
             try {
@@ -291,7 +292,7 @@ public final class ColorTrackCenter {
 
     public boolean isRunning() { return running; }
 
-    /** 放開相機訂閱＋停背景線程（MainActivity.onDestroy 用）。 */
+    /** Release the camera subscription + stop the background thread (used by MainActivity.onDestroy). */
     public synchronized void shutdown() {
         running = false;
         synchronized (subLock) {
@@ -314,8 +315,8 @@ public final class ColorTrackCenter {
         try {
             int prevW = cameraController.getPreviewWidth();
             int prevH = cameraController.getPreviewHeight();
-            // 偵測輸入：寬鎖 160，高跟預覽比例（4:3→160x120，16:9→160x90），
-            // 唔 squash 唔 crop。先 inSampleSize 粗解再精縮，同 FaceTrackCenter 同手法。
+            // Detection input: width locked at 160, height follows the preview ratio (4:3→160x120, 16:9→160x90),
+            // no squash, no crop. Rough decode with inSampleSize first, then scale exactly, same technique as FaceTrackCenter.
             boolean fourThree = Math.abs(prevW * 3 - prevH * 4)
                     <= Math.abs(prevW * 9 - prevH * 16);
             int targetW = DETECT_W;
@@ -357,7 +358,7 @@ public final class ColorTrackCenter {
                 Log.w(TAG, "getPixels failed", t);
                 return;
             }
-            // 逐像素 HSV 閾值（讀 snapshot 參數，免掃一半被 config 改一半）。
+            // Per-pixel HSV thresholding (snapshot the parameters, so a config change cannot alter a scan halfway through).
             float qHMin = hMin;
             float qHMax = hMax;
             float qSMin = sMin;
@@ -387,7 +388,7 @@ public final class ColorTrackCenter {
                 lostStreak++;
                 return;
             }
-            // 質心＋bbox（歸一化，overlay 同 face 同一套座標）。
+            // Centroid + bbox (normalized; the overlay uses the same coordinate set as face).
             float fx = ((float) best.sumX / best.count + 0.5f) / w;
             float fy = ((float) best.sumY / best.count + 0.5f) / h;
             float fw = (float) (best.x1 - best.x0 + 1) / w;
@@ -404,15 +405,15 @@ public final class ColorTrackCenter {
             lostStreak = 0;
             hasTrack = true;
 
-            float dx = (fx - 0.5f) * 2f; // -1 左 … +1 右
-            float dy = (fy - 0.5f) * 2f; // -1 上 … +1 下
+            float dx = (fx - 0.5f) * 2f; // -1 left … +1 right
+            float dy = (fy - 0.5f) * 2f; // -1 up … +1 down
             if (dx < -1f) dx = -1f;
             if (dx > 1f) dx = 1f;
             if (dy < -1f) dy = -1f;
             if (dy > 1f) dy = 1f;
 
-            // 行路跟播緊動作嗰陣唔發頭舵機：.ubx 行路步態自己會擺頭（19/20 全幀），
-            // cmd05 同佢搶會打架；等步播完（isPlaying false）頭先接返。
+            // No head servo commands while walk follow is playing an action: the .ubx walk gait moves the head itself (19/20 every frame),
+            // and cmd05 would fight it; wait for the step to finish (isPlaying false) before the head takes back over.
             boolean ubxBusy = false;
             ActionDirect ad = actionDirect;
             if (walkFollow && ad != null) {
@@ -422,7 +423,7 @@ public final class ColorTrackCenter {
             int newPan = curPan;
             int newTilt = curTilt;
             float db = deadband;
-            // 追頭總開關：關＝只偵測＋畫框，兩軸都不動。
+            // Head-follow master switch: off = detect + box only, neither axis moves.
             if (headFollow && Math.abs(dx) > db) {
                 float mag = (Math.abs(dx) - db) / Math.max(0.001f, 1f - db);
                 int delta = Math.max(1, Math.round(mag * stepDeg));
@@ -435,7 +436,7 @@ public final class ColorTrackCenter {
                 if (dy < 0) delta = -delta;
                 newTilt = clamp(curTilt + delta, TILT_MIN, TILT_MAX);
             }
-            // 只有角度真變＋同上次發送隔夠 SERVO_MIN_GAP_MS 先發舵機（同 FaceTrackCenter 一致）。
+            // Send a servo only when the angle truly changed AND at least SERVO_MIN_GAP_MS has passed since the last send (same as FaceTrackCenter).
             long nowMs = System.currentTimeMillis();
             boolean servoDue = nowMs - lastServoSendMs >= SERVO_MIN_GAP_MS;
             if (headFollow && !ubxBusy && servoDue && newPan != curPan) {
@@ -459,9 +460,9 @@ public final class ColorTrackCenter {
                 lastMoveMs = nowMs;
                 lastServoSendMs = nowMs;
             }
-            // ── 行路跟：偏就轉向一步、置中但遠就行前一步、近就企定。
-            // 一次一动：播緊上一动嗰陣唔疊新（isPlaying 守）；掃唔到嗰幀唔發新步，
-            // 行緊嗰步播完就算（有界，唔會盲行）；播唔起（無檔／胸板唔得）照記 warn，頭照跟。
+            // ── Walk follow: offset → one turn step, centered but far → one forward step, close → stand still.
+            // One action at a time: while the previous one is playing, do not stack a new one (isPlaying guard); frames with no detection send no new step,
+            // the step in flight plays out (bounded, no blind walking); if it cannot start (no file/chest board fails), still log a warn, the head keeps following.
             if (walkFollow && !ubxBusy && ad != null) {
                 String want = ColorTrackLogic.walkDecision(dx, lastCoverage, turnDb, closeCoverage);
                 if (!"none".equals(want)) {
@@ -493,7 +494,7 @@ public final class ColorTrackCenter {
         return String.format(Locale.US, "%.3f", v);
     }
 
-    /** color/track/status 回包本體（start/stop/config 亦回同一形狀，前端一次解析；欄位對齊 face 以便共用畫框）。 */
+    /** The color/track/status response body itself (start/stop/config return the same shape, so the front-end parses it once; fields align with face to share the box drawing). */
     public String statusJson() {
         StringBuilder sb = new StringBuilder("{\"ok\":true,");
         sb.append("\"running\":").append(running).append(",");

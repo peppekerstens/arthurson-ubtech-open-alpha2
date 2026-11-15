@@ -12,12 +12,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 內建動作直驅：actionInfo.txt + UbxPlayer。
+ * Built-in action direct drive: actionInfo.txt + UbxPlayer.
  */
 public final class ActionDirect {
     private static final String TAG = "ActionDirect";
 
-    /** 一鍵全停之後補播的「蹲下站起」回位動作。 */
+    /** The "squat then stand up" recovery action played after the one-key stop-all. */
     public static final String STOP_RECOVERY_ACTION_ID = "1510818174706";
 
     /** 官方 Alpha2Services v1.1.7.3 `robotStandup()` 20 軸企姿（raw 0-255；
@@ -54,7 +54,7 @@ public final class ActionDirect {
         this.ubxPlayer = ubxPlayer;
     }
 
-    /** 最後一次正在播/播過的檔 (ubx/speed 正在播重播用；可 null)。 */
+    /** The file currently or last played (used by ubx/speed replay while playing; may be null). */
     public java.io.File getLastPlayedFile() {
         return lastPlayedFile;
     }
@@ -63,7 +63,7 @@ public final class ActionDirect {
         lastPlayedFile = f;
     }
 
-    /** 清 actionInfo.txt 緩存（動作包替換後調用，下次 list 即讀新檔）。 */
+    /** Clears the actionInfo.txt cache (call after an action pack is replaced; the next list reads the new file). */
     public synchronized void invalidateCache() {
         actionInfoCache = null;
     }
@@ -73,7 +73,7 @@ public final class ActionDirect {
         List<String[]> out = new ArrayList<>();
         try {
             java.io.File f = new java.io.File(ACTION_INFO);
-            // 先驗大小（不存在/空/超過 1MB 直接當空表）。
+            // Check the size first (missing, empty, or over 1MB is treated as an empty table).
             long flen = f.length();
             if (!f.isFile() || flen <= 0 || flen > 1024L * 1024L) {
                 Log.w(TAG, "loadActionInfo skip unusual file len=" + flen);
@@ -89,7 +89,7 @@ public final class ActionDirect {
                     if (n < 0) break;
                     off += n;
                 }
-                // 用實際讀到的 bytes（短讀會有 NUL 混入；UTF-8 strict 不得先 fallback GBK）。
+                // Use the bytes actually read (a short read leaves NUL padding; UTF-8 strict must not fall back to GBK first).
                 String text = decodeActionInfo(data, off);
                 for (String line : text.split("\n")) {
                 line = line.trim();
@@ -108,9 +108,9 @@ public final class ActionDirect {
         return out;
     }
 
-    /** actionInfo.txt 解碼：UTF-8 strict 得就用它，不得（GBK 中文）先 fallback
-     *  GBK。new String(bytes,"UTF-8") 從來不掟錯（爛 byte 變 U+FFFD），所以要用
-     *  REPORT 的 CharsetDecoder 先分得出。 */
+    /** Decode actionInfo.txt: use strict UTF-8 when it succeeds, fall back to GBK only
+     *  when it fails (GBK Chinese). new String(bytes,"UTF-8") never throws (bad bytes
+     *  become U+FFFD), so a REPORT-mode CharsetDecoder is needed to tell the difference. */
     private static String decodeActionInfo(byte[] data, int len) throws Exception {
         try {
             java.nio.charset.CharsetDecoder dec = java.nio.charset.Charset.forName("UTF-8").newDecoder();
@@ -122,7 +122,7 @@ public final class ActionDirect {
         }
     }
 
-    /** 讀 assets/web/xiaozhi_actions.json 做 catalog (MCP fuzzy、隨機池共用)。 */
+    /** Reads assets/web/xiaozhi_actions.json as a catalog (shared by MCP fuzzy match and the random pool). */
     public java.util.List<org.json.JSONObject> loadXiaozhiActions() {
         java.util.List<org.json.JSONObject> cached = xiaozhiActionsCache;
         if (cached != null) return cached;
@@ -145,23 +145,25 @@ public final class ActionDirect {
 
     /** Picks a random id from the "隨機短/隨機長/ACT*" action groups in
      *  xiaozhi_actions.json plus the head-gesture extras below - these are the
-     *  robot's own pre-recorded filler-movement actions (隨機組 30 entries:
-     *  隨機長1-10、隨機短1-10 x 2 sets of ids, with duplicate names for the same
+     *  robot's own pre-recorded filler-movement actions (the random groups hold 30 entries:
+     *  隨機長1-10, 隨機短1-10 x 2 sets of ids, with duplicate names for the same
      *  name e.g. two "隨機短2" entries - both are valid, harmless to include
-     *  twice in the pool; ACT 家族 26 entries: ACT0-9 基本小動作＋ACT2-1～
-     *  ACT13-3), meant for exactly this "play something to look alive" use case
+     *  twice in the pool; the ACT family holds 26 entries: ACT0-9 basic small movements +
+     *  ACT2-1 through ACT13-3), meant for exactly this "play something to look alive" use case
      *  rather than reacting to any specific emotion/content. Groups matched by
      *  nameCn prefix rather than a hardcoded id list so this keeps working if
      *  xiaozhi_actions.json is regenerated with different ids; gesture extras
      *  are explicit ids (user-verified silent).
      *
-     *  兩類唔入池 (見下面兩個表)：
-     *  - 有聲效動作：播嗰陣韌體會自己出 MP3/音效 (同 TTS 打架，亦唔適合 fallback
-     *    亂答嗰陣突然響)。repo 同機身檔都無標記邊個有聲，靠實機人耳驗，
-     *    有新發現加 id 入 SOUND_ACTION_IDS 即可。
-     *  - Neuron 起身動作 (BackStand/FrontStand)：未經機身實測，驚佢瞓喺度
-     *    突然起身撞到嘢；本身唔喺隨機組，呢度硬剔純粹防將來 JSON 再生嗰陣
-     *    入錯池。
+     *  Two classes stay out of the pool (see the two tables below):
+     *  - Sound actions: the firmware plays its own MP3/sound effect during playback
+     *    (it clashes with TTS, and a sudden sound during a fallback answer is bad).
+     *    Neither the repo nor the body files mark which actions are loud, so this is
+     *    verified by ear on the real robot. When a new one is found, add its id to SOUND_ACTION_IDS.
+     *  - Neuron stand-up actions (BackStand/FrontStand): not yet verified on the body.
+     *    The robot may be lying down and suddenly stand up and hit something.
+     *    They are not in the random groups; excluding them here is pure defense
+     *    against a future JSON regeneration putting them in the wrong pool.
      *  Returns null (never throws) if the group is empty for any reason -
      *  caller must handle that as a normal "nothing to play" case, not a bug. */
     public String resolveRandomActionId() {
@@ -198,9 +200,10 @@ public final class ActionDirect {
         return pool.get(new java.util.Random().nextInt(pool.size()));
     }
 
-    /** 隨機池頭部動作加料：低頭／否定／揮右手／揮左手 (全部已驗證無聲效) -
-     *  用戶指定可當 random 用。顯式 id，唔靠名 (再生 JSON 改名都唔怕)。
-     *  ACT0-9 同 ACT2-1～ACT13-3 行上面字頭規則，唔使逐個列。 */
+    /** Random pool head-action extras: nod / head shake no / wave right hand / wave left hand
+     *  (all verified silent) - user-specified as usable as random.
+     *  Explicit ids, no name matching (survives a JSON regeneration that renames them).
+     *  ACT0-9 and ACT2-1 through ACT13-3 follow the name-prefix rule above; no need to list them one by one. */
     private static final String[] EXTRA_RANDOM_IDS = {
             "1464835936012", "1464835936013", "1464835936017", "1464835936018",
     };
@@ -300,8 +303,8 @@ public final class ActionDirect {
             "1524573159187",
     };
 
-    /** 查一個真實 action id 播嗰陣會唔會自己出聲（上面 SOUND_ACTION_IDS）。
-     *  null/空字串一律當無聲（fail-safe：照講嘢）。 */
+    /** Checks whether a real action id plays its own sound during playback (SOUND_ACTION_IDS above).
+     *  null/empty string is always treated as silent (fail-safe: keep talking). */
     public static boolean isSoundAction(String id) {
         if (id == null || id.isEmpty()) return false;
         for (String sid : SOUND_ACTION_IDS) {
@@ -310,8 +313,8 @@ public final class ActionDirect {
         return false;
     }
 
-    /** Neuron 起身動作：id 或者中英文名對得上就係 (Blockly 側叫
-     *  「Neuron 企身動作」，未經機身實測)。 */
+    /** Neuron stand-up actions: the id or the Chinese/English name matches (the Blockly side
+     *  calls them "Neuron stand-up actions", not yet tested on the body). */
     static boolean isNeuronAction(String id, String nameCn) {
         if ("BackStand".equals(id) || "FrontStand".equals(id)) return true;
         return "仰躺站立".equals(nameCn) || "趴著站立".equals(nameCn);
@@ -357,8 +360,8 @@ public final class ActionDirect {
         return null;
     }
 
-    /** 动作名/ID 解析：fileId > nameEn > nameCn，另支持同目錄 xxx.ubx。
-     *  帶 / 的路徑只准 /sdcard/actions 內 .ubx（canonical 鎖死）。 */
+    /** Action name/id resolution: fileId > nameEn > nameCn, plus same-directory xxx.ubx.
+     *  A path with / only allows .ubx inside /sdcard/actions (canonical path locked). */
     private java.io.File resolveActionFile(String name) {
         if (name == null) return null;
         String n = name.trim();
@@ -413,7 +416,8 @@ public final class ActionDirect {
         return HttpServer.ApiResponse.ok(sb.toString());
     }
 
-    /** UbxPlayer 有無播緊嘢（ColorTrackCenter 行路跟用：播緊行路動作嗰陣唔發頭舵機＋唔疊新步）。 */
+    /** Whether UbxPlayer is playing anything (used by ColorTrackCenter walk-follow: while a walk
+     *  action is playing, do not send head servos and do not stack new steps). */
     public boolean isPlaying() {
         try {
             return ubxPlayer.isPlaying();
@@ -422,7 +426,71 @@ public final class ActionDirect {
         }
     }
 
-    public HttpServer.ApiResponse actionPlayDirect(String name) {        java.io.File f = resolveActionFile(name);
+    /** The motion gate of the app (alpha2-brain#121). ApiDispatcher sets it. Without a gate
+     *  every play call is refused: no gate means no approval. */
+    private volatile MotionGate motionGate;
+
+    public void setMotionGate(MotionGate gate) {
+        motionGate = gate;
+    }
+
+    /** The refusal text, or null when the gate allows a whole action. Logs a refusal.
+     *  The choice is in the pure function PlayRefusal (alpha2-brain#144), so a plain
+     *  Java test can run it. */
+    private String playRefusal(String what) {
+        String why = PlayRefusal.refusalForPlay(motionGate, what);
+        if (why != null) Log.w("MotionGate", "refused: " + why);
+        return why;
+    }
+
+    /** Gate refusal of a whole-body call for the other classes that write servos (alpha2-brain#148).
+     *  Null when allowed. Logs a refusal. */
+    public String wholeBodyRefusal(String what) {
+        return playRefusal(what);
+    }
+
+    /** Gate refusal of a move of one servo, or null. Logs a refusal (alpha2-brain#148). */
+    public String servoRefusal(int servoId) {
+        String why = PlayRefusal.refusalForServoMove(motionGate, servoId);
+        if (why != null) Log.w("MotionGate", "refused: " + why);
+        return why;
+    }
+
+    /** Gate refusal of a move of all servos, or null. Logs a refusal (alpha2-brain#148). */
+    public String allServosRefusal() {
+        String why = PlayRefusal.refusalForAllServosMove(motionGate);
+        if (why != null) Log.w("MotionGate", "refused: " + why);
+        return why;
+    }
+
+    /** Name of the stored setting "stand up at start" in the shared preferences (hub D-217). */
+    static final String PREF_BOOT_STANDUP = "boot_standup_enabled";
+
+    /** The stored setting "stand up at start". Off by default. It survives a restart. */
+    public boolean isBootStandupEnabled() {
+        return appContext.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_BOOT_STANDUP, false);
+    }
+
+    public void setBootStandupEnabled(boolean enabled) {
+        appContext.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(PREF_BOOT_STANDUP, enabled).commit();
+    }
+
+    /** Body of the two routes system/boot_standup/get and system/boot_standup/set. */
+    public HttpServer.ApiResponse bootStandupApi(java.util.Map<String, String> query, boolean set) {
+        if (set) {
+            Boolean v = ApiValidator.optionalBooleanObject(query, "enabled");
+            if (v == null) throw new IllegalArgumentException("parameter 'enabled' is required (true or false)");
+            setBootStandupEnabled(v.booleanValue());
+        }
+        return HttpServer.ApiResponse.ok("{\"ok\":true,\"boot_standup_enabled\":" + isBootStandupEnabled() + "}");
+    }
+
+    public HttpServer.ApiResponse actionPlayDirect(String name) {
+        String why = playRefusal("action/play");
+        if (why != null) return new HttpServer.ApiResponse(403, "application/json; charset=utf-8", JsonUtil.okFalse(why));
+        java.io.File f = resolveActionFile(name);
         if (f == null) return HttpServer.ApiResponse.error("unknown action: " + name);
         HardwareDirectManager dm = HardwareDirectManager.get(appContext);
         if (!dm.chest().isAvailable()) return HttpServer.ApiResponse.error("chest not available");
@@ -432,7 +500,7 @@ public final class ActionDirect {
         } catch (Exception e) {
             return HttpServer.ApiResponse.error("parse failed: " + e.getMessage());
         }
-        ubxPlayer.stop(); // 抢占：播新自动停旧
+        ubxPlayer.stop(); // preemption: playing a new action stops the old one
         if (!ubxPlayer.play(ubx, f.getName(), dm.chest(), f)) {
             return HttpServer.ApiResponse.error("cannot start: " + ubxPlayer.lastError());
         }
@@ -442,11 +510,18 @@ public final class ActionDirect {
     }
 
     /**
-     * 内部共用：pure-direct 播指定动作（fileId/中英文名/xxx.ubx 皆可），抢占式——
-     * 先停当前再播，与原厂 playActionName 打断语义一致。供手势总停、MCP tool、
-     * 语义动作、随机 filler 共用，HTTP action/play 另有「正在播先報錯」守卫故不经此。
+     * Shared internally: pure-direct play of a named action (fileId/Chinese or English name/xxx.ubx all
+     * work), preemptive - stop the current one first, then play; matches the interruption semantics of
+     * the stock playActionName. Shared by the gesture stop-all, the MCP tools, the semantic actions
+     * and the random filler. HTTP action/play has its own "already playing is an error" guard, so it
+     * does not go through this.
      */
     public UbxErrorCode.API_ERROR_CODE playActionDirect(String nameOrId) {
+        // Motion gate (alpha2-brain#121): this call is the path of the voice chat, the semantic
+        // actions, the gamepad, the colour track, the MCP tools and the stop recovery.
+        if (playRefusal("playActionDirect(" + nameOrId + ")") != null) {
+            return UbxErrorCode.API_ERROR_CODE.API_ERROR_FAILED;
+        }
         java.io.File f = resolveActionFile(nameOrId);
         if (f == null) return UbxErrorCode.API_ERROR_CODE.API_ERROR_FAILED;
         HardwareDirectManager dm = HardwareDirectManager.get(appContext);
@@ -483,6 +558,24 @@ public final class ActionDirect {
      * fire-and-forget，冇 ACK 可等，調用方唔好當 false 係「MCU 冇做」。
      */
     public boolean officialBootStandup() {
+        // Stored setting (alpha2-brain#148, hub D-217): the stand-up pose moves all servos, so it
+        // runs only when the owner turned boot_standup_enabled on. Off by default. When it is off
+        // no servo command goes out. The caller still sends START and the rest of the boot.
+        PlayRefusal.BootStandup choice =
+                PlayRefusal.bootStandupChoice(motionGate, isBootStandupEnabled());
+        if (choice == PlayRefusal.BootStandup.RUN_GATE_OFF) {
+            Log.w("MotionGate", "boot standup runs with the motion gate off: the setting "
+                    + PREF_BOOT_STANDUP + " is the stored owner approval of this move");
+        }
+        if (choice == PlayRefusal.BootStandup.SKIP) {
+            Log.w("MotionGate", "boot standup off (setting " + PREF_BOOT_STANDUP + ")");
+            HardwareDirectManager gdm = HardwareDirectManager.get(appContext);
+            if (gdm.chest().isAvailable()) {
+                gdm.chest().sendStart();
+                gdm.chest().queryChargePlay();
+            }
+            return false;
+        }
         HardwareDirectManager dm = HardwareDirectManager.get(appContext);
         if (!dm.chest().isAvailable()) return false;
         boolean sent = false;
@@ -547,15 +640,18 @@ public final class ActionDirect {
     }
 
     /**
-     * 小智影相專用（B 方案：企直再影）——截停＋播回位企直，並等到播完（或超時）
-     * 先返，等調用方影嗰下唔郁。調用方已喺 MCP tool thread（唔係 ws read loop），
-     * block 幾秒無問題。超時／起唔到都照回（快門重要過姿勢），調用方直接影。
+     * XiaoZhi photo only (plan B: stand straight, then shoot) - cut off, play the stand-up
+     * recovery, and wait until playback finishes (or times out) before returning, so the
+     * robot is still during the shot. The caller is already on the MCP tool thread (not the ws read
+     * loop), so blocking a few seconds is fine. A timeout or a failed start still returns (the
+     * shutter matters more than the pose); the caller shoots directly.
      */
     public boolean stopAndRecoverBlocking(long timeoutMs) {
         stopActionWithRecovery();
         long deadline = System.currentTimeMillis() + Math.max(1000, timeoutMs);
         try {
-            // 回位動作起播有少少遲（parse＋起 thread），先等一陣，唔係會誤判已定。
+            // The recovery action starts with a small delay (parse + start the thread); wait a bit
+            // first, otherwise the still check misjudges it as settled.
             Thread.sleep(300);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
@@ -576,9 +672,9 @@ public final class ActionDirect {
         return settled;
     }
 
-    // -- MCP tools (XiaozhiBridge callTool switch 轉調) --
+    // -- MCP tools (XiaozhiBridge callTool switch forwards here) --
 
-    /** self.robot.list_actions 本體 (XiaozhiBridge 轉調)。純讀, 不碰硬件。 */
+    /** Body of self.robot.list_actions (forwarded by XiaozhiBridge). Pure read, does not touch hardware. */
     public SonarCenter.McpResult mcpListActions() {
         org.json.JSONArray arr = new org.json.JSONArray();
         for (org.json.JSONObject a : loadXiaozhiActions()) {
@@ -587,12 +683,45 @@ public final class ActionDirect {
         return SonarCenter.McpResult.ok(arr.toString());
     }
 
-    /** self.robot.play_action 本體 (XiaozhiBridge 轉調)。
-     *  小智傳過來的是人類語言的動作名 (中文/英文)，這裡做 fuzzy match 找出真正對應機身檔案的 id。 */
+    /** Body of self.robot.play_action (forwarded by XiaozhiBridge).
+     *  What XiaoZhi passes is an action name in human language (Chinese/English); fuzzy match
+     *  here finds the id of the real body file. */
     public SonarCenter.McpResult mcpPlayAction(org.json.JSONObject arguments) {
+        // Motion gate (alpha2-brain#144): the whole choice is in the pure function
+        // PlayRefusal.route, so a plain Java test can run it (PlayRefusalTest). The
+        // refusal text goes to the LLM, and it can say the motion is off. With the
+        // gate on the result is unchanged (playActionDirect keeps its own gate check).
+        return PlayRefusal.route(motionGate, "play_action",
+                new PlayRefusal.Refused<SonarCenter.McpResult>() {
+                    public SonarCenter.McpResult apply(String why) {
+                        Log.w("MotionGate", "refused: " + why);
+                        return SonarCenter.McpResult.err(why);
+                    }
+                },
+                new PlayRefusal.Play<SonarCenter.McpResult>() {
+                    public SonarCenter.McpResult get() {
+                        return mcpPlayActionBody(arguments);
+                    }
+                });
+    }
+
+    /** The play part of mcpPlayAction; the gate choice is in PlayRefusal.route
+     *  (alpha2-brain#144). */
+    private SonarCenter.McpResult mcpPlayActionBody(org.json.JSONObject arguments) {
         String actionName = arguments.optString("name", "");
         if (actionName.isEmpty()) {
             return SonarCenter.McpResult.missingArg("name");
+        }
+        // A file name in /sdcard/actions (for example "Squat-myrobot.ubx") plays that file
+        // directly. resolveActionFile() keeps the path inside ACTION_DIR. A server can then
+        // offer only checked action files to the LLM (alpha2-brain#16).
+        if (actionName.toLowerCase(java.util.Locale.US).endsWith(".ubx")) {
+            if (resolveActionFile(actionName) == null) {
+                return SonarCenter.McpResult.err("no action file \"" + actionName + "\" in " + ACTION_DIR);
+            }
+            UbxErrorCode.API_ERROR_CODE fileCode = playActionDirect(actionName);
+            return new SonarCenter.McpResult(!MainActivity.isOk(fileCode),
+                    String.valueOf(fileCode) + " (file \"" + actionName + "\")");
         }
         String resolvedId = resolveActionId(actionName);
         if (resolvedId == null) {
@@ -604,15 +733,34 @@ public final class ActionDirect {
                 String.valueOf(code) + " (matched \"" + actionName + "\" -> id " + resolvedId + ")");
     }
 
-    /** self.robot.stop_action 本體 (XiaozhiBridge 轉調)。
-     *  pure-direct：一键全停+蹲下站起回位，和 HTTP action/stop 同语义。 */
+    /** Body of self.robot.stop_action (forwarded by XiaozhiBridge).
+     *  pure-direct: one-key stop-all + squat-then-stand-up recovery, same semantics as HTTP action/stop. */
     public SonarCenter.McpResult mcpStopAction() {
         UbxErrorCode.API_ERROR_CODE code = stopActionWithRecovery();
         return new SonarCenter.McpResult(!MainActivity.isOk(code), String.valueOf(code));
     }
 
-    /** self.robot.play_random_action 本體 (XiaozhiBridge 轉調)。 */
+    /** Body of self.robot.play_random_action (forwarded by XiaozhiBridge).
+     *  Motion gate (alpha2-brain#144): the whole choice is in the pure function
+     *  PlayRefusal.route, like mcpPlayAction. */
     public SonarCenter.McpResult mcpPlayRandomAction() {
+        return PlayRefusal.route(motionGate, "play_random_action",
+                new PlayRefusal.Refused<SonarCenter.McpResult>() {
+                    public SonarCenter.McpResult apply(String why) {
+                        Log.w("MotionGate", "refused: " + why);
+                        return SonarCenter.McpResult.err(why);
+                    }
+                },
+                new PlayRefusal.Play<SonarCenter.McpResult>() {
+                    public SonarCenter.McpResult get() {
+                        return mcpPlayRandomActionBody();
+                    }
+                });
+    }
+
+    /** The play part of mcpPlayRandomAction; the gate choice is in PlayRefusal.route
+     *  (alpha2-brain#144). */
+    private SonarCenter.McpResult mcpPlayRandomActionBody() {
         String randomId = resolveRandomActionId();
         if (randomId == null) {
             return SonarCenter.McpResult.err("no random-movement actions available");
@@ -623,4 +771,3 @@ public final class ActionDirect {
     }
 
 }
-

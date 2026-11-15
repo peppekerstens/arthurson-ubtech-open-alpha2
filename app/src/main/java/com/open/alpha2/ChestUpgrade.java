@@ -54,6 +54,9 @@ public final class ChestUpgrade {
     // 胸口升級狀態 (48/49/50 協議，見 ag_chess/com/ubtechinc/h/a/a$b.java)
     // 單例升級線程，升級中 chestUpgradeInProgress=true，進度 0-100，前端經 EventBus chest_upgrade_progress / chest_upgrade_done 輪詢
     private volatile boolean chestUpgradeInProgress = false;
+
+    /** True while a chest firmware upgrade runs (ServoReadStream pauses then). */
+    public boolean isBusy() { return chestUpgradeInProgress; }
     private volatile int chestUpgradeProgress = 0;
     private volatile int chestUpgradeTotalPages = 0;
     private volatile int chestUpgradeCurrentPage = 0;
@@ -382,6 +385,11 @@ public final class ChestUpgrade {
             resetState();
         }
         chestUpgradeInProgress = true;
+        // alpha2-brain#26: stop the servo read stream and wait for it before the first frame.
+        if (!ServoReadStream.haltForUpgrade("chest firmware upgrade")) {
+            chestUpgradeInProgress = false;
+            return "the servo read stream did not stop: upgrade not started";
+        }
         chestUpgradeProgress = startPage * 100 / ((int)(f.length()+127)/128);
         chestUpgradeCurrentPage = startPage;
         chestUpgradeStatus = "starting from " + startPage;

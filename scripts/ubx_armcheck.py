@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""手臂擺幅對比：原版 vs V4 主步態（Rroll servo2 / Lroll servo5 / 肘）。
-超標（overshoot）即磨滑整彎了，要減。"""
+"""Arm swing comparison: original vs V4 main gait (Rroll servo2 / Lroll servo5 / elbow).
+An overshoot means the smoothing bent it; reduce it."""
 import sys
 
 sys.argv = ["x"]

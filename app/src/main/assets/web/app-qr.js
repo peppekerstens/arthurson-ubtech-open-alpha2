@@ -1,9 +1,9 @@
 // Open Alpha2 — client logic (app-qr.js)
-// 離線 QR code 產生器 — 機械人沒有 internet, 不可以 CDN,
-// 所以自帶一個精簡 QR encoder。固定 version 2 / EC level L / byte mode,
-// 容量 32 bytes — 機械人 UUID (17 字元) 綽綽有餘。
-// 演算法跟 QR standard (ISO/IEC 18004): Reed-Solomon EC over GF(256),
-// mask 0-7 全試 + penalty 評分選最好。
+// Offline QR code generator. The robot has no internet, so a CDN is not
+// possible: ship a compact QR encoder. Fixed version 2 / EC level L / byte mode,
+// capacity 32 bytes - well over the robot UUID (17 characters).
+// The algorithm follows the QR standard (ISO/IEC 18004): Reed-Solomon EC over GF(256),
+// try all masks 0-7 and pick the best by penalty score.
 
 function qrGfMul(a, b) {
   let r = 0;
@@ -176,14 +176,14 @@ function qrPenalty(m) {
 }
 
 /**
- * 產生 QR matrix (boolean[][]) for the given ASCII text.
- * 固定 version 2 (25x25), EC level L, byte mode — 最多 32 bytes。
+ * Generate the QR matrix (boolean[][]) for the given ASCII text.
+ * Fixed version 2 (25x25), EC level L, byte mode - at most 32 bytes.
  */
 function qrEncode(text) {
   const bytes = [];
   for (let i = 0; i < text.length; i++) {
     const c = text.charCodeAt(i);
-    bytes.push(c > 255 ? 0x3f : c); // 非 ASCII → '?'
+    bytes.push(c > 255 ? 0x3f : c); // non-ASCII -> '?'
   }
   if (bytes.length > 32) throw new Error("too long for QR v2-L (max 32 bytes)");
 
@@ -261,7 +261,7 @@ function qrEncode(text) {
   return { matrix: best, mask: bestMask, size: size };
 }
 
-/** 畫 QR 落 canvas — quiet zone 4 modules。 */
+/** Draw the QR on a canvas - quiet zone 4 modules. */
 function qrDrawToCanvas(canvas, text, darkColor) {
   const q = qrEncode(text);
   const quiet = 4;

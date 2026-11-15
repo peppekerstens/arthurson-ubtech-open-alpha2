@@ -78,6 +78,12 @@ public final class XiaozhiBridge {
         this.ledCenter = ledCenter;
         this.hostState = hostState;
         this.sonarCenter = sonarCenter;
+        pttTurnRunner.setFailureListener(new PttTurnRunner.FailureListener() {
+            @Override
+            public void onActionFailure(String name, Throwable error) {
+                Log.w(TAG, "PTT: turn action failed (" + name + ")", error);
+            }
+        });
         // 小智設定層 (含 TTS 引擎讀取+舊值遷移) 在這裡建構。
         this.xiaozhiConfig = new XiaozhiConfig(context);
         // device id 讀 prefs。
@@ -118,6 +124,204 @@ public final class XiaozhiBridge {
         xiaozhiAudioController.stopPlayback();
     }
 
+    // -- Wake word (WakeController, alpha2-brain#16) ------------------------------
+    // One AudioRecord for both: the capture feeds the local Vosk grammar (PCM tap),
+    // and sends frames to the server only while the uplink is on.
+
+    /** Closes the microphone and sends listen stop, but keeps the playback on. */
+    private void stopXiaozhiCaptureOnly() {
+        stopXiaozhiMicHoldEnforcer();
+        xiaozhiAudioController.stopCapture();
+        if (xiaozhiClient.isOpen()) {
+            try {
+                xiaozhiClient.sendListenStop();
+            } catch (java.io.IOException e) {
+                Log.w(TAG, "Failed to signal listen-stop: " + e.getMessage());
+            }
+        }
+        if (xiaozhiMicHeld) {
+            robot.speech_SetMIC(false);
+            xiaozhiMicHeld = false;
+            EventBus.get().publish(XIAOZHI_MIC_STATE_EVENT, "{\"held\":false}");
+        }
+    }
+
+    /** Opens the microphone for the wake word. Returns null or an error. */
+    public String wakeCaptureStart(XiaozhiAudioController.PcmTap tap) {
+        if (!XiaozhiClient.isAudioSupported()) return "needs Android 5.0 (API 21)";
+        if (xiaozhiAudioController.isCapturing()) {
+            // An earlier session (auto mode or mic/start) holds the microphone.
+            xiaozhiAutoMode.set(false);
+            stopXiaozhiMic();
+        }
+        if (vosk != null && vosk.isListening()) {
+            vosk.stopListening();
+        }
+        releaseMicForAudioIo();
+        // Open the playback first and keep it open in wake mode. On this HAL an
+        // AudioTrack that opens while the AudioRecord runs spoils the input (same
+        // trap as in startXiaozhiMic(): output first, 250 ms, then input).
+        XiaozhiAudioController.StartResult p = xiaozhiAudioController.startPlayback(5000);
+        if (p.error != null) {
+            robot.speech_SetMIC(false);
+            return "playback: " + p.error;
+        }
+        try {
+            Thread.sleep(250);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        xiaozhiAudioController.setUplink(false);
+        xiaozhiAudioController.setPcmTap(tap);
+        currentWakeTap = tap;
+        XiaozhiAudioController.StartResult r = xiaozhiAudioController.startCapture(
+                new XiaozhiAudioController.EncodedFrameSink() {
+                    @Override
+                    public void onEncodedFrame(byte[] opusData) {
+                        // A dropped server must not stop the local wake word.
+                        if (!xiaozhiClient.isOpen()) return;
+                        try {
+                            xiaozhiClient.sendAudioFrame(opusData);
+                        } catch (java.io.IOException e) {
+                            Log.w(TAG, "wake: frame not sent: " + e.getMessage());
+                        }
+                    }
+                }, 5000);
+        if (r.error != null) {
+            xiaozhiAudioController.setPcmTap(null);
+            xiaozhiAudioController.setUplink(true);
+            robot.speech_SetMIC(false);
+            return r.error;
+        }
+        xiaozhiMicHeld = true;
+        startXiaozhiMicHoldEnforcer();
+        return null;
+    }
+
+    /** Closes the wake-word microphone and gives it back to the robot. */
+    public void wakeCaptureStop() {
+        currentWakeTap = null;
+        stopXiaozhiMicHoldEnforcer();
+        xiaozhiAudioController.setPcmTap(null);
+        xiaozhiAudioController.stopCapture();
+        xiaozhiAudioController.stopPlayback();
+        xiaozhiAudioController.setUplink(true);
+        if (xiaozhiMicHeld) {
+            robot.speech_SetMIC(false);
+            xiaozhiMicHeld = false;
+        }
+    }
+
+    public boolean wakeCaptureRunning() {
+        return xiaozhiAudioController.isCapturing();
+    }
+
+    /** Starts one server turn: playback on, listen start, frames to the server. */
+    public String wakeTurnBegin() {
+        if (!xiaozhiClient.isOpen()) return "not connected";
+        // The playback is already open (wakeCaptureStart). Do not open an output now.
+        try {
+            xiaozhiClient.sendListenStart();
+        } catch (java.io.IOException e) {
+            return e.getMessage();
+        }
+        xiaozhiAudioController.setUplink(true);
+        return null;
+    }
+
+    /** Half duplex: no frames to the server while the robot speaks. */
+    public void wakeUplink(boolean on) {
+        xiaozhiAudioController.setUplink(on);
+    }
+
+    /** Sends listen start again after an answer (follow-up window). */
+    public void wakeListenAgain() {
+        if (!xiaozhiClient.isOpen()) return;
+        try {
+            xiaozhiClient.sendListenStart();
+        } catch (java.io.IOException e) {
+            Log.w(TAG, "wake: listen start failed: " + e.getMessage());
+        }
+        xiaozhiAudioController.setUplink(true);
+    }
+
+    /** Ends the server turn: no frames, listen stop. The playback stops. */
+    public void wakeTurnEnd() {
+        xiaozhiAudioController.setUplink(false);
+        if (xiaozhiClient.isOpen()) {
+            try {
+                xiaozhiClient.sendListenStop();
+            } catch (java.io.IOException e) {
+                Log.w(TAG, "wake: listen stop failed: " + e.getMessage());
+            }
+        }
+        // The playback stays open (see wakeCaptureStart).
+    }
+
+    /** Stops the answer at once: abort to the server, playback off. */
+    public void wakeAbort() {
+        // The server can still send frames of the stopped answer. Drop them until
+        // the next tts start.
+        dropReplyAudio = true;
+        xiaozhiAudioController.setUplink(false);
+        if (xiaozhiClient.isOpen()) {
+            try {
+                org.json.JSONObject m = new org.json.JSONObject();
+                m.put("session_id", xiaozhiClient.getSessionId());
+                m.put("type", "abort");
+                xiaozhiClient.sendJson(m);
+            } catch (Exception e) {
+                Log.w(TAG, "wake: abort failed: " + e.getMessage());
+            }
+        }
+        LedCenter.stopMouthLedForTts();
+        // Drop the queued answer audio: close the output, and open it again before
+        // the input, in the safe order (capture stop, playback, capture start).
+        XiaozhiAudioController.PcmTap tap = currentWakeTap;
+        if (tap != null) {
+            wakeCaptureStop();
+            String err = wakeCaptureStart(tap);
+            if (err != null) Log.w(TAG, "wake: restart after abort failed: " + err);
+        } else {
+            xiaozhiAudioController.stopPlayback();
+        }
+    }
+
+    private volatile XiaozhiAudioController.PcmTap currentWakeTap;
+
+    /** true after wakeAbort(): the sink drops the Opus frames until the next tts start. */
+    private volatile boolean dropReplyAudio = false;
+
+    /** tts start (alpha2-brain#20): opens the playback when it is closed, before the
+     *  first Opus frame. Runs on the read thread of XiaozhiClient. Thus the frames
+     *  after the start message wait in the socket until the playback is open.
+     *  The playback closes after speech/stop, the stop key, a write error or the
+     *  5 min cap outside wake mode. Before this fix only send_text and mic/start
+     *  opened it again. */
+    private void ensureReplyPlayback() {
+        dropReplyAudio = false;
+        if (!"xiaozhi".equals(xiaozhiConfig.getTtsEngine()) || !XiaozhiClient.isAudioSupported()) return;
+        if (xiaozhiAudioController.isPlaybackOpen()) return;
+        long t0 = System.currentTimeMillis();
+        XiaozhiAudioController.StartResult r = xiaozhiAudioController.reopenPlayback(5000);
+        if (r.error != null) {
+            Log.w(TAG, "tts start: playback not opened: " + r.error);
+        } else {
+            Log.i(TAG, "tts start: playback was closed, opened again in "
+                    + (System.currentTimeMillis() - t0) + " ms");
+        }
+    }
+
+    /** Starts the activation and connect flow in the background (same as xiaozhi/connect). */
+    public void wakeConnect() {
+        if (xiaozhiClient.isOpen()) return;
+        try {
+            handleXiaozhiApi("connect", new java.util.HashMap<String, String>(), "GET", null);
+        } catch (Throwable t) {
+            Log.w(TAG, "wake: connect failed: " + t.getMessage());
+        }
+    }
+
     /** PIR 入口用：連線先至值得送 detect text。 */
     public boolean isConnected() {
         return xiaozhiClient != null && xiaozhiClient.isOpen();
@@ -147,6 +351,12 @@ public final class XiaozhiBridge {
     private void teardownSession(boolean disconnectSocket) {
         xiaozhiAutoMode.set(false);
         xiaozhiReconnectAttempts.set(0);
+        // Push-to-talk (alpha2-brain#16): the socket is going away, so the turn
+        // is over regardless of the key state.
+        stopPushToTalkTimers();
+        pttPending = false;
+        pttTurnActive = false;
+        pushToTalk.disconnect();
         stopXiaozhiMic();
         LedCenter.stopMouthLedForTts();
         if (disconnectSocket) xiaozhiClient.disconnect();
@@ -232,6 +442,9 @@ public final class XiaozhiBridge {
         }
         SonarCenter.McpResult timeErr = checkServoTimeMs(timeMs);
         if (timeErr != null) return timeErr;
+        // Motion gate (alpha2-brain#148): this MCP tool did not pass the dispatcher guard.
+        String gateWhy = actionDirect.servoRefusal(mcpId);
+        if (gateWhy != null) return SonarCenter.McpResult.err(gateWhy);
         boolean sent = HardwareDirectManager.get(appContext).chest().setSingleServo((byte) mcpId, angle, (short) timeMs);
         return directServoResult(sent, directChestReady());
     }
@@ -264,6 +477,9 @@ public final class XiaozhiBridge {
         int timeMs = arguments.optInt("time_ms", 1000);
         SonarCenter.McpResult timeErr = checkServoTimeMs(timeMs);
         if (timeErr != null) return timeErr;
+        // Motion gate (alpha2-brain#148): this MCP tool did not pass the dispatcher guard.
+        String gateWhy = actionDirect.allServosRefusal();
+        if (gateWhy != null) return SonarCenter.McpResult.err(gateWhy);
         // pure-direct: 经 /dev/ttyS1 直发。
         boolean sentAll = HardwareDirectManager.get(appContext).chest().setAllServos(angles, (short) timeMs);
         return directServoResult(sentAll, directChestReady());
@@ -381,12 +597,97 @@ public final class XiaozhiBridge {
     private final java.util.concurrent.atomic.AtomicLong lastMutePressMs =
             new java.util.concurrent.atomic.AtomicLong(0);
 
+    // -- Push-to-talk on the chest mute key (alpha2-brain#16) ------------------
+    // Long press (500 ms or more) = one manual turn: listen start
+    // (mode=manual), frames to the server while held, listen stop on release.
+    // Short press (below 500 ms) = the existing connect/disconnect toggle.
+    // With the xiaozhi/ptt setting off this whole path is inactive (the exact
+    // behavior of build 0aa89ed).
+    private static final long PTT_PRESS_THRESHOLD_MS = 500;
+    private static final long PTT_TURN_TIMEOUT_MS = 60000;
+    private static final long PTT_REPLY_TIMEOUT_MS = 60000;
+    // True from the press to the release: ignores the firmware press repeats
+    // and keeps the PENDING arm timer from being re-armed.
+    private volatile boolean pttPending = false;
+    // True while a manual turn is open (RECORDING) or waiting for the reply
+    // (WAIT_REPLY). Suppresses the auto-continue on TTS stop and gates the
+    // plain-session uplink gate.
+    private volatile boolean pttTurnActive = false;
+    private final PushToTalkStateMachine pushToTalk = new PushToTalkStateMachine(
+            new PushToTalkStateMachine.Listener() {
+                @Override
+                public void onOpenTurn() {
+                    // Background thread: the open sequence sleeps (the 300 ms
+                    // mic hand-off, the 250 ms HAL settle), as in startXiaozhiMic().
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            openPushToTalkTurn();
+                        }
+                    }, "xiaozhi-ptt-open").start();
+                }
+
+                @Override
+                public void onSendTurn() {
+                    // Off the main thread: the send ends in a socket write
+                    // (sendListenStop), and the main looper must not do I/O.
+                    pttTurnRunner.submit("send-turn", new Runnable() {
+                        @Override
+                        public void run() {
+                            endPushToTalkTurn();
+                        }
+                    });
+                }
+
+                @Override
+                public void onShortPress() {
+                    // The press consumed the debounce slot: run the toggle
+                    // without checking it again.
+                    toggleChestMuteLedAction();
+                }
+            });
+    // ARM: press + 500 ms while still held, opens the turn (main thread).
+    private final Runnable pttArmRunnable = new Runnable() {
+        @Override
+        public void run() {
+            pushToTalk.arm();
+        }
+    };
+    // TURN_TIMEOUT: the 60 s cap in RECORDING sends the turn (main thread).
+    private final Runnable pttTurnTimeoutRunnable = new Runnable() {
+        @Override
+        public void run() {
+            pushToTalk.turnTimeout();
+        }
+    };
+    // REPLY_TIMEOUT: the 60 s wait in WAIT_REPLY closes the turn (main thread).
+    private final Runnable pttReplyTimeoutRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (pushToTalk.replyTimeout()) {
+                pttTurnActive = false;
+            }
+        }
+    };
+    // The turn send runs off the main thread: it ends in a socket write
+    // (sendListenStop), and the main looper must not do I/O (review
+    // round 1, F1: NetworkOnMainThreadException on SDK 22).
+    private final PttTurnRunner pttTurnRunner = new PttTurnRunner();
+
     /** 胸口 mute 鍵 (-111) 硬件入口本體。
-     *  pressed=true (按下) 就 toggle mute LED (小智開關); pressed=false (放開)
-     *  不理。static 縫留在 MainActivity.onMuteKeyEvent (RobotEventReceiver／
-     *  frozen onDirectChestFrame 經那裡進入，簽名不變)。 */
+     *  Push-to-talk 設定開：press 開始短／長按判別，release 完成它。
+     *  設定關：原行為 (release 不理，press toggle)。static 縫留在
+     *  MainActivity.onMuteKeyEvent (RobotEventReceiver／frozen onDirectChestFrame
+     *  經那裡進入，簽名不變)。 */
     public void onMuteKeyEvent(final boolean pressed) {
         if (!pressed) {
+            if (xiaozhiConfig.isPushToTalkEnabled()) {
+                pttOnRelease();
+            }
+            return;
+        }
+        if (xiaozhiConfig.isPushToTalkEnabled()) {
+            pttOnPress();
             return;
         }
         toggleChestMuteLed();
@@ -400,6 +701,12 @@ public final class XiaozhiBridge {
             return;
         }
         lastMutePressMs.set(now);
+        toggleChestMuteLedAction();
+    }
+
+    /** The toggle without the debounce check: for the push-to-talk short press,
+     *  whose press already consumed the debounce slot (alpha2-brain#16). */
+    private void toggleChestMuteLedAction() {
         // mute 鍵是「小智開關」- 按一下連線 (燈亮 = 已連接),
         // 再按一下斷線 (燈滅)。LED 由實際連線事件驅動 (見 runXiaozhiActivationFlow()
         // 的 connected hook / DisconnectListener / activation error hook), 這裡
@@ -426,6 +733,226 @@ public final class XiaozhiBridge {
             }
         });
         setChestMuteLed(!wasOpen);
+    }
+
+    /** The push-to-talk press (alpha2-brain#16): register the press and arm the
+     *  500 ms timer that opens the turn while the key is still held. The
+     *  firmware press repeats inside the 400 ms debounce are ignored here; the
+     *  later repeats are ignored by pttPending (no re-arm). */
+    private void pttOnPress() {
+        long now = android.os.SystemClock.elapsedRealtime();
+        long last = lastMutePressMs.get();
+        if (now - last < MUTE_PRESS_DEBOUNCE_MS) {
+            Log.d(TAG, "PTT press debounced (gap " + (now - last) + "ms)");
+            return;
+        }
+        lastMutePressMs.set(now);
+        if (pttPending) {
+            return;
+        }
+        pttPending = true;
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                mainHandler.removeCallbacks(pttArmRunnable);
+                mainHandler.removeCallbacks(pttReplyTimeoutRunnable);
+                mainHandler.postDelayed(pttArmRunnable, PTT_PRESS_THRESHOLD_MS);
+                pushToTalk.press();
+            }
+        });
+    }
+
+    /** The push-to-talk release (alpha2-brain#16): cancel the pending arm, then
+     *  let the machine complete the press (short press = the existing toggle,
+     *  open turn = send the turn). */
+    private void pttOnRelease() {
+        if (!pttPending) {
+            return;
+        }
+        pttPending = false;
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                mainHandler.removeCallbacks(pttArmRunnable);
+                mainHandler.removeCallbacks(pttReplyTimeoutRunnable);
+                pushToTalk.release();
+            }
+        });
+    }
+
+    /** Opens one manual push-to-talk turn (alpha2-brain#16). Runs on a
+     *  background thread: the open sequence sleeps (the 300 ms mic hand-off,
+     *  the 250 ms HAL settle), in the same order as startXiaozhiMic(). The
+     *  machine already moved to RECORDING on the arm event. */
+    private void openPushToTalkTurn() {
+        boolean openedPlayback = false;
+        try {
+            if (WakeController.isActive()) {
+                Log.i(TAG, "PTT: wake mode is on - the turn is not opened");
+                abortPushToTalkTurn(false);
+                return;
+            }
+            if (!xiaozhiClient.isOpen()) {
+                Log.i(TAG, "PTT: not connected - the turn is not opened (a short press connects)");
+                abortPushToTalkTurn(false);
+                return;
+            }
+            // A plain session (auto mode or mic/start) may hold the microphone:
+            // close it first, keep its playback.
+            if (xiaozhiAudioController.isCapturing()) {
+                stopXiaozhiCaptureOnly();
+            }
+            releaseMicForAudioIo();
+            if (vosk != null && vosk.isListening()) {
+                vosk.stopListening();
+                Log.i(TAG, "vosk stopped to yield mic to xiaozhi (PTT)");
+            }
+            if (!xiaozhiAudioController.isPlaybackOpen()) {
+                XiaozhiAudioController.StartResult playbackResult =
+                        xiaozhiAudioController.startPlayback(5000);
+                if (playbackResult.error != null) {
+                    Log.w(TAG, "PTT: failed to start playback: " + playbackResult.error);
+                    abortPushToTalkTurn(false);
+                    return;
+                }
+                openedPlayback = true;
+                try {
+                    Thread.sleep(250);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            // The user may have released while the open was in flight (the 300 ms
+            // mic hand-off): the machine left RECORDING. Do not open.
+            if (pushToTalk.state() != PushToTalkStateMachine.State.RECORDING) {
+                if (openedPlayback && xiaozhiAudioController.isPlaybackOpen()) {
+                    xiaozhiAudioController.stopPlayback();
+                }
+                robot.speech_SetMIC(false);
+                Log.i(TAG, "PTT: the turn was closed before the open finished");
+                return;
+            }
+            try {
+                xiaozhiClient.sendListenStartManual();
+            } catch (java.io.IOException e) {
+                robot.speech_SetMIC(false);
+                Log.w(TAG, "PTT: failed to signal listen-start (manual): " + e.getMessage());
+                abortPushToTalkTurn(openedPlayback);
+                return;
+            }
+            // Uplink on for the turn: a TTS gate may have left it off.
+            xiaozhiAudioController.setUplink(true);
+            XiaozhiAudioController.StartResult captureResult =
+                    xiaozhiAudioController.startCapture(new XiaozhiAudioController.EncodedFrameSink() {
+                        @Override
+                        public void onEncodedFrame(byte[] opusData) throws java.io.IOException {
+                            xiaozhiClient.sendAudioFrame(opusData);
+                        }
+                    }, 5000);
+            if (captureResult.error != null) {
+                xiaozhiAudioController.stopPlayback();
+                if (vosk != null) {
+                    try {
+                        vosk.setPaused(false);
+                    } catch (Throwable ignore) {
+                    }
+                }
+                robot.speech_SetMIC(false);
+                Log.w(TAG, "PTT: failed to start mic capture: " + captureResult.error);
+                abortPushToTalkTurn(openedPlayback);
+                return;
+            }
+            // The user may have released while the open was in flight (the
+            // window from the first state check to the capture start,
+            // review round 1, F4): the machine left RECORDING. Close what
+            // the open just opened.
+            if (pushToTalk.state() != PushToTalkStateMachine.State.RECORDING) {
+                xiaozhiAudioController.stopCapture();
+                if (vosk != null) {
+                    try {
+                        vosk.setPaused(false);
+                    } catch (Throwable ignore) {
+                    }
+                }
+                xiaozhiAudioController.stopPlayback();
+                robot.speech_SetMIC(false);
+                Log.i(TAG, "PTT: the turn was closed while the capture started");
+                return;
+            }
+            // The robot may be speaking while the open was in flight (the
+            // press came during a reply, review round 1, F4): no echo to
+            // the server. The uplink gate reopens it when the TTS stops
+            // and the user is still holding.
+            if (hostState.isRobotTtsSpeaking()) {
+                xiaozhiAudioController.setUplink(false);
+            }
+            xiaozhiMicHeld = true;
+            startXiaozhiMicHoldEnforcer();
+            EventBus.get().publish(XIAOZHI_MIC_STATE_EVENT, "{\"held\":true}");
+            pttTurnActive = true;
+            mainHandler.removeCallbacks(pttTurnTimeoutRunnable);
+            mainHandler.postDelayed(pttTurnTimeoutRunnable, PTT_TURN_TIMEOUT_MS);
+            Log.i(TAG, "PTT: manual turn open (60 s cap)");
+        } catch (Throwable t) {
+            Log.w(TAG, "PTT: open failed", t);
+            abortPushToTalkTurn(openedPlayback);
+        }
+    }
+
+    /** Closes the open push-to-talk turn on release or the 60 s cap
+     *  (alpha2-brain#16): listen stop, microphone closed, playback kept, the
+     *  reply timeout armed. Runs on the ptt turn worker thread: the socket
+     *  write must not run on the main looper. */
+    private void endPushToTalkTurn() {
+        mainHandler.removeCallbacks(pttTurnTimeoutRunnable);
+        stopXiaozhiCaptureOnly();
+        mainHandler.postDelayed(pttReplyTimeoutRunnable, PTT_REPLY_TIMEOUT_MS);
+        Log.i(TAG, "PTT: turn sent (reply timeout 60 s)");
+    }
+
+    /** I/O failure in openPushToTalkTurn() (alpha2-brain#16): close what was
+     *  opened, clear the active-turn flag (review round 1, F3: an aborted
+     *  re-press must not leave it true, or the uplink gate and the
+     *  auto-continue guard stay suppressed after the machine is back in
+     *  IDLE), move the machine back to IDLE, no action. */
+    private void abortPushToTalkTurn(boolean openedPlayback) {
+        if (xiaozhiAudioController.isCapturing()) {
+            stopXiaozhiCaptureOnly();
+        }
+        if (openedPlayback && xiaozhiAudioController.isPlaybackOpen()) {
+            xiaozhiAudioController.stopPlayback();
+        }
+        robot.speech_SetMIC(false);
+        pttTurnActive = false;
+        pushToTalk.abort();
+    }
+
+    /** Cancels the push-to-talk timers (alpha2-brain#16). */
+    private void stopPushToTalkTimers() {
+        mainHandler.removeCallbacks(pttArmRunnable);
+        mainHandler.removeCallbacks(pttTurnTimeoutRunnable);
+        mainHandler.removeCallbacks(pttReplyTimeoutRunnable);
+    }
+
+    /** Half-duplex gate for the plain session and the push-to-talk turn
+     *  (alpha2-brain#16): no microphone frames to the server while the robot
+     *  speaks. Runs on the socket read thread; reads volatile state only. */
+    private void gateUplinkOnTts(String stateValue) {
+        if (!xiaozhiConfig.isPushToTalkEnabled()) return;
+        if (WakeController.isActive()) return; // wake mode gates its own uplink
+        if (!xiaozhiAudioController.isCapturing()) return; // no active microphone
+        if ("start".equals(stateValue)) {
+            xiaozhiAudioController.setUplink(false);
+        } else if ("stop".equals(stateValue)) {
+            // A push-to-talk turn stays closed until the next long press,
+            // unless the user is still holding the key (review round 1,
+            // F4): the robot just went quiet, so the user's speech may
+            // flow now.
+            if (pushToTalk.state() == PushToTalkStateMachine.State.RECORDING
+                    || !pttTurnActive) {
+                xiaozhiAudioController.setUplink(true);
+            }
+        }
     }
 
     /** 設定 mute LED (小智連線指示) - 連發六次確保在 chest 匯流排壅塞的情況下也生效。 */
@@ -641,7 +1168,12 @@ public final class XiaozhiBridge {
                 return startXiaozhiMic();
 
             case "mic/stop": {
-                stopXiaozhiMic();
+                // keep_playback=true: close the microphone, but play the rest of the answer.
+                if ("true".equalsIgnoreCase(ApiValidator.optional(query, "keep_playback", "false"))) {
+                    stopXiaozhiCaptureOnly();
+                } else {
+                    stopXiaozhiMic();
+                }
                 return HttpServer.ApiResponse.okTrue();
             }
 
@@ -677,6 +1209,18 @@ public final class XiaozhiBridge {
 
             case "filler_action/set":
                 return xiaozhiConfig.fillerActionSet(query);
+
+            case "ptt/get":
+                return xiaozhiConfig.pushToTalkGet();
+
+            case "ptt/set":
+                return xiaozhiConfig.pushToTalkSet(query);
+
+            case "key_feedback/get":
+                return xiaozhiConfig.keyFeedbackGet();
+
+            case "key_feedback/set":
+                return xiaozhiConfig.keyFeedbackSet(query);
 
             case "boot_voice/get":
                 return xiaozhiConfig.bootVoiceGet();
@@ -792,6 +1336,10 @@ public final class XiaozhiBridge {
      *  three need the exact same start sequence and error handling, so this is the one
      *  place it's implemented. */
     private HttpServer.ApiResponse startXiaozhiMic() {
+        if (WakeController.isActive()) {
+            // The wake-word capture owns the microphone (single input HAL).
+            return HttpServer.ApiResponse.error("wake mode is on - the wake word opens the microphone");
+        }
         if (!XiaozhiClient.isAudioSupported()) {
             return HttpServer.ApiResponse.error("voice chat is not supported on this Android version (requires 5.0/API 21+)");
         }
@@ -864,6 +1412,8 @@ public final class XiaozhiBridge {
         // #xiaozhiMicLed / app-xiaozhi.js 的 xiaozhi_mic_state 事件處理)。
         xiaozhiMicHeld = true;
         startXiaozhiMicHoldEnforcer();
+        // Push-to-talk (alpha2-brain#16): the plain session takes over the gate.
+        pttTurnActive = false;
         EventBus.get().publish(XIAOZHI_MIC_STATE_EVENT, "{\"held\":true}");
         return HttpServer.ApiResponse.okTrue();
     }
@@ -1064,6 +1614,8 @@ public final class XiaozhiBridge {
                     if (!"xiaozhi".equals(xiaozhiConfig.getTtsEngine())) {
                         return;
                     }
+                    if (dropReplyAudio) return; // the rest of an aborted answer
+                    VoiceTiming.get().audioFrame();
                     xiaozhiAudioController.onIncomingOpusFrame(opusData);
                 }
             });
@@ -1081,7 +1633,17 @@ public final class XiaozhiBridge {
             xiaozhiClient.setTtsStateListener(new XiaozhiClient.TtsStateListener() {
                 @Override
                 public void onTtsState(String stateValue) {
+                    if ("start".equals(stateValue)) ensureReplyPlayback();
+                    gateUplinkOnTts(stateValue);
+                    WakeController.onXiaozhiTts(stateValue);
                     if ("start".equals(stateValue)) {
+                        // Push-to-talk (review round 1, F2): the reply has
+                        // begun. The 60 s reply timeout is the cap for a
+                        // reply that never starts. Cancel it: a reply that
+                        // plays longer than 60 s must not fire it
+                        // mid-playback, close the turn, and open a plain
+                        // microphone after a push-to-talk turn.
+                        mainHandler.removeCallbacks(pttReplyTimeoutRunnable);
                         LedCenter.startMouthLedForTts();
                         // random 動作要同 tts 一齊發生，不是說完再做：在 "start"
                         // (開講那刻) 即觸發，等動作同說話同步。實際邏輯在
@@ -1095,11 +1657,17 @@ public final class XiaozhiBridge {
                         }
                     } else if ("stop".equals(stateValue)) {
                         LedCenter.stopMouthLedForTts();
-                        if (xiaozhiAutoMode.get()) {
+                        // Push-to-talk (alpha2-brain#16): the reply ends the
+                        // waiting turn. No auto-continue for that turn.
+                        boolean pttClosed = pushToTalk.ttsStop();
+                        if (xiaozhiAutoMode.get() && !pttTurnActive && !pttClosed) {
                             // 後開者得 mic：vosk 搶了 mic 就不回搶（等用戶手動 mic/start)。
                             if (vosk == null || !vosk.isListening()) {
                                 startXiaozhiMic();
                             }
+                        }
+                        if (pttClosed) {
+                            pttTurnActive = false;
                         }
                     }
                 }
@@ -1112,6 +1680,15 @@ public final class XiaozhiBridge {
                 public void onUnexpectedDisconnect() {
                     // mute 鍵 LED = 小智連線指示燈，斷線就關燈。
                     setChestMuteLed(false);
+                    // Push-to-talk (alpha2-brain#16): the socket is gone, so an
+                    // open or waiting turn ends. Stop the timers and the mic.
+                    if (pushToTalk.state() != PushToTalkStateMachine.State.IDLE) {
+                        stopPushToTalkTimers();
+                        pttPending = false;
+                        pttTurnActive = false;
+                        pushToTalk.disconnect();
+                        stopXiaozhiMic();
+                    }
                     // 意外斷線可能發生在 TTS 播放中途 (收到 "start" 未收到 "stop")，
                     // 嘴部 LED 會停留在點亮 breathing 狀態，所以斷線一定關燈。
                     LedCenter.stopMouthLedForTts();
@@ -1289,10 +1866,12 @@ public final class XiaozhiBridge {
             if (i > 0) spoken.append(' ');
             spoken.append(c);
         }
-        String text = "配對碼是 " + spoken + "。請去 xiaozhi 點 me 輸入這個碼。再說一次，配對碼是 " + spoken + "。";
+        // Spoken once, must be followable: the code, where to type it, then the
+        // code again. No "under me" (unclear where that is in the app).
+        String text = "The pairing code is " + spoken + ". Type this code in the xiaozhi app. Again: the pairing code is " + spoken + ".";
         awaitTtsGap();
         LedCenter.startMouthLedForTts();
-        if (!ttsCenter.speakAndroidTts(text, java.util.Locale.SIMPLIFIED_CHINESE)) {
+        if (!ttsCenter.speakAndroidTts(text, java.util.Locale.ENGLISH)) {
             LedCenter.stopMouthLedForTts();
             Log.w(TAG, "Failed to speak XiaoZhi activation code via Android TTS");
         }
@@ -1466,7 +2045,7 @@ public final class XiaozhiBridge {
         if (question == null || question.isEmpty()) {
             // LLM 成日空參數 call (take_photo({}))，噉會跌入 uuid 兩步模式；
             // 補一句等同 8 月嗰次 "眼前有啲咩？"，直接攞描述。
-            question = "請詳細描述眼前影像。";
+            question = "Describe the image in front of you in detail.";
         }
         byte[] jpeg;
         String visionText;

@@ -35,9 +35,9 @@ public class AudioPlaybackController {
     private static final String TAG = "AudioPlaybackController";
 
     // Must match whatever sample rate the browser-side encoder uses when it sends PCM.
-    // 16000：alpha2services 自家 TTS (IflytekTTS) 實測用 16000 開 AudioTrack 成功，相容確認。
-    // （註：同樣 byte 數下 8kHz 代表雙倍播放時間、對 underrun headroom 大一半；
-    // 若再見 underrun/jitter 症狀，這個是其中一個要留意的方向。）
+    // 16000: the built-in TTS of alpha2services (IflytekTTS) opens AudioTrack at 16000 on device; compatibility confirmed.
+    // (Note: at 8kHz the same byte count plays for twice as long, doubling the underrun headroom;
+    // if underrun/jitter symptoms return, this is one direction to check.)
     private static final int SAMPLE_RATE_HZ = 16000;
     private static final int CHANNEL_CONFIG = AudioFormat.CHANNEL_OUT_MONO;
     private static final int AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
@@ -113,7 +113,7 @@ public class AudioPlaybackController {
         static StartResult fail(String error) { return new StartResult(error); }
     }
 
-    /** AudioTrack 建失敗共用收尾（start／playTestTone 兩份逐字一樣）：放掉、記 error、開閘。 */
+    /** Shared AudioTrack init-failure cleanup (identical in start()/playTestTone): release, record error, release the latch. */
     private static void failTrackInit(AudioTrack track, AtomicReference<String> error, CountDownLatch latch) {
         track.release();
         error.set("AudioTrack failed to initialize (state=" + track.getState() + ")");
@@ -416,14 +416,15 @@ public class AudioPlaybackController {
     }
 
     public void shutdown() {
-        // 同 AudioController.shutdown() 一樣的 race：playing=false 之後, writeLoop()
-        // 要多跑一個 loop iteration 才會發現、接著才做 finishAndReleaseTrack()
-        // (audioTrack.stop()/release()) —— 這個 release 本身是在 playbackHandler
-        // 那條 playback thread 裡做的, quitSafely() 不會中斷它, 但如果 shutdown()
-        // 之後很快又有人 start(), 新一輪會開一條新 HandlerThread, 有機會和舊那條
-        // 還在做 release() 的 thread 短暫並行, 兩邊都拿著 AudioTrack/audioTrack
-        // 這個共享狀態。跟 AudioController.shutdown() 的做法看齊: 用一個 post 到
-        // playbackHandler 的 Runnable + CountDownLatch, 等實際 release 完成才返回。
+        // Same race as AudioController.shutdown(): after playing=false, writeLoop()
+        // needs one more loop iteration before it notices and calls finishAndReleaseTrack()
+        // (audioTrack.stop()/release()). That release runs on the playback thread of
+        // playbackHandler; quitSafely() does not interrupt it. If start() runs shortly
+        // after shutdown(), the new round opens a new HandlerThread that may briefly run
+        // in parallel with the old thread still in release(); both hold the shared
+        // AudioTrack/audioTrack state. Match AudioController.shutdown(): post a
+        // Runnable + CountDownLatch to playbackHandler and wait for the real release
+        // to complete before returning.
         if (playbackHandler == null) {
             playing = false;
             if (playbackThread != null) {

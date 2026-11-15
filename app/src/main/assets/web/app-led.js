@@ -1,48 +1,48 @@
 // Open Alpha2 — client logic (app-led.js)
-// 內容: 頭/眼/咀 LED 顏色揀選、preset (共用 ledPresetApply())。
-// 全部檔案共用 window/global scope (沒有用 ES module), 載入順序由 index.html 的
-// <script src="..."> 順序決定 - 詳見 index.html 頭那段 comment。
+// Contents: head/eye/mouth LED color picking and presets (shared ledPresetApply()).
+// All files share the window/global scope (no ES modules). Load order is set by the
+// <script src="..."> order in index.html - see the comment block at the head of index.html.
 
 
 // ---------------- LEDs ----------------
 // Colour/brightness/preset values are user-confirmed on real 5-mic hardware:
-//   color: 1=紅 2=綠 3=藍 4=黃 5=紫 6=青 7=白
-//   brightness: 1 (最暗) .. 9 (最光)
+//   color: 1=Red 2=Green 3=Blue 4=Yellow 5=Purple 6=Cyan 7=White
+//   brightness: 1 (dimmest) .. 9 (brightest)
 //   preset (p5 upTime / p6 downTime / p7 runTime / p8 mode, set server-side in
-//   MainActivity.java): 長開 p5=MAX,p6=0,p8=0 · 閃燈 p5=100,p6=100,p8=0 · 跑馬燈
-//   p5=100,p6=0 · 呼吸燈(頭部限定) p5=5,p6=20 · 雙色燈 p5=500,p6=0 · 停止 (no LED
+//   MainActivity.java): On (long) p5=MAX,p6=0,p8=0 · Flash p5=100,p6=100,p8=0 · Chase
+//   p5=100,p6=0 · Breathe (head only) p5=5,p6=20 · Dual color p5=500,p6=0 · Stop (no LED
 //   params, calls the stop endpoint)
 // Every control (colour dot, brightness slider, preset button) sends immediately -
-// there's no separate "開始" button. Picking a colour or dragging brightness re-sends
+// there is no separate "Start" button. Picking a colour or dragging brightness re-sends
 // whatever preset was last used, so the robot updates live as you adjust either one.
 
 const LED_COLORS = [
-  { code: 1, name: "紅", hex: "#ff3b3b" },
-  { code: 2, name: "綠", hex: "#3bff5c" },
-  { code: 3, name: "藍", hex: "#3b6bff" },
-  { code: 4, name: "黃", hex: "#ffe93b" },
-  { code: 5, name: "紫", hex: "#a83bff" },
-  { code: 6, name: "青", hex: "#3bfff0" },
-  { code: 7, name: "白", hex: "#ffffff" },
+  { code: 1, name: uiLang === "en" ? "Red" : "紅", hex: "#ff3b3b" },
+  { code: 2, name: uiLang === "en" ? "Green" : "綠", hex: "#3bff5c" },
+  { code: 3, name: uiLang === "en" ? "Blue" : "藍", hex: "#3b6bff" },
+  { code: 4, name: uiLang === "en" ? "Yellow" : "黃", hex: "#ffe93b" },
+  { code: 5, name: uiLang === "en" ? "Purple" : "紫", hex: "#a83bff" },
+  { code: 6, name: uiLang === "en" ? "Cyan" : "青", hex: "#3bfff0" },
+  { code: 7, name: uiLang === "en" ? "White" : "白", hex: "#ffffff" },
 ];
 
-let selectedHeadColor = 5; // 紫 - matches Alpha2Connection.beginLedEffect()'s confirmed-working payload
-let selectedEyeColor = 7;  // 白
+let selectedHeadColor = 5; // Purple - matches Alpha2Connection.beginLedEffect()'s confirmed-working payload
+let selectedEyeColor = 7;  // White
 let lastHeadPreset = "long";
 let lastEyePreset = "long";
-// 雙色模式三色選擇（實機 dual 出呢三組）：藍綠＝p1 藍，紅綠＝p1 黃，紅藍＝p1 紫。
-// 點解唔直接 7 色：其他 p1 出嚟都係藍綠，無得分，唔擺出嚟阻位。
+// The three dual-mode picks (the real device outputs these three dual pairs): blue-green = p1 blue, red-green = p1 yellow, red-blue = p1 purple.
+// Why not all 7 colors: every other p1 value also comes out as blue-green, so there is no variety; showing them would only take up space.
 const DUAL_COLORS = [
   { code: 3, name: "藍綠", hex: "linear-gradient(135deg, #3b6bff 50%, #3bff5c 50%)" },
-  { code: 4, name: "紅綠", hex: "linear-gradient(135deg, #ff3b3b 50%, #3bff5c 50%)" },
-  { code: 5, name: "紅藍", hex: "linear-gradient(135deg, #ff3b3b 50%, #3b6bff 50%)" },
+  { code: 4, name: uiLang === "en" ? "Red-Green" : "紅綠", hex: "linear-gradient(135deg, #ff3b3b 50%, #3bff5c 50%)" },
+  { code: 5, name: uiLang === "en" ? "Red-Blue" : "紅藍", hex: "linear-gradient(135deg, #ff3b3b 50%, #3b6bff 50%)" },
 ];
-let prevHeadColor = null; // 入 dual 之前揀緊咩色，出返嚟還原
+let prevHeadColor = null; // the color picked before entering dual; restored when leaving
 let prevEyeColor = null;
 function dualValid(code) { return code === 3 || code === 4 || code === 5; }
 
 function buildColorPicker(wrapId, getSelected, setSelected, onPick, palette) {
-  // 找不到 element 就跳過這個 picker，不阻其他初始化。
+  // If the element is missing, skip this picker; do not block other initialization.
   const wrap = document.getElementById(wrapId);
   if (!wrap) {
     console.error("buildColorPicker: element #" + wrapId + " not found, skipping");
@@ -82,22 +82,22 @@ function buildEyeColorPicker() {
     perledEyeMode === "dual" ? DUAL_COLORS : LED_COLORS);
 }
 
-/** headLedPreset()/eyeLedPreset() 共用邏輯 - 兩者結構完全一樣 (stop 直接送、
- *  其他 preset 組合 color+brightness)，僅 api path/顏色/亮度來源不同。
- *  preset 會帶埋而家 mirror 緊嘅 mask（逐粒撳剩一半嗰陣，閃／跑馬等淨係郁嗰一半；
- *  未 sync 過／server 未打過（-1）就唔帶，server 照舊全開）。
+/** Shared logic for headLedPreset()/eyeLedPreset() - the two have identical structure (stop sends
+ *  directly, the other presets combine color+brightness); only the api path/color/brightness source differs.
+ *  A preset carries the currently mirrored mask (when per-LED presses left half lit, flash/chase etc. move only that half;
+ *  never synced / server never wrote (-1) means no mask carried, and the server defaults to all-on).
  *  @param apiPath    "led/head/set" / "led/eye/set"
- *  @param preset     要送的 preset 字串
- *  @param color      當前選了的顏色 code
- *  @param brightnessElId 亮度滑桿的 id
- *  @param curMasks   {p3, p4} 而家著緊嘅 mask（逐粒 mirror state）
+ *  @param preset     the preset string to send
+ *  @param color      the currently selected color code
+ *  @param brightnessElId the id of the brightness slider
+ *  @param curMasks   {p3, p4} the currently lit mask (per-LED mirror state)
  */
 function ledPresetApply(apiPath, preset, color, brightnessElId, curMasks, speedElId) {
   const brightness = document.getElementById(brightnessElId).value;
   const full = apiPath === "led/head/set" ? 31 : 255;
   const zone = apiPath === "led/head/set" ? "head" : "eye";
   let p;
-  // 對應 openapi /api/led/head/set /api/led/eye/set — apiPath 動態故用條件分流
+  // Matches openapi /api/led/head/set /api/led/eye/set - apiPath is dynamic, so branch conditionally
   if (preset === "stop") {
     p = apiPath === "led/head/set" ? Alpha2Api.ledHeadSet({preset: "stop"}) : Alpha2Api.ledEyeSet({preset: "stop"});
     perledNoteSent(apiPath, 0, 0, 0, 0);
@@ -105,9 +105,9 @@ function ledPresetApply(apiPath, preset, color, brightnessElId, curMasks, speedE
     const params = {preset: preset, color: color, brightness: brightness};
     const speedEl = speedElId ? document.getElementById(speedElId) : null;
     if (speedEl) params.speed = String(Math.max(50, Math.min(500, parseInt(speedEl.value, 10) || 100)));
-    // chase 例外：硬件唔理 mask 照全掃（熄哂都掃），所以唔帶 mask＝全開，
-    // mirror 先對得上。其他 preset：淨係 mirror 有嘢著緊先帶；
-    // 全熄（stop 完）嗰陣撳即全開，唔帶。
+    // chase is the exception: the hardware ignores the mask and scans all (even when off), so omitting the mask = all-on,
+    // which is what makes the mirror match. Other presets: carry the mask only when something in the mirror is lit;
+    // pressing while fully off (right after stop) means all-on, so omit it.
     if (preset !== "chase" && curMasks) {
       const pm = perledPartialMasks(zone, curMasks);
       if (pm) {
@@ -115,12 +115,12 @@ function ledPresetApply(apiPath, preset, color, brightnessElId, curMasks, speedE
         params.p4 = String(pm.p4);
         perledNoteSent(apiPath, pm.p3, pm.p4, Number(color), Number(brightness));
       } else {
-        // 人哋台／未知：server 會用全 mask，記低佢（連色＋光度一齊記，
-        // disco 眼同 preset 一樣全開，淨係色唔同——淨對 mask 對唔到眼！）。
+        // Someone else's show / unknown: the server will use the full mask, so record that (color + brightness too,
+        // because the disco eye is fully on like a preset with only a different color - matching the mask alone would never match the eye!).
         perledNoteSent(apiPath, full, full, Number(color), Number(brightness));
       }
     } else {
-      // chase：硬件唔理 mask 照全掃，唔帶 mask＝全開，mirror 先對得上。
+      // chase: the hardware ignores the mask and scans all, so omit the mask = all-on, and the mirror matches.
       perledNoteSent(apiPath, full, full, Number(color), Number(brightness));
     }
     p = apiPath === "led/head/set" ? Alpha2Api.ledHeadSet(params) : Alpha2Api.ledEyeSet(params);
@@ -128,19 +128,19 @@ function ledPresetApply(apiPath, preset, color, brightnessElId, curMasks, speedE
   return p;
 }
 
-// 記低今次送出去嘅 mask（樂觀值，同本地 paint 一致）：下次 poll 發現
-// server 唔係呢組（disco／其他嘢郁過），動畫還原靜態、照 mask 直出。
-// stop 嗰陣記 0,0。未送過＝null（唔檢查）。
-// ours 旗：true＝而家顯示緊我哋自己嘅嘢（mask 可信，可以跟住改）；
-// false＝人哋台（disco 等）／未知——preset／toggle 一律由全開起手，
-// 唔好攞人哋個 pattern 當自己嘢改（之前眼就係咁中招：disco mask 當咗自己嘅）。
+// Record the mask just sent (optimistic, matching the local paint): if the next poll finds the
+// server is not on this set (disco / something else moved), restore the animation to static and draw straight from the mask.
+// stop records 0,0. Never sent = null (skip the check).
+// ours flag: true = we are showing our own thing now (the mask is trusted and can be modified further);
+// false = someone else's show (disco etc.) / unknown - preset/toggle always start from all-on.
+// Do not take another show's pattern and edit it as ours (the eye got burned exactly that way: the disco mask was treated as our own).
 let perledHeadSent = null;
 let perledEyeSent = null;
 let perledHeadOurs = false;
 let perledEyeOurs = false;
 function perledNoteSent(apiPath, p3, p4, color, brightness) {
   const rec = { p3: p3, p4: p4, color: color | 0, brightness: brightness | 0 };
-  // 新 intent：還原記憶＋計數清零＋認領（由呢組 mask 起重新對）。
+  // New intent: restore memory + clear counters + claim (re-align starting from this mask set).
   if (apiPath === "led/head/set") {
     perledHeadSent = rec;
     perledHeadMismatch = 0;
@@ -154,10 +154,10 @@ function perledNoteSent(apiPath, p3, p4, color, brightness) {
   }
 }
 
-// 統一出 mask 規矩（preset 樂觀＋實際送行同一套，唔好兩邊各寫一套走散）：
-// 回 {p3,p4} 用局部 ／ null 用全開（唔帶）。
-// chase 永遠全開（硬件照掃）；唔係自己台／未知一律全開；
-// 自己台＋知＋全熄（逐粒熄晒）就照送 0（唔好變返全開！）。
+// One mask output rule (preset optimistic + actual send use the same set; do not write two that drift apart):
+// return {p3,p4} for partial / null for all-on (omit).
+// chase is always all-on (the hardware scans anyway); not-our-show / unknown is always all-on;
+// our-show + known + fully off (every LED switched off) sends 0 as is (do not flip back to all-on!).
 function perledPartialMasks(zone, st) {
   const ours = zone === "head" ? perledHeadOurs : perledEyeOurs;
   if (!ours) return null;
@@ -177,8 +177,8 @@ function eyeLedApply() {
   return eyeLedPreset(lastEyePreset);
 }
 
-// preset 預設速度（ms）：撳 preset 先將 slider 撥返去經典值再送；
- // 之後拖 slider 即時重送（同光度一樣 live）。long/stop 無視速度。
+// Preset default speed (ms): pressing a preset first moves the slider back to the classic value, then sends;
+ // after that, dragging the slider re-sends live (as immediate as brightness). long/stop ignore speed.
 const PERLED_HEAD_SPEED_DEFAULT = { flash: 150, chase: 100, dual: 150, breathe: 100 };
 const PERLED_EYE_SPEED_DEFAULT = { flash: 150, chase: 100, dual: 150 };
 function perledSetSpeed(sliderId, valId, value) {
@@ -189,10 +189,10 @@ function perledSetSpeed(sliderId, valId, value) {
 }
 
 function headLedPreset(preset) {
-  // 轉色/光度重送（headLedApply 經呢度）唔 reset 速度；淨係撳新 preset 先撥返經典值。
+  // Color/brightness re-sends (headLedApply comes through here) do not reset the speed; only pressing a new preset moves it back to the classic value.
   const changed = preset !== lastHeadPreset;
-  const wasStop = lastHeadPreset === "stop"; // stop 完再撳＝全開（唔用舊 0,0）
-  // 入 dual 記低舊色（唔係三色之一即轉藍）、出 dual 還原；picker 三色/七色對應轉。
+  const wasStop = lastHeadPreset === "stop"; // pressing after stop = all-on (do not reuse the old 0,0)
+  // Entering dual remembers the old color (anything not one of the three becomes blue); leaving dual restores it; the picker switches between the 3-color and 7-color sets.
   const wasDual = lastHeadPreset === "dual";
   const willDual = preset === "dual";
   if (willDual && !wasDual) {
@@ -207,9 +207,9 @@ function headLedPreset(preset) {
   perledHeadMode = (preset === "flash" || preset === "chase" || preset === "breathe" || preset === "dual") ? preset : "static";
   if (changed && PERLED_HEAD_SPEED_DEFAULT[preset] != null) perledSetSpeed("headSpeed", "headSpeedVal", PERLED_HEAD_SPEED_DEFAULT[preset]);
   if (changed && (wasDual || willDual) && typeof buildHeadColorPicker === "function") buildHeadColorPicker();
-  // 樂觀本地更新：mirror 即換（同送出去嘅一致，行同一個 perledPartialMasks，
-  // 唔等 poll——斷線都 work，poll 到返嚟自動校準。光度一齊記，顯示跟光暗。
-  // stop 完再撳非 stop（wasStop）即全開，唔好用返舊 0,0。
+  // Optimistic local update: swap the mirror at once (consistent with what was sent, using the same
+  // perledPartialMasks; no waiting for the poll - it works offline too, and the returning poll auto-calibrates). Brightness is
+  // recorded together, so the display follows the dimming. Pressing a non-stop preset after stop (wasStop) means all-on; do not reuse the old 0,0.
   const headBright = perledReadBrightness("headBrightness");
   if (preset === "stop") {
     perledHead = { p3: 0, p4: 0, color: 0, brightness: 0 };
@@ -230,8 +230,8 @@ function perledReadBrightness(elId) {
 
 function eyeLedPreset(preset) {
   const changed = preset !== lastEyePreset;
-  const wasStop = lastEyePreset === "stop"; // stop 完再撳＝全開
-  lastEyeWasCountdown = false; // 掣一撳，速度 slider 歸 preset 管，唔再跟倒數
+  const wasStop = lastEyePreset === "stop"; // pressing after stop = all-on
+  lastEyeWasCountdown = false; // one press moves the speed slider under preset control, no longer under the countdown
   const wasDual = lastEyePreset === "dual";
   const willDual = preset === "dual";
   if (willDual && !wasDual) {
@@ -264,18 +264,18 @@ function perledZonePace(zone) {
   return Math.max(50, Math.min(500, isNaN(v) ? 100 : v));
 }
 
-// 眼速度 slider 專用：倒數模式嗰陣歸倒數管——拖緊唔送（等放手先用新速度
-// 重跑一次），唔係嘅話一郁就跳去上次個 preset（之前話「改唔到速度」就係咁嚟）。
+// Eye speed slider only: during countdown mode the countdown owns it - dragging does not send (on release it reruns
+// once with the new speed). Otherwise any move would jump back to the last preset (this is exactly what caused the old "cannot change speed" complaint).
 function eyeSpeedInput(value) {
   const valEl = document.getElementById("eyeSpeedVal");
   if (valEl) valEl.textContent = value;
-  // 倒數模式：拖緊唔送，等放手（onchange）先用新速度重跑；
-  // 其他模式照舊即送（同光度一樣 live）。
+  // Countdown mode: dragging does not send; on release (onchange) it reruns with the new speed.
+  // Other modes still send live (as immediate as brightness).
   if (lastEyeWasCountdown) return;
   eyeLedApply();
 }
 function eyeSpeedCommit() {
-  // 放手：倒數模式＋無行緊＝用新速度重跑；其他補送一次準數。
+  // Release: countdown mode + not running = rerun with the new speed; otherwise send one final exact value.
   if (lastEyeWasCountdown && !eyeCountdownRunning) {
     eyeCountdown3s(false);
   } else if (!lastEyeWasCountdown) {
@@ -283,41 +283,41 @@ function eyeSpeedCommit() {
   }
 }
 
-// mirror 外來態：wifi 燈（red/blue/off，server 記）管頭燈第 5 粒；
-// 咀燈著熄（server mouth mode）掣顯示用；mute 本地撳掣態（server 唔記）。
+// Mirror foreign state: the wifi LED (red/blue/off, remembered by the server) drives head LED #5;
+// the mouth LED on/off (server mouth mode) is for the button display; mute is the local press state (the server does not record it).
 let wifiMirror = "off";
 let mouthLitMirror = false;
 let muteLitLocal = false;
-let sysPadLast = null; // 上次 pad 態（render 嗰陣重畫掣，中英切換即跟，唔使等 poll）
+let sysPadLast = null; // last pad state (redraw the buttons on render, so zh/en switch follows at once without waiting for the poll)
 
-// 眼部「3秒倒數」：雙眼齊漸滿 3 圈（綠→黃→紅，每圈約 1 秒）→ 白燈 3 秒 → 熄。
-// 行 ledEyeSet（long＋raw mask，同 debugJniLed 送落硬件嘅嘢一模一樣——
-// p5/p6/p7/p8 全部 MAX,0,MAX,0），但經記帳 endpoint：每格 server 有 record，
-// poll 永遠對得上。中途斷尾（某格炒咗）硬件停喺半路都唔怕，state 係啱嘅，
-// 下次撳 preset／poll 照常接得返。之前行 debugJniLed 直透唔記帳，
-// 斷尾嗰陣 server／mirror／硬件三邊各說各話，眼就係咁凍結——頭無呢條路。
+// Eye "3s countdown": both eyes fill in 3 rounds (green to yellow to red, about 1 s per round), then white 3 s, then off.
+// It runs ledEyeSet (long + raw mask, exactly what debugJniLed pushes to the hardware -
+// p5/p6/p7/p8 all MAX,0,MAX,0), but through the bookkeeping endpoint: every step has a server record,
+// so the poll always matches. Even if the chain breaks halfway (one step fails) and the hardware stops mid-way, the state is correct,
+// and the next preset press / poll resumes normally. The old debugJniLed direct pass-through kept no books:
+// on a broken chain the server, mirror, and hardware each told a different story, and that froze the eye - the head never had that path.
 let eyeCountdownRunning = false;
 let eyeCountdownStartMs = 0;
-// 倒數行緊嗰陣眼速度 slider 歸倒數管：拖緊唔送，等放手先用新速度重跑一次
-// （見 eyeSpeedInput/eyeSpeedCommit）；其他 preset／逐粒撳即清返呢個旗。
+// During the countdown the eye speed slider belongs to the countdown: dragging does not send; on release it reruns once
+// with the new speed (see eyeSpeedInput/eyeSpeedCommit). Any other preset / per-LED press clears this flag.
 let lastEyeWasCountdown = false;
 function eyeCountdown3s(resetSpeed) {
   if (eyeCountdownRunning) return Promise.resolve();
   eyeCountdownRunning = true;
   eyeCountdownStartMs = Date.now();
   lastEyeWasCountdown = true;
-  if (resetSpeed !== false) perledSetSpeed("eyeSpeed", "eyeSpeedVal", 100); // 倒數預設 100ms 一步（跟節奏）
+  if (resetSpeed !== false) perledSetSpeed("eyeSpeed", "eyeSpeedVal", 100); // countdown default 100ms per step (on the beat)
   perledEyeMode = "static";
   const masks = [16, 24, 28, 30, 31, 159, 223, 255];
-  const colors = ["2", "4", "1"]; // 綠 黃 紅
+  const colors = ["2", "4", "1"]; // Green Yellow Red
   function sleep(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
   function step(color, mask) {
     const t0 = Date.now();
-    const pace = perledZonePace("eye"); // 倒數步速跟眼速度 slider（最少 50ms，唔好 hammer 驅動）
+    const pace = perledZonePace("eye"); // countdown step follows the eye speed slider (min 50ms; do not hammer the driver)
     return Alpha2Api.ledEyeSet({ preset: "long", color: String(color), brightness: "9",
       p3: String(mask), p4: String(mask) }).then(function () {
       perledEye = { p3: mask, p4: mask, color: Number(color) };
-      perledEyeOurs = true; // 倒數逐格都係我哋嘅（雖然唔經 NoteSent）
+      perledEyeOurs = true; // every countdown step is ours (though it skips NoteSent)
       perledRender();
       const dt = Date.now() - t0;
       if (dt < pace) return sleep(pace - dt);
@@ -331,28 +331,28 @@ function eyeCountdown3s(resetSpeed) {
   });
   function done() { eyeCountdownRunning = false; }
   return p.then(function () {
-    return step("7", 255); // 白燈全開
+    return step("7", 255); // white, fully on
   }).then(function () {
     return sleep(3000);
   }).then(function () {
-    return eyeLedPreset("stop"); // 經 preset 行（sent／mode／picker 一齊更新，唔留手尾）
+    return eyeLedPreset("stop"); // goes through the preset path (sent/mode/picker update together; no loose end)
   }).then(done, done);
 }
 
-// ---------------- 系統指示燈 ----------------
-// Wi-Fi 燈（紅/藍/關）：fire-and-forget，網路狀態變更時系統會自動恢復。
-// 音量鍵燈（14/16）：按一下開、再按一下關（server 端記錄狀態，
-// 熄滅為全域熄滅，頭部與眼部會一併熄滅，Wi-Fi 燈會自動恢復）。
-// 靜音燈：僅測試用途，小智連線狀態或實體按鍵會將其覆寫。
+// ---------------- System indicator LEDs ----------------
+// Wi-Fi LED (red/blue/off): fire-and-forget. The system restores it automatically when the network state changes.
+// Volume-key LEDs (14/16): one press on, the next press off (the server records the state;
+// switching off is a global off - the head and eyes go off together, and the Wi-Fi LED restores automatically).
+// Mute LED: test use only. The XiaoZhi connection state or the physical keys overwrite it.
 function sysWifiLed(color) {
-  // 樂觀：mirror 即轉（poll 會校準；server 熄／自動恢復都會經 poll 返嚟）。
-  // wifi 掣本身已刪（淨返頭燈第 5 粒撳即轉），唔使 paint 掣。
+  // Optimistic: the mirror flips at once (the poll calibrates; a server-side off / auto-restore both come back via the poll).
+  // The wifi button itself was removed (pressing head LED #5 toggles it instead), so no button paint is needed.
   wifiMirror = color;
   return Alpha2Api.ledWifiSet({ color: color });
 }
 
-// wifi 顯示燈（頭第 5 粒）撳即紅藍互轉：而家紅就轉藍，其他一律轉紅
-// （off／未知當藍著，實機只會出紅藍）。
+// Pressing the wifi display LED (head #5) toggles red/blue: red now goes to blue, anything else goes to red
+// (off/unknown counts as blue lit; the real device only ever shows red or blue).
 function sysWifiCycle() {
   return sysWifiLed(wifiEffective() === "red" ? "blue" : "red");
 }
@@ -373,8 +373,8 @@ function sysPadRender(res) {
   const plus = document.getElementById("padPlusBtn");
   const m = !!(res && res.minus);
   const p = !!(res && res.plus);
-  // 三角掣：入面無字，淨係轉色（著黃／熄灰）＋title 已經寫明係邊粒。
-  // 中英切換唔使理（無字）。
+  // Triangle buttons: no text inside, only color (yellow on / grey off). The title already says which one it is.
+  // Nothing to do on zh/en switch (no text).
   if (minus) {
     minus.classList.remove("on");
     if (m) minus.classList.add("on");
@@ -392,7 +392,7 @@ function sysMuteToggle() {
 }
 
 function muteRender() {
-  // 咪 icon 掣：入面無字，淨轉色（著紅／熄灰）。
+  // Mic icon button: no text inside, only color (red on / grey off).
   const b = document.getElementById("muteBtn");
   if (!b) return;
   b.className = muteLitLocal ? "sys-toggle-on-red" : "sys-toggle-off";
@@ -400,8 +400,8 @@ function muteRender() {
 
 // Mouth LED - breathing effect only (confirmed the one usable effect on this
 // hardware; see README "嘴部 LED" section for what was tried and ruled out).
-// 單掣 toggle：著＝紅，熄＝灰，態跟 server mirror（mouth mode）。
-// 樂觀本地更新：撳即轉，poll 會校準（斷線都 work）。
+// Single-button toggle: on = red, off = grey; state follows the server mirror (mouth mode).
+// Optimistic local update: press flips at once, the poll calibrates (works offline too).
 function mouthToggle() {
   if (mouthLitMirror) {
     mouthLitMirror = false;
@@ -416,12 +416,12 @@ function mouthToggle() {
 function mouthSpeedInput(value) {
   const valEl = document.getElementById("mouthSpeedVal");
   if (valEl) valEl.textContent = value;
-  // 著緊先即時重送（跟新速度）；熄緊拖 slider 唔開燈。
+  // Only re-send live while lit (with the new speed); dragging the slider while off does not turn the light on.
   if (mouthLitMirror) mouthLedApply();
 }
 
 function mouthRender() {
-  // 咀掣（開關鍵）已移除，淨返個碗（perledMouthArc）做顯示＋開關。
+  // The mouth button (power-key style) was removed; only the bowl (perledMouthArc) remains as display + switch.
   const arc = document.getElementById("perledMouthArc");
   if (arc) {
     arc.classList.remove("on");
@@ -448,18 +448,18 @@ function mouthLedOff() {
   return Alpha2Api.ledMouthSet( { preset: "off" });
 }
 
-// ---------------- 逐粒試燈 ----------------
-// bit 表（實機試位確認，見 LedCenter 註解）：
-// 頭左 P4 正序 [1,2,4,8,16]，頭右 P3 反序 [16,8,4,2,1]，最上一粒（5 號）係 wifi 位；
-// 眼每邊 8 粒 ring，順時針由 12 點起 [16,8,4,2,1,128,64,32]。
-// 硬件 write-only 讀唔返——顯示靠 /api/led/state/get（server 記低最後一轉）。
-// 撳掣送 led/head/raw 或 led/eye/raw，用上面揀嘅色＋光度。
-// preset 動畫（flash/chase/breathe/dual）硬件自己跑，server 唔知幀——
-// 前端按已知時序喺 mirror 度模擬返，長開/停止/raw 照 mask 靜態顯示。
+// ---------------- Per-LED test lights ----------------
+// Bit table (confirmed by testing positions on the real device, see the LedCenter notes):
+// head-left P4 forward order [1,2,4,8,16], head-right P3 reverse order [16,8,4,2,1]; the top LED (no. 5) is the wifi slot;
+// each eye ring has 8 LEDs, clockwise from 12 o'clock [16,8,4,2,1,128,64,32].
+// The hardware is write-only and cannot be read back - display relies on /api/led/state/get (the server stores the last round).
+// Pressing a button sends led/head/raw or led/eye/raw, using the color + brightness picked above.
+// Preset animations (flash/chase/breathe/dual) run on the hardware itself, and the server does not know the frames -
+// the front end simulates them in the mirror with the known timing; long-on/stop/raw show statically from the mask.
 const PERLED_HEAD_L_BITS = [1, 2, 4, 8, 16];
 const PERLED_HEAD_R_BITS = [16, 8, 4, 2, 1];
 const PERLED_EYE_BITS = [16, 8, 4, 2, 1, 128, 64, 32];
-let perledHead = { p3: -1, p4: -1, color: -1, brightness: -1 }; // -1＝server 未打過（unknown）
+let perledHead = { p3: -1, p4: -1, color: -1, brightness: -1 }; // -1 = never written by the server (unknown)
 let perledEye = { p3: -1, p4: -1, color: -1, brightness: -1 };
 let perledHeadMode = "static";
 let perledEyeMode = "static";
@@ -467,12 +467,12 @@ let perledBuilt = false;
 let perledPollTimer = null;
 let perledAnimTimer = null;
 
-// 雙色燈（實機回報，照字面）：
-// 紅/綠/藍/青/白＝藍↔綠，黃＝紅↔綠，紫＝紅↔藍（從來唔出揀嗰隻色本身）。
+// Dual color LED (real-device report, taken literally):
+// red/green/blue/cyan/white = blue↔green, yellow = red↔green, purple = red↔blue (the selected color itself never appears).
 function perledDualHex(selected, phase) {
-  if (selected === 4) return perledColorHex(phase % 2 === 0 ? 1 : 2); // 黃：紅↔綠
-  if (selected === 5) return perledColorHex(phase % 2 === 0 ? 1 : 3); // 紫：紅↔藍
-  return perledColorHex(phase % 2 === 0 ? 3 : 2); // 其餘：藍↔綠
+  if (selected === 4) return perledColorHex(phase % 2 === 0 ? 1 : 2); // yellow: red↔green
+  if (selected === 5) return perledColorHex(phase % 2 === 0 ? 1 : 3); // purple: red↔blue
+  return perledColorHex(phase % 2 === 0 ? 3 : 2); // the rest: blue↔green
 }
 
 function perledColorHex(code) {
@@ -482,7 +482,7 @@ function perledColorHex(code) {
   return "#9aa0a6";
 }
 
-// mask 清洗：unknown（-1/NaN）→0，夾實上限——client assert 唔會再爆。
+// Mask cleanup: unknown (-1/NaN) becomes 0, clamped to the limit - the client assert will not blow up again.
 function perledCleanMask(v, max) {
   v = Number(v);
   if (!(v >= 0)) return 0;
@@ -493,14 +493,14 @@ function perledMakeDot(num, wifi) {
   const dot = document.createElement("button");
   dot.type = "button";
   dot.className = "perled-dot" + (wifi ? " perled-wifi" : "");
-  dot.title = wifi ? "#5 wifi 位（熄未必熄到）" : "#" + num;
+  dot.title = wifi ? (uiLang === "en" ? "#5 wifi slot (off may not actually turn off)" : "#5 wifi 位（熄未必熄到）") : "#" + num;
   return dot;
 }
 
 function perledBuild() {
   if (perledBuilt) return;
   perledBuilt = true;
-  // 頭：左右各一條 5 粒直排，上面係 5 號、下面係 1 號（似 VU 錶由下數起）。
+  // Head: two vertical strips of 5 LEDs, left and right; top is no. 5, bottom is no. 1 (like a VU meter counted from below).
   const strips = [["perledHeadL", "p4", PERLED_HEAD_L_BITS], ["perledHeadR", "p3", PERLED_HEAD_R_BITS]];
   strips.forEach(function (cfg) {
     const wrap = document.getElementById(cfg[0]);
@@ -509,7 +509,7 @@ function perledBuild() {
     for (let i = 4; i >= 0; i--) {
       const dot = perledMakeDot(i + 1, i === 4);
       if (i === 4) {
-        // 第 5 粒係 wifi 位：撳即紅藍互轉（唔經 mask，硬件唔跟嗰套）。
+        // LED no. 5 is the wifi slot: pressing toggles red/blue directly (it does not go through the mask; the hardware does not follow that set).
         dot.onclick = function () { sysWifiCycle(); };
       } else {
         (function (mask, bit) {
@@ -519,7 +519,7 @@ function perledBuild() {
       wrap.appendChild(dot);
     }
   });
-  // 眼：每邊 8 粒圍圈，1 號喺 12 點，順時針。
+  // Eyes: 8 LEDs per side in a ring, no. 1 at 12 o'clock, clockwise.
   const rings = [["perledEyeL", "p3"], ["perledEyeR", "p4"]];
   rings.forEach(function (cfg) {
     const wrap = document.getElementById(cfg[0]);
@@ -536,7 +536,7 @@ function perledBuild() {
       wrap.appendChild(dot);
     }
   });
-  // 動畫 tick（100ms：flash 剛好 5Hz，同硬件 p5/p6=100 一致）。
+  // Animation tick (100ms: flash is exactly 5Hz, matching the hardware p5/p6=100).
   if (!perledAnimTimer) {
     perledAnimTimer = setInterval(function () {
       const tab = document.getElementById("tab-led");
@@ -546,12 +546,12 @@ function perledBuild() {
 }
 
 function perledRender() {
-  // paint：mask 靜態著＋preset 動畫模擬。
-  // 相位全部由 wall clock＋速度 slider 計（唔用 render 次數——poll＋動畫＋撳掣
-  // 都會 render，計次數會時快時慢）：flash 週期 2×速度、跑馬每步＝速度、
-  // 雙色每轉＝速度、呼吸一圈＝速度×12（最少 300ms）。
-  // flash=齊閃 chase=單點掃（眼逆時針，硬件熄哂照掃所以唔理 mask）
-  // breathe=成區統一呼吸 dual=見 perledDualHex（實機回報配對）。
+  // Paint: static mask lights + simulated preset animations.
+  // All phases come from the wall clock + the speed slider (not render counts - poll, animation, and presses
+  // all trigger renders, so counting renders would drift): flash period = 2 x speed, chase step = speed,
+  // dual toggle = speed, one breath cycle = speed x 12 (minimum 300ms).
+  // flash = all blink together; chase = single point sweeping (eyes counter-clockwise; the hardware sweeps even when fully off, so it ignores the mask)
+  // breathe = whole zone breathing together; dual = see perledDualHex (real-device reported pairs).
   const now = Date.now();
   function zonePhase(zone) {
     const pace = Math.max(50, perledZonePace(zone));
@@ -570,18 +570,18 @@ function perledRender() {
     const wrap = document.getElementById(wrapId);
     if (!wrap) return;
     const dots = wrap.querySelectorAll(".perled-dot");
-    // 頭 strip DOM 順序係 5→1（同 build 一致），眼 ring 係 1→8。
+    // The head strip DOM order is 5→1 (matching the build); the eye ring is 1→8.
     const order = wrapId.indexOf("Head") >= 0 ? [4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
     const baseHex = perledColorHex(colorCode);
-    // 光度 1-9 照跟顯示（opacity）：9 實色，1 最淡。呼吸就乘埋一齊。
+    // Brightness 1-9 is reflected in the display (opacity): 9 solid, 1 faintest. Breathe multiplies it in.
     const b = (brightness >= 1 && brightness <= 9) ? brightness : 9;
     const brightAlpha = 0.3 + 0.7 * (b / 9);
-    // 眼跑馬逆時針：由 1 號行去 8、7、6…；頭直排由 1 號向上掃。
+    // Eye chase runs counter-clockwise: from no. 1 to 8, 7, 6...; the head strip sweeps upward from no. 1.
     const chaseK = zone === "eye" ? (count - (ph.chaseStep % count)) % count : (ph.chaseStep % count);
-    // -1＝server 未打過，當全熄畫（唔好將 -1 當 mask 用，bit 位會亂）。
+    // -1 means the server never wrote it: draw fully off (do not use -1 as a mask; the bit positions would scramble).
     const m = mask < 0 ? 0 : mask;
-    // 頭燈第 5 粒（bi===4）係 wifi 位：跟實際態（紅/藍，off/未知當藍——
-    // 實機只會出紅藍，總有一個著）；其他位跟 mask。硬件就係咁，唔呃人。
+    // Head LED no. 5 (bi===4) is the wifi slot: it follows the real state (red/blue; off/unknown counts as blue -
+    // the real device only shows red or blue, one is always lit). The other positions follow the mask. That is how the hardware is; no faking.
     const WIFI_HEX = { red: "#ff3b3b", blue: "#3b6bff" };
     const wifiEff = zone === "head" ? wifiEffective() : null;
     order.forEach(function (bi, di) {
@@ -606,11 +606,11 @@ function perledRender() {
       }
       dot.classList.toggle("perled-on", on);
       dot.style.background = on ? hex : "";
-      // 全部色一律黑邊（白喺淺色底會隱形）；熄還原 CSS 預設邊。
+      // All colors get a black border (white disappears on light backgrounds); off restores the CSS default border.
       dot.style.borderColor = on ? "#222" : "";
-      // 光度 opacity（wifi 位唔跟：調光度唔郁 wifi 燈）。
-      // 呼吸係成區同一個 opacity（×光度）；其他清返。
-      // wifi 位唔跟呼吸（佢係獨立燈），全程實色。
+      // Brightness opacity (the wifi slot does not follow: adjusting brightness does not move the wifi LED).
+      // Breathe uses one opacity for the whole zone (x brightness); the others clear it.
+      // The wifi slot does not breathe (it is an independent light); it stays solid throughout.
       const isWifiDot = bi === 4 && wifiEff;
       let alpha = "";
       if (on) {
@@ -624,25 +624,26 @@ function perledRender() {
   paint("perledHeadR", PERLED_HEAD_R_BITS, perledHead.p3, perledHead.color, perledHead.brightness, perledHeadMode, "R", "head", 5, headPh, wifiMirror);
   paint("perledEyeL", PERLED_EYE_BITS, perledEye.p3, perledEye.color, perledEye.brightness, perledEyeMode, "L", "eye", 8, eyePh, null);
   paint("perledEyeR", PERLED_EYE_BITS, perledEye.p4, perledEye.color, perledEye.brightness, perledEyeMode, "R", "eye", 8, eyePh, null);
-  // 掣文字中英即跟（render 每 100ms 行一次，轉語言唔使等下次 poll／撳掣）。
+  // Button text follows zh/en at once (render runs every 100ms, so a language switch needs no wait for the next poll/press).
   if (typeof sysPadRender === "function") sysPadRender(sysPadLast);
   if (typeof muteRender === "function") muteRender();
   if (typeof mouthRender === "function") mouthRender();
 }
 
 function perledToggle(zone, mask, bit) {
-  // 逐粒撳唔殺效果：行緊閃／跑馬等嗰陣，轉送同一個 preset＋新 mask，
-  // 效果繼續、顯示即換新（stop 緊嗰陣撳即轉長開）。色＋光度一齊記，顯示即跟。
-  // base 規矩：自己台跟而家；人哋台（disco 等）由全開啟手，唔攞人哋個
-  // pattern 嚟改；從來未 sync 過由零起，逐粒點（之前眼就係衰喺呢度：
-  // disco mask 當咗自己嘅，送返出去錯晒）。
+  // Per-LED presses do not kill the effect: while flash/chase etc. run, send the same preset + the new mask,
+  // so the effect continues and the display refreshes at once (pressing during stop switches to long-on). Color + brightness are
+  // recorded together, and the display follows.
+  // Base rule: our own show follows the current state; someone else's show (disco etc.) starts from all-on and never
+  // edits their pattern; never-synced starts from zero and lights LEDs one by one (the eye previously failed exactly
+  // here: it treated the disco mask as its own and the re-send was all wrong).
   const max = zone === "head" ? 31 : 255;
   const full = max;
   if (zone === "head") {
     const st = perledHead;
     const base = perledHeadOurs ? st[mask]
       : ((st.p3 >= 0 && st.p4 >= 0) ? full : 0);
-    perledHeadOurs = true; // 撳即認領：之後送出去嗰組就係我哋嘅
+    perledHeadOurs = true; // press claims it: the set sent out from now on is ours
     perledHead[mask] = (perledCleanMask(base, max) ^ bit) & max;
     perledHead.color = selectedHeadColor;
     perledHead.brightness = perledReadBrightness("headBrightness");
@@ -654,50 +655,50 @@ function perledToggle(zone, mask, bit) {
     const st = perledEye;
     const base = perledEyeOurs ? st[mask]
       : ((st.p3 >= 0 && st.p4 >= 0) ? full : 0);
-    perledEyeOurs = true; // 撳即認領
+    perledEyeOurs = true; // press claims it
     perledEye[mask] = (perledCleanMask(base, max) ^ bit) & max;
     perledEye.color = selectedEyeColor;
     perledEye.brightness = perledReadBrightness("eyeBrightness");
     perledRender();
-    lastEyeWasCountdown = false; // 逐粒撳即歸 preset 管
+    lastEyeWasCountdown = false; // per-LED press moves the eye back under preset control
     if (lastEyePreset === "stop") { lastEyePreset = "long"; perledEyeMode = "static"; }
     ledPresetApply("led/eye/set", lastEyePreset, selectedEyeColor, "eyeBrightness", perledEye, "eyeSpeed")
       .then(function () { perledPollOnce(); });
   }
 }
 
-// 即時 mirror：100ms poll 一次 server 最後燈態（淨係 LED tab 開緊嗰陣先打；
-// rhythm LED 100ms 推一次，1 秒會 miss 晒）。-1＝server 未打過，原樣保留
-// （render 當熄畫，送 preset 嗰陣唔帶 mask＝全開）。
-// 注意：呢條係 background mirror——失敗唔彈 toast（唔係嘅話 10 次/秒洗版），
-// 唔重疊（等緊上一次先唔打新嘅），失敗自動 backoff 到 2 秒，掂返即回 100ms。
+// Live mirror: poll the server's last LED state every 100ms (only while the LED tab is open;
+// the rhythm LED pushes once per 100ms, a 1-second poll would miss everything). -1 = the server never wrote it; keep as is
+// (render draws it as off; sending a preset without a mask = all-on).
+// Note: this is a background mirror - failures do not pop a toast (that would flood 10 times per second),
+// calls do not overlap (the next waits for the last one), failures auto-back off to 2s, and success returns to 100ms at once.
 let perledPollInFlight = false;
-let perledPollInterval = 100; // 節奏燈/顯示燈 100ms（用家要求；失敗 backoff 到 2 秒）
-let perledPollSeq = 0; // cache-bust 計數（舊 response 唔好畀任何 cache 食咗）
+let perledPollInterval = 100; // rhythm/display LED 100ms (user request; failures back off to 2s)
+let perledPollSeq = 0; // cache-bust counter (old responses must not be eaten by any cache)
 function quietStateGet() {
-  // 靜音通道：爛 response 唔彈 toast，寫 console（F12 先睇到；分頁已經無狀態行）。
+  // Silent channel: bad responses do not pop a toast; they write to console (visible only with F12; the tab has no status line now).
   try {
-    // 面板 token 行 Bearer header（見 PanelAuth；query 唔再放 token）。
+    // Panel token travels in the Bearer header (see PanelAuth; the query no longer carries the token).
     const hdrs = (typeof panelAuthHeaders === "function") ? panelAuthHeaders() : {};
     let qs = "?_=" + (perledPollSeq++);
     return fetch(API + "alpha2/led/state/get" + qs, { headers: hdrs }).then(function (res) {
       return res.text().then(function (txt) {
         if (!txt) {
-          console.warn("[perled] state/get 空 body，status=" + res.status);
+          console.warn("[perled] state/get empty body, status=" + res.status);
           return null;
         }
         try {
-          // BOM 容錯：頭一個係 U+FEFF 即劈走先 parse（唔知邊度塞入嚟，劈咗先算）。
+          // BOM tolerance: if the first char is U+FEFF, cut it before parsing (source unknown; cut it and carry on).
           if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);
           return JSON.parse(txt);
         } catch (e) {
-          // 記埋長度＋頭尾＋頭尾字碼——分得出截斷、中間爛、BOM、怪 byte。
-          console.warn("[perled] state/get 爛 JSON，status=" + res.status + " 長" + txt.length + "： " + txt.slice(0, 120));
+          // Record length + head/tail + head/tail char codes - tells truncation, middle corruption, BOM, and odd bytes apart.
+          console.warn("[perled] state/get bad JSON, status=" + res.status + " len=" + txt.length + ": " + txt.slice(0, 120));
           return null;
         }
       });
     }).catch(function (e) {
-      console.warn("[perled] state/get 網絡炒：" + e);
+      console.warn("[perled] state/get network failure: " + e);
       return null;
     });
   } catch (e) {
@@ -706,7 +707,7 @@ function quietStateGet() {
 }
 function perledApplyState(res) {
     if (res.head) perledHead = { p3: numOrNeg1(res.head.p3), p4: numOrNeg1(res.head.p4), color: numOrNeg1(res.head.color), brightness: numOrNeg1(res.head.brightness) };
-    // 倒數行緊嗰陣眼唔跟 poll（debugJniLed 唔記 state，跟咗會冚咗真 timeline）。
+    // While the countdown runs, the eye ignores the poll (debugJniLed keeps no state record; following it would cover the real timeline).
     if (res.eye && !eyeCountdownRunning) perledEye = { p3: numOrNeg1(res.eye.p3), p4: numOrNeg1(res.eye.p4), color: numOrNeg1(res.eye.color), brightness: numOrNeg1(res.eye.brightness) };
   if (res.pad && typeof sysPadRender === "function") {
     sysPadLast = res.pad;
@@ -719,8 +720,8 @@ function perledApplyState(res) {
     mouthLitMirror = res.mouth.mode === 1;
     if (typeof mouthRender === "function") mouthRender();
   }
-  // 胸口 mute 燈有效態（小智連線 OR 播歌指示）：靜音掣跟實機轉色（著紅／熄灰）。
-  // 撳掣保持樂觀本地更新（見 sysMuteToggle），呢度 poll 到即校準——同 mouth 掣同一套紀律。
+  // The chest mute LED has a real state (XiaoZhi connection OR playing indicator): the mute button follows the device color (red on / grey off).
+  // Presses keep the optimistic local update (see sysMuteToggle); the poll here calibrates at once - the same discipline as the mouth button.
   if (typeof res.mute === "boolean" && typeof muteRender === "function") {
     if (muteLitLocal !== res.mute) {
       muteLitLocal = res.mute;
@@ -731,17 +732,17 @@ function perledApplyState(res) {
   perledRender();
 }
 
-// 有人喺我哋背後改過燈（disco 最常見）：server 嘅 mask 同我哋上次送出去
-// 唔一致——即時還原靜態、照 mask 直出（跟實機，唔好用舊動畫呃人）。
-// send／poll 撞車嗰 100ms 誤殺唔怕：還原之前記低個 mode，下次對返
-// 即著返（來回最多閃一閃）；撳新掣會清咗佢（見 perledNoteSent）。
+// Someone changed the LEDs behind our back (disco is the most common): the server mask does not match
+// what we last sent - restore static immediately and draw straight from the mask (follow the real device; do not fake with a stale animation).
+// A send/poll collision in that 100ms window is a safe false kill: the mode is remembered before the restore, and the next
+// match switches it back (worst case one flicker). A new press clears it (see perledNoteSent).
 let perledHeadMismatch = 0;
 let perledEyeMismatch = 0;
 let perledHeadDivergedFrom = null;
 let perledEyeDivergedFrom = null;
 function perledSameState(a, b) {
-  // mask＋色＋光度全中先算同一個態：disco 眼同 preset 一樣全開，
-  // 淨係色唔同——淨對 mask 的話眼永遠對得上，還原唔到！
+  // Mask + color + brightness must all match to count as the same state: the disco eye is fully on like a preset,
+  // with only the color different - matching the mask alone would make the eye always match and never restore!
   return a && b && a.p3 === b.p3 && a.p4 === b.p4
     && (a.color | 0) === (b.color | 0) && (a.brightness | 0) === (b.brightness | 0);
 }
@@ -749,14 +750,14 @@ function perledCheckDiverged(res) {
   if (res.head && perledHeadSent) {
     if (!perledSameState(res.head, perledHeadSent)) {
       perledHeadMismatch++;
-      perledHeadOurs = false; // 人哋郁過：呢台唔再係我哋嘅
+      perledHeadOurs = false; // someone else moved it: this board is no longer ours
       if (perledHeadMode !== "static") {
         perledHeadDivergedFrom = perledHeadMode;
         perledHeadMode = "static";
       }
     } else {
       perledHeadMismatch = 0;
-      perledHeadOurs = true; // 對返：係我哋嘅
+      perledHeadOurs = true; // back in sync: it is ours
       if (perledHeadDivergedFrom && perledHeadMode === "static") {
         perledHeadMode = perledHeadDivergedFrom;
         perledHeadDivergedFrom = null;
@@ -783,8 +784,8 @@ function perledCheckDiverged(res) {
 }
 
 function perledPollOnce() {
-  // 撳掣跟手即刷一次——行靜音通道（set 本身失敗會彈，呢度唔再開聲），
-  // 同 loop 共用同一個 tick＋inFlight，永遠唔會自己撞自己。
+  // A press triggers one instant refresh - uses the silent channel (the set itself toasts on failure, so stay quiet here),
+  // and shares the same tick + inFlight with the loop, so it can never collide with itself.
   perledPollInterval = 100;
   if (perledPollTimer) {
     clearTimeout(perledPollTimer);
@@ -800,9 +801,9 @@ function numOrNeg1(v) {
 
 function perledTickOnce() {
   perledPollTimer = null;
-  // 看門狗：倒數正常最多 ~15 秒完（24 格×500ms＋白燈 3 秒）。超過 30 秒
-  // eyeCountdownRunning 仲係 true，即係條鏈斷咗尾（舊版無 done-on-reject
-  // 之類），眼會永遠唔跟 poll——強制還原，唔好 jam 住。
+  // Watchdog: a normal countdown finishes in ~15s max (24 steps x 500ms + 3s white). If after 30s
+  // eyeCountdownRunning is still true, the chain lost its tail (older versions had no
+  // done-on-reject etc.), and the eye would ignore the poll forever - force restore; do not stay jammed.
   if (typeof eyeCountdownRunning !== "undefined" && eyeCountdownRunning
       && typeof eyeCountdownStartMs !== "undefined"
       && Date.now() - eyeCountdownStartMs > 30000) {
@@ -821,7 +822,7 @@ function perledTickOnce() {
         perledPollInterval = 100;
         perledApplyState(res);
       } else {
-        // 回到嚟但 ok=false／爛 response／網絡炒——backoff，掂返自動回 100ms。
+        // Came back but ok=false / bad response / network failure - back off; success returns to 100ms automatically.
         perledPollInterval = Math.min(2000, perledPollInterval * 2);
       }
       perledSchedule();

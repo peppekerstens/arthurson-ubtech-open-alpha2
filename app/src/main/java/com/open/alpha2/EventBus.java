@@ -42,9 +42,9 @@ public final class EventBus {
         listeners.remove(l);
     }
 
-    /** 目前登記中的 listener 數量 - 純粹給 WebSocketServer 印 log 用來核實
-     *  殭屍 connection 有沒有成功被 unsubscribe (見 WebSocketServer.handleUpgrade()
-     *  的 idle-timeout comment)。 */
+    /** Number of currently registered listeners. WebSocketServer prints this in a log
+     *  line to check that a zombie connection was unsubscribed successfully (see the
+     *  idle-timeout comment in WebSocketServer.handleUpgrade()). */
     public int listenerCount() {
         return listeners.size();
     }
@@ -68,7 +68,7 @@ public final class EventBus {
         // ever actually completed its handshake, even though HTTP API calls on other
         // connections succeeded).
         long now = System.currentTimeMillis();
-        // 原子 take，避免重複 log。
+        // Atomic take to avoid a duplicate log line.
         long last = lastListenerCountLogMs.get();
         if (now - last > 2000
                 && lastListenerCountLogMs.compareAndSet(last, now)) {
@@ -80,8 +80,8 @@ public final class EventBus {
             try {
                 l.onEvent(line);
             } catch (Throwable t) {
-                // A single bad subscriber must not break the others (Error 都接，
-                // 不是一個壞 listener 掟 Error 會斷後面成串）。
+                // A single bad subscriber must not break the others (catch Error too;
+                // one bad listener throwing an Error would break the whole chain).
                 android.util.Log.d("EventBus", "bad listener", t);
             }
         }

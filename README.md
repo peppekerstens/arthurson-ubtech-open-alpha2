@@ -118,8 +118,12 @@ Bilingual (EN/Traditional Chinese), 10 tabs, live updates over WebSocket, no ref
   values (the off-mode return to boot only moves the new action's axes), so the
   arms do not drop.
   Boot safety: until the stand-up pose and START handshake finish, the API
-  rejects motion commands (`ok:false, "booting"`), the stand-up is re-sent
-  after the handshake, the panel ignores browser-restored slider values until
+  rejects motion commands (`ok:false, "booting"`). After the handshake, the
+  app sends the stand-up pose only when the stored setting
+  `boot_standup_enabled` is true. The default is false, so with the default
+  no stand-up pose goes out at boot. Read the setting with
+  `/api/system/boot_standup/get`. Change it with
+  `/api/system/boot_standup/set?enabled=true|false`. The panel ignores browser-restored slider values until
   the user actually drags them, and IK stops on WebSocket loss or a 2 s
   `servo/all` timeout. A crash/reboot therefore cannot make the robot replay
   the last IK pose by itself.
@@ -236,16 +240,16 @@ Bilingual (EN/Traditional Chinese), 10 tabs, live updates over WebSocket, no ref
 
 ## HTTP API
 
-Single source of truth: `openapi/open-alpha2-openapi.yml` (**208 paths**,
+Single source of truth: `openapi/open-alpha2-openapi.yml` (**223 paths**,
 one operation each). Namespaces as spelled in the spec (`/api/*` count in
 brackets):
 
-- `/api/*` — main robot API, 199 paths: `accelerometer` (2), `action` (6),
+- `/api/*` — main robot API, 213 paths: `accelerometer` (2), `action` (6),
   `apk` (3), `audio` (33), `battery` (1), `bt` (1), `camera` (12), `chest`
   (6), `color` (4), `debug` (2), `face` (5), `gamepad` (12), `head` (1),
-  `led` (9), `misc` (2), `pir` (3), `servo` (19), `speech` (18), `status`
-  (1), `ubx` (5), `vosk` (10), `wifi` (1) — plus the passthrough families
-  `direct` (12), `system` (13) and `xiaozhi` (18). The browser client calls
+  `led` (9), `mic` (1), `misc` (2), `pir` (3), `servo` (22), `speech` (20),
+  `status` (1), `ubx` (5), `vosk` (11), `wake` (3), `wifi` (1) — plus the
+  passthrough families `direct` (14), `system` (13) and `xiaozhi` (20). The browser client calls
   these under the **`/api/alpha2/*`** prefix (`api()` in `app-core.js`;
   `sysApi()`/`directApi()`/`xiaozhiApi()` for the other three families);
   all spellings reach the same dispatcher (`handleApi`), and the bare
@@ -258,6 +262,17 @@ brackets):
 - `/stream/camera` (MJPEG), `/stream/mic` (WAV chunks), `/ws` (RFC 6455
   event feed, described by `openapi/asyncapi.yml`), `/` and
   `/blockly.html`.
+- 5-mic capture from the FPGA sound card: `/stream/mic/record` (one 5- or
+  8-channel WAV), `/stream/mic?channels=5|8` and `/api/mic/multi/status`.
+  See [docs/mic-5ch.md](docs/mic-5ch.md).
+- Servo read stream (chest cmd 0x17, event `servo_reads` on `/ws`):
+  `/api/servo/stream/start`, `/api/servo/stream/stop` and
+  `/api/servo/stream/status`. The ids 2, 3, 5, 6 and 17 to 20 give an
+  angle. The app also accepts 21 and 22 (`READABLE_IDS`), but these servos
+  are not on the owner's robot (`UbxApi.java`: "21/22 unknown (absent)").
+  The 20 kg servos 1, 4 and 7 to 16 give 400. See alpha2-rl#3. The spec
+  text of `ids` says this since branch `robot-build-20261105`. Older builds
+  serve a spec that says "17 to 22".
 
 Self-describing endpoints on the robot (same port):
 
@@ -268,7 +283,7 @@ Self-describing endpoints on the robot (same port):
 - `/apis.yml` — apis.json-style directory entry; `/llms.txt` — short LLM
   pointer.
 
-The JS client (`assets/web/api-client.js`, `Alpha2Api.*`, **199 typed
+The JS client (`assets/web/api-client.js`, `Alpha2Api.*`, **213 typed
 wrappers**) is generated from the spec — never hand-edit it:
 
 ```bash
@@ -308,7 +323,8 @@ tab; boot auto-connect is the Experiment tab's boot-voice mode.
   `test-apivalidator.py` (`ApiValidator` + colour-track + EQ suites),
   `test-serialcodec.py` (`SerialFrameCodec` suite),
   `test-headkeypoller.py` (`HeadKeyPoller` + `HeadKeyMgr` — temporary Android
-  stubs so it runs under `--offline`).
+  stubs so it runs under `--offline`). The host test
+  `host-test/com/open/alpha2/VolumeStepSequenceTest.java` is not in CI yet: run the command in its header by hand. A CI step needs a token with the `workflow` scope (open-alpha2#13 review round 2).
 - Offline `.ubx` analysis tools: `ubx_scan.py` (keyframe/track scan),
   `ubx_anatomy.py` (which servos move), `ubx_phase.py` (per-joint gait
   phase), `ubx_gaitdiff.py` / `ubx_armcheck.py` / `ubx_tail.py` (version
@@ -347,7 +363,7 @@ open-alpha2/
 │   │   SemanticCenter + 10 matchers, Vosk/TTS/Ringtone, XiaozhiBridge/
 │   │   Client/OTA/MCP, PanelAuth, EventBus, WebSocketServer, HttpServer, …
 │   ├── src/main/assets/web/        ← control panel (10 tabs) + Blockly +
-│   │                                  generated api-client.js (199 wrappers)
+│   │                                  generated api-client.js (213 wrappers)
 │   │                                  (CI strips web comments before build)
 │   ├── src/main/assets/semantic/   ← 10 intent libraries (299 groups each:
 │   │                                  86 action + 13 function + 200 chat)
@@ -360,7 +376,7 @@ open-alpha2/
 ├── sdk-module/hardware-direct/     ← serial ports (/dev/ttyS1+S3), LED/pad JNI,
 │                                      wire protocol, .ubx parse/play/speed-shifted music
 │   └── src/test/java/…             ← SerialFrameCodecTest (scripts/test-serialcodec.py)
-├── openapi/                        ← open-alpha2-openapi.yml (208 paths) /
+├── openapi/                        ← open-alpha2-openapi.yml (223 paths) /
 │                                      asyncapi.yml / mcp-openapi-sync.yml + README
 ├── scripts/                        ← generators, drift/route/copy checks, unit-test
 │                                      runners, ubx_* offline analysis tools

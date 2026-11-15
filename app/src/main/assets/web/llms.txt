@@ -1,6 +1,6 @@
 # Open Alpha2
 
-> UBTECH Alpha2 本地 HTTP+WebSocket API，port 8888，17 AIDL 完整映射，含 MCP 工具。
+> UBTECH Alpha2 local HTTP+WebSocket API, port 8888, complete mapping of 17 AIDL calls, with MCP tools.
 
 ## Docs
 - OpenAPI: /openapi.yml
@@ -9,9 +9,9 @@
 - MCP sync: /openapi/mcp-openapi-sync.yml (repo openapi/)
 
 ## Use
-- 控制面板: http://{robotIp}:8888/
+- Control panel: http://{robotIp}:8888/
 - Typed JS: window.Alpha2Api.servoOne({id,angle,time}) (api-client.js)
-- 校驗: ApiValidator.java (server), assertEnum/assertRange (client)
+- Validation: ApiValidator.java (server), assertEnum/assertRange (client)
 
 ## License
 GPL-3.0-only https://github.com/arthurson/ubtech-open-alpha2

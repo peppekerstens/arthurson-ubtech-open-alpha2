@@ -1,16 +1,16 @@
 // Open Alpha2 — client logic (app-gamepad.js)
-// 內容: BT 手柄／鍵盤分頁（A 端直連；見 GamepadCenter.java）。
+// Content: BT gamepad/keyboard tabs (A-side direct link, see GamepadCenter.java).
 //
-// 本頁只做 A 端（機器人直連）：BT HID 配對到機器人本機藍牙，物理鍵經
-// MainActivity.dispatchKeyEvent／onGenericMotionEvent 截獲，映射在機器人端
-// 執行。「已接設備」列的就是這批（InputDevice 列出）。手柄圖／鍵盤圖經
-// WebSocket 即時亮燈（A 端按鍵）；映射表分手柄／鍵盤兩區，各配各。
-// （B 端瀏覽器遙控已移除：gamepad/key／axis 後端保留畀脚本直調。）
-// 全部檔案共用 window/global scope (沒有用 ES module), 載入順序由 index.html 的
-// <script src="..."> 順序決定。
+// This page is A-side only (direct robot link): BT HID pairs to the robot's local
+// Bluetooth. MainActivity.dispatchKeyEvent/onGenericMotionEvent capture the physical keys, and
+// the robot runs the mapping. "Connected devices" lists exactly these devices (InputDevice output).
+// The gamepad/keyboard pictures light up live over WebSocket (A-side keys). The mapping
+// table has separate gamepad/keyboard zones. (Browser remote control for the B side is removed. The gamepad/key and axis backends stay for direct script calls.)
+// All files share the window/global scope (no ES modules). Load order follows the
+// <script src="..."> order in index.html.
 
-// 邏輯鍵全集（同 GamepadCenter.PAD_KEYS／KB_KEYS 對應，分組顯示用；名即鍵，無前綴）。
-// 手柄邊組（22 鍵）＋鍵盤邊組（105 鍵，同名鍵獨立值，各配各）。
+// Full logical key set (matches GamepadCenter.PAD_KEYS/KB_KEYS, used for grouped display). The name is the key, no prefix.
+// Gamepad group (22 keys) plus keyboard group (105 keys). Same-named keys keep separate values and bind on their own.
 var GAMEPAD_PAD_GROUPS = [
   { title: "dir", keys: ["up", "down", "left", "right"] },
   { title: "pad", keys: ["a", "b", "x", "y", "start", "select",
@@ -129,12 +129,12 @@ var GAMEPAD_WALK_FN_KEYS = { "walk:fwd": "gamepad_walk_fwd", "walk:back": "gamep
 // 相機（同後端 isCameraAction 對齊；追蹤係 toggle：face_toggle／color_toggle）。
 var GAMEPAD_CAMERA_FNS = ["camera_photo", "face_toggle", "color_toggle", "video_toggle"];
 
-// 傳感器 toggle（同後端 isSensorAction 對齊；全部單鍵開關）。
+// Sensor toggles (aligned with backend isSensorAction). All single-key switches.
 var GAMEPAD_SENSOR_FNS = ["sonar_toggle", "pir_toggle", "accel_toggle"];
 var GAMEPAD_SENSOR_FN_KEYS = { sonar_toggle: "gamepad_sen_sonar", pir_toggle: "gamepad_sen_pir",
   accel_toggle: "gamepad_sen_accel" };
 
-// 轉語言原地重標用（值→i18n key；色碼另見 GAMEPAD_LED_COLOR_KEYS／dual 三對）。
+// Used to re-label in place on language switch (value → i18n key; colour codes: see GAMEPAD_LED_COLOR_KEYS and the three dual pairs).
 var GAMEPAD_CAM_FN_KEYS = { camera_photo: "gamepad_cam_photo", face_toggle: "gamepad_cam_face",
   color_toggle: "gamepad_cam_color", video_toggle: "gamepad_cam_video" };
 var GAMEPAD_RING_FIXED_KEYS = { ring_phone: "gamepad_ring_phone", ring_stop: "gamepad_ring_stop",
@@ -154,9 +154,9 @@ var GAMEPAD_LED_COLOR_KEYS = [["1", "color_name_red"], ["2", "color_name_green"]
   ["3", "color_name_blue"], ["4", "color_name_yellow"], ["5", "color_name_purple"],
   ["6", "color_name_cyan"], ["7", "color_name_white"]];
 
-// 音樂／音量／燈效功能（同後端 MUSIC_ACTIONS＋vol_up／vol_down 對齊；toggle＝播緊停／
-// 停緊續／無歌播首首；random＝隨機一首；disco_toggle＝節奏燈開關；
-// filler_toggle＝播歌隨機動作開關；電台獨立成種，唔喺度）。
+// Music/volume/light effects (aligned with backend MUSIC_ACTIONS + vol_up/vol_down. toggle: play → stop,
+// paused → resume, no song → play the first song. random: one random song. disco_toggle: rhythm-light switch.
+// filler_toggle: random-move switch during playback. Radio is its own kind, not here).
 var GAMEPAD_MUSIC_FNS = ["music_play", "music_next", "music_prev", "music_pause", "music_resume",
   "music_toggle", "music_stop", "music_random", "disco_toggle", "filler_toggle",
   "vol_up", "vol_down"];
@@ -165,10 +165,10 @@ var GAMEPAD_MUSIC_FN_KEYS = { music_play: "gamepad_mfn_play", music_next: "gamep
   music_toggle: "gamepad_mfn_toggle", music_stop: "gamepad_mfn_stop", music_random: "gamepad_mfn_random",
   disco_toggle: "gamepad_mfn_disco", filler_toggle: "gamepad_mfn_filler",
   vol_up: "gamepad_mfn_volup", vol_down: "gamepad_mfn_voldn", "eq:": "gamepad_mfn_eq" };
-// 電台種（單 toggle，將來加preset台都喺度加）。
+// Radio kind (single toggle. Future preset stations are added here too).
 var GAMEPAD_RADIO_FN_KEYS = { radio_toggle: "gamepad_mfn_radio" };
 
-// 收藏電台緩存（audio/radio/favorites/list 活數據：用戶成日加減，每次 render 重抓）。
+// Radio-favourite cache (live data from audio/radio/favorites/list. Users add/remove often, so every render re-fetches).
 var __gpRadioFavsCache = null;
 
 function gamepadLoadRadioFavs(force) {
@@ -198,13 +198,13 @@ function gamepadBuildRadioSelect(side, k, idx, parsed) {
   return sel;
 }
 
-// 填收藏（存值 radio:<uuid>；舊值唔喺度即補 (?)；無收藏即得開關）。
+// Fill favourites (stored value radio:<uuid>. An old value missing from the list gets a (?) entry. With no favourites, keep only the switch).
 function gamepadFillRadioSelect(sel, cur) {
   if (!sel) return;
   for (var i = sel.options.length - 1; i >= 0; i--) {
     if (sel.options[i].value.indexOf("radio:") === 0) sel.remove(i);
   }
-  // 舊 radio_toggle 存值：保留返粒（唔再主動提供，免無啦啦洗走人哋個值）。
+  // Old radio_toggle stored value: keep that entry (no longer offered by default, so a saved value is never wiped on its own).
   if (cur === "radio_toggle") {
     var leg = document.createElement("option");
     leg.value = cur;
@@ -228,7 +228,7 @@ function gamepadFillRadioSelect(sel, cur) {
       if (sel.options[j].value === cur) { found = true; break; }
     }
     if (!found) {
-      // 舊名式 radio:<名>但個名喺收藏入面：唔打 (?)，照播到。
+      // Old name form radio:<name> where the name is in the favourites: no (?), it still plays.
       var bare = cur.substring(6);
       var known = false;
       favs.forEach(function (f) { if (f.name === bare) known = true; });
@@ -242,9 +242,9 @@ function gamepadFillRadioSelect(sel, cur) {
   sel.dataset.radioFilled = favs.length ? "1" : "";
 }
 
-// 動作 5 大類（sub→類映射；細 sub 名唔再逐個列）。
-// basic＝基本（移動／手勢／頭部），dance＝舞蹈，story＝寓言故事，
-// yoga＝瑜伽（站立平衡／伸展／踢腿動態），others＝其餘＋未分類。
+// The 5 action classes (sub → class map. The small sub names are no longer listed one by one).
+// basic: core (move/gesture/head). dance: dances. story: fable stories.
+// yoga: yoga (standing balance/stretch/dynamic kicks). others: the rest + uncategorised.
 var GAMEPAD_ACTION_KINDS5 = ["basic", "dance", "story", "yoga", "others"];
 var GAMEPAD_ACTION_KIND_KEYS = { basic: "gamepad_act_basic", dance: "gamepad_act_dance",
   story: "gamepad_act_story", yoga: "gamepad_act_yoga", others: "gamepad_act_others" };
@@ -255,9 +255,9 @@ var GAMEPAD_ACTION_SUB2KIND = {
   "站立式 / 平衡式": "yoga", "伸展式": "yoga", "踢腿 / 動態式": "yoga"
 };
 
-// （B 端開關／輪詢已移除：本頁只做 A 端顯示＋映射。）
+// (B-side switch/polling removed: this page only does A-side display + mapping.)
 
-// ---------------- 管理：狀態＋藍牙開關 ----------------
+// ---------------- Management: state + Bluetooth switch ----------------
 
 function gamepadRefresh() {
   return Alpha2Api.gamepadStatus().then(function (json) {
@@ -268,7 +268,7 @@ function gamepadRefresh() {
     }
     var bt = json.bt || {};
     gamepadSyncBtToggle(bt.enabled);
-    // 先用已知開關畫一次（init 預設雙開），等 input/get 回嚟再對一次。
+    // Draw once from the known switch state first (init defaults both on), then check again when input/get returns.
     gamepadRenderMapping(json.mapping || null);
     Alpha2Api.gamepadInputGet().then(function (ijson) {
       if (ijson && ijson.ok) {
@@ -296,7 +296,7 @@ function gamepadBtToggle() {
   return gamepadBtSet(!!(el && el.checked));
 }
 
-// 面板開關狀態跟機器人實際（gamepadRefresh 每次同步；免顯示同實際唔啱）。
+// Panel switch state follows the real robot state (gamepadRefresh syncs every run, so the display never disagrees with reality).
 function gamepadSyncBtToggle(enabled) {
   var el = document.getElementById("gamepadBtToggle");
   if (el) el.checked = !!enabled;
@@ -318,10 +318,10 @@ function gamepadSyncInputToggles(padOn, kbOn) {
   window.__gpKbOn = kbOn !== false;
 }
 
-// ---------------- A 端配對：掃描＋綁定 ----------------
-// 流程：手柄入配對模式 → gamepadScan()（約 12 秒，found 即時經 WS gamepad_bt
-// 推，呢度再補一次輪詢等掃完）→ 列表按「配對」→ gamepad/pair → 等 gamepad_bt
-// bond 事件（Event Log 見到）→ _done 再掃一次確認 bonded。
+// ---------------- A-side pairing: scan + bond ----------------
+// Flow: put the gamepad in pairing mode → gamepadScan() (~12 s, found devices push live over WS
+// gamepad_bt, plus one poll here until the scan ends) → press Pair in the list → gamepad/pair → wait
+// for the gamepad_bt bond event (visible in Event Log) → _done scans once more to confirm bonded.
 
 function gamepadBondText(bond) {
   if (bond === "bonded") return "✅ " + t("gamepad_bonded");
@@ -356,8 +356,8 @@ function gamepadRenderFound(found, bonded) {
     label.textContent = icon + " " + (d.name || "(unknown)") + "  " + d.address + "  " + gamepadBondText(d.bond);
     row.appendChild(label);
     if (d.bond === "bonded") {
-      // bonded 未必等於已連（input 列表無佢嗰陣撳連接主動連；已連緊再撳無害）。
-      // 唔要嗰部機撳解除綁定（unpair）。
+      // Bonded does not always mean connected. If the input list misses it, press Connect to link it. Pressing Connect while already linked is harmless.
+      // Press Unpair to drop a device you do not want.
       var cbtn = document.createElement("button");
       cbtn.className = "secondary";
       cbtn.textContent = t("gamepad_connect_btn");
@@ -365,7 +365,7 @@ function gamepadRenderFound(found, bonded) {
         return function () {
           b.disabled = true;
           b.textContent = t("gamepad_connecting");
-          // 5 秒後果（重查＋轉結果字）在 gamepadConnect 入面做，呢度淨係收錯。
+          // The 5-second result (re-check + result wording) runs inside gamepadConnect. This part only collects the error.
           gamepadConnect(addr).catch(function () {
             b.disabled = false;
             b.textContent = t("gamepad_connect_btn");
@@ -381,7 +381,7 @@ function gamepadRenderFound(found, bonded) {
           b.disabled = true;
           b.textContent = t("gamepad_unpairing");
           gamepadUnpair(addr).then(function () {
-            // 解綁即時生效：4 秒後重掃＋刷新已接設備確認。
+            // Unpair takes effect at once: rescan + refresh the connected-device list after 4 s to confirm.
             setTimeout(function () { gamepadScan(); gamepadRefresh(); }, 4000);
           }).catch(function () {
             b.disabled = false;
@@ -399,7 +399,7 @@ function gamepadRenderFound(found, bonded) {
           b.disabled = true;
           b.textContent = t("gamepad_pairing");
           gamepadPair(addr).then(function () {
-            // 配對要幾秒：6 秒後自動重掃確認（期間 bond 事件會入 Event Log）。
+            // Pairing takes a few seconds: auto rescan after 6 s to confirm. Bond events during the wait land in the Event Log.
             setTimeout(gamepadScan, 6000);
           }).catch(function () {
             b.disabled = false;
@@ -420,7 +420,7 @@ function gamepadScan() {
     if (json && json.ok) {
       gamepadRenderFound(json.found, json.bonded);
       if (st) st.textContent = json.scanning ? t("gamepad_scanning") : t("gamepad_scan_done");
-      // 掃緊（約 12 秒窗）：8 秒後自動補一次，免手撳等漏咗後到的設備。
+      // During a scan (~12 s window): auto re-scan after 8 s so a late device is not missed.
       if (json.scanning) {
         setTimeout(function () {
           Alpha2Api.gamepadScan().then(function (j2) {
@@ -448,7 +448,7 @@ function gamepadConnect(address) {
       st.textContent = ok ? t("gamepad_connecting") : t("gamepad_read_failed");
     }
     if (ok) {
-      // 連接提示唔可以痴住唔走：5 秒後重查，轉做結果字。
+      // The connect hint must not stick: re-check after 5 s and replace it with the result wording.
       setTimeout(function () {
         gamepadRefresh();
         var st2 = document.getElementById("gamepadScanState");
@@ -469,9 +469,9 @@ function gamepadUnpair(address) {
   });
 }
 
-// 最後按鍵一行：key ↓/↑ → action [source] ✓/✗(只記錄)。
-// taken=false（機身直連鍵盤 HTML-only、放開事件、播失敗）即打✗，一眼分清
-// 「有 action 名」同「真係做咗」係兩回事。
+// Last-key row: key ↓/↑ → action [source] ✓/✗ (record only).
+// taken=false (keyboard direct to HTML only, release events, play failure) shows ✗, so one look separates
+// "an action name exists" from "the action really ran".
 function gamepadLastText(d) {
   if (!d || typeof d !== "object" || !d.key) return "-";
   var k = d.key;
@@ -484,7 +484,7 @@ function gamepadLastText(d) {
   return s;
 }
 
-// 最後按鍵寫兩卡（手柄圖下＋鍵盤圖下同一行字）。
+// Write the last key to both cards (the same row under the gamepad picture and the keyboard picture).
 function gamepadSetLastText(s) {
   ["gamepadLastOut", "gamepadKbLastOut"].forEach(function (id) {
     var el = document.getElementById(id);
@@ -553,7 +553,7 @@ function onGamepadKeyEvent(type, data) {
     }
     // 兩張圖＋映射行跟亮滅（色跟有無映射：WS 事件帶 action）。
     gamepadLightLogical(data.key, data.pressed !== false, data.action);
-    // 放開唔刷文字（後端 last 都唔記放開；呢度雙保險，免顯示閃去 ↑✗）。
+    // Release does not refresh the text (the backend last does not record releases either. This is a second guard so the display never flickers to ↑✗).
     if (data.pressed === false) return;
     gamepadSetLastText(gamepadLastText(data));
   } else if (type === "gamepad_axis") {
@@ -568,10 +568,10 @@ function onGamepadKeyEvent(type, data) {
     gamepadMoveNubs(Number(data.lx || 0), Number(data.ly || 0),
       Number(data.rx || 0), Number(data.ry || 0));
   } else if (type === "gamepad_state") {
-    // 映射 toggle 做咗，機身即推新態：掣即時跟（唔使入版重讀）。
+    // After a mapping toggle the robot pushes the new state, so the control follows at once (no need to reload the page).
     gamepadApplyToggleState(data);
   } else if (type === "gamepad_bt" && data.event) {
-    // bond／scan_done 落 Event Log 之餘，順手將管理卡現狀拉新一次。
+    // When bond/scan_done lands in the Event Log, refresh the management card state too.
     if (data.event === "bond" || data.event === "scan_done" || data.event === "unbond") {
       if (typeof gamepadRefresh === "function") {
         setTimeout(gamepadRefresh, 1500);
@@ -580,7 +580,7 @@ function onGamepadKeyEvent(type, data) {
   }
 }
 
-// 映射 toggle 新態直寫掣（gamepad_state 事件；同各頁入頁 sync 同一結論，唔經佢哋唔使等）。
+// Mapping toggle writes the new state straight to the control (gamepad_state event. Same result as each page's enter-page sync, without waiting for them).
 function gamepadApplyToggleState(d) {
   if (!d || typeof d !== "object") return;
   try {
@@ -648,17 +648,17 @@ function gamepadPair(address) {
   });
 }
 
-// ---------------- 管理：映射表 ----------------
+// ---------------- Management: mapping table ----------------
 
 // 動作清單緩存（機身 action/list 活數據優先，唔得先用內嵌 203 catalog）。
 // 分組經 action_classification.json（靜態，同目錄 fetch）。
 var __gpActionsCache = null;
 var __gpActionCatCache = null;
-// id→動作對象（轉語言原地重標動作名用；填下拉嗰陣順手記）。
+// id → action object (used to re-label action names in place on language switch; recorded while filling dropdowns).
 var __gpActionById = {};
 
 function gamepadActionDisplayName(a) {
-  // 淨顯中／英文名，數字 id（14xxxxx／15xxxxx）唔顯示；存值照用 id，唔影響。
+  // Show only the Chinese/English name, not numeric ids (14xxxxx/15xxxxx). Stored values still use the id, so nothing changes.
   return (uiLang === "en" ? (a.nameEn || a.nameCn) : (a.nameCn || a.nameEn)) || a.id;
 }
 
@@ -678,7 +678,7 @@ function gamepadLoadActions() {
         return acts;
       });
     }
-    // 活數據到手：分類表照讀（靜態）。
+    // Live data arrived: the classification table still reads the static file.
     return fetch("action_classification.json").then(function (r) { return r.json(); }).then(function (cat) {
       __gpActionCatCache = cat || {};
       __gpActionsCache = acts;
@@ -890,8 +890,8 @@ function gamepadFillActionRow(side, k, idx, cat, curId) {
     document.getElementById(gamepadSubId("gpActionSel", side, k, idx)), cat, curId);
 }
 
-// element 版（build 嗰陣未入 DOM，唔用 getElementById）。
-// dataset.actionFilled＝用有數據嗰次填過（late-fill 唔好數 options：miss 粒都計數）。
+// Element version (not in the DOM yet during build, so no getElementById).
+// dataset.actionFilled marks a fill done with real data (late-fill must not count options: missing entries also count).
 function gamepadFillActionSelectEl(kindSel, sel, cat, curId) {
   if (!sel) return;
   if (!cat) cat = (curId ? gamepadActionKindOf(curId) : GAMEPAD_ACTION_KINDS5[0]);
@@ -911,7 +911,7 @@ function gamepadFillActionSelectEl(kindSel, sel, cat, curId) {
     if (a.id === curId) o.selected = true;
     sel.appendChild(o);
   });
-  // 現值唔喺清單（刪咗的動作）：補一粒等用家睇到。
+  // Current value not in the list (deleted action): add an entry so the user still sees it.
   if (curId) {
     var found = false;
     for (var i = 0; i < sel.options.length; i++) {
@@ -928,16 +928,16 @@ function gamepadFillActionSelectEl(kindSel, sel, cat, curId) {
   sel.dataset.actionFilled = acts.length ? "1" : "";
 }
 
-// 鈴聲名緩存（分電話／通知兩表；audio/ringtones/list 活數據，同 action 清單一樣懶載）。
+// Ringtone-name cache (phone/notification tables; live audio/ringtones/list data, lazy-loaded like the action list).
 var __gpRingTitlesCache = {};
 
-// 值裡抽鈴聲表名（唔係鈴聲即回 phone；舊式 ring: 歸 phone 表搵名）。
+// Pull the ringtone table name from a value (a non-ringtone value returns phone; old-style ring: looks its name up in the phone table).
 function gamepadRingTypeOf(v) {
   if (v && v.indexOf("ring:notification:") === 0) return "notification";
   return "phone";
 }
 
-// 值裡抽裸 title（fixed 三粒回 ""；舊式去 ring: 頭）。
+// Pull the bare title from a value (the three fixed entries return ""; old style strips the ring: prefix).
 function gamepadRingBareTitle(v) {
   if (!v) return "";
   if (v.indexOf("ring:notification:") === 0) return v.substring("ring:notification:".length);
@@ -998,7 +998,7 @@ function gamepadBuildRingSelect(side, k, idx, parsed) {
       var curText = "";
       if (sel2 && sel2.selectedIndex >= 0) curText = sel2.options[sel2.selectedIndex].text;
       gamepadFillRingSelect(sel2, this.value, "");
-      // 同名優先跟過去新表（兩表撞名常見；fixed 三粒名唔會撞 title）。
+      // For duplicate names the match follows the newer table (clashes between the two tables are common; the three fixed names never clash with a title).
       if (sel2 && curText) {
         for (var i = 0; i < sel2.options.length; i++) {
           if (sel2.options[i].text === curText && sel2.options[i].value.indexOf("ring:") === 0) {
@@ -1018,12 +1018,12 @@ function gamepadFillRingSelect(sel, type, cur) {
   type = (type === "notification") ? "notification" : "phone";
   var prefix = (type === "notification") ? "ring:notification:" : "ring:phone:";
   var titles = __gpRingTitlesCache[type] || [];
-  // 重填先清舊名單（fixed 三粒無冒號，保留；miss／舊值有冒號，一併清再補）。
+  // Before a refill, clear old list entries (the three fixed entries have no colon and stay; missing/old values have colons, so clear them all and re-add).
   for (var i = sel.options.length - 1; i >= 0; i--) {
     if (sel.options[i].value.indexOf("ring:") === 0) sel.remove(i);
   }
   if (!titles.length) {
-    // 名單未到：現值係鈴聲即補一粒等睇到（同 action 那個做法）。
+    // Name list not arrived: if the current value is a ringtone, add an entry so it stays visible (same as the action case).
     if (cur && cur.indexOf("ring:") === 0) {
       var miss = document.createElement("option");
       miss.value = cur;
@@ -1049,7 +1049,7 @@ function gamepadFillRingSelect(sel, type, cur) {
       if (sel.options[j].value === cur) { found = true; break; }
     }
     if (!found) {
-      // 舊式 ring: 值但個名喺表入面（僅缺前綴）：唔打 (?)，照播到。
+      // Old-style ring: value whose name is in the table (only the prefix is missing): no (?), it still plays.
       var bare = gamepadRingBareTitle(cur);
       var miss2 = document.createElement("option");
       miss2.value = cur;
@@ -1062,9 +1062,9 @@ function gamepadFillRingSelect(sel, type, cur) {
   sel.dataset.ringFilled = "1";
 }
 
-// 建 LED 三下拉（部位＋效果＋色；效果跟部位變，dual 換 3 對色單，色名跟語言）。
-// LED 色下拉（dual 照 LED tab 同一套：3=藍綠／4=紅綠／5=紅藍，其他 code 出嚟都係藍綠
-// 唔擺出嚟，見 app-led.js DUAL_COLORS；現值唔啱位即歸第一粒）。
+// Build the three LED dropdowns (part + effect + colour. Effects change with the part; dual swaps in the 3-pair colour list; colour names follow the language).
+// LED colour dropdown (dual uses the LED tab's set: 3=blue-green, 4=red-green, 5=red-blue. Other codes
+// also come out blue-green, so they are not offered. See DUAL_COLORS in app-led.js; a wrong current value falls back to the first entry).
 function gamepadFillLedColors(colorSel, dual, curVal) {
   if (!colorSel) return;
   colorSel.innerHTML = "";
@@ -1101,7 +1101,7 @@ function gamepadBuildLedControls(side, k, idx, parsed) {
   var color = document.createElement("select");
   color.id = gamepadSubId("gpLedColor", side, k, idx);
   gamepadFillLedColors(color, false, parsed.ledColor);
-  // 咀速（breathing 先用，100-1000ms，後端同驗）。
+  // Mouth speed (used only with breathing, 100-1000 ms. The backend validates it too).
   var speed = document.createElement("input");
   speed.id = gamepadSubId("gpLedSpeed", side, k, idx);
   speed.type = "number";
@@ -1131,9 +1131,9 @@ function gamepadBuildLedControls(side, k, idx, parsed) {
     var isMouth = part.value === "mouth";
     var stopping = (!isMouth && preset.value === "stop") || (isMouth && preset.value === "off");
     var noColor = stopping || (!isMouth && preset.value === "random");
-    // dual 換 3 對色單，其餘換返 7 色（現值保留，唔啱位先歸一）。
+    // dual switches to the 3-pair list, the rest switch back to 7 colours (keep the current value; only a wrong one falls back to the first).
     gamepadFillLedColors(color, !isMouth && preset.value === "dual", color.value);
-    // 頭眼 stop／random 唔使色；咀 breathing 先使速，off 乜都唔使。
+    // Head/eye stop/random need no colour; the mouth needs a speed only for breathing; off needs nothing.
     color.style.display = (!isMouth && !noColor) ? "inline" : "none";
     speed.style.display = (isMouth && preset.value === "breathing") ? "inline" : "none";
   };
@@ -1155,8 +1155,8 @@ function gamepadCachedSide(side) {
   return window[side === "kb" ? "__gpKbCache" : "__gpPadCache"] || {};
 }
 
-// 映射表顯隱：跟各自卡內映射開關（預設閂，記 localStorage；開左先 show）。
-// 同執行開關（A 端直連掣）係兩回事。
+// Mapping-table visibility: follows the mapping switch inside each card (default closed, saved in localStorage; shown only when opened).
+// This is separate from the execution switch (the A-side direct-connect button).
 function gamepadMappingShown(side) {
   try {
     return localStorage.getItem(side === "kb" ? "gamepad_mapping_kb" : "gamepad_mapping_pad") === "1";
@@ -1194,7 +1194,7 @@ function gamepadRenderMapping(mapping) {
   }
   gamepadRenderSideGrid("pad", GAMEPAD_PAD_GROUPS, padMap);
   gamepadRenderSideGrid("kb", GAMEPAD_KB_GROUPS, kbMap);
-  // 動作清單／鈴聲名單後到：先畫骨架（下拉空），load 完再填兩區下拉。
+  // Action list/ringtone list arrive late: draw the skeleton first (empty dropdowns), then fill both zones after load.
   gamepadLoadActions().then(function () {
     ["pad", "kb"].forEach(function (side) {
       var grid = document.getElementById(side === "kb" ? "gamepadMappingKbGrid" : "gamepadMappingPadGrid");
@@ -1222,14 +1222,14 @@ function gamepadRenderMapping(mapping) {
         var parts2 = gamepadSplitMulti(stored2);
         var cur2 = gamepadParseValue(parts2[parsed2.idx] || "none");
         var rt = gamepadRingTypeOf(cur2.ringSel);
-        // 表啱＋用有數據填過即跳過；表唔啱／未用數據填過即補。
+        // Skip when the table matches and a real-data fill happened; refill when the table mismatches or no data fill happened yet.
         if (rsels[j].dataset.ringType !== rt || !rsels[j].dataset.ringFilled) {
           gamepadFillRingSelect(rsels[j], rt, cur2.ringSel);
         }
       }
     });
   });
-  // 包單部部機唔同，每次 render 重抓（唔用舊緩存）；淨係填得提示一粒嗰啲。
+  // Package lists differ per robot, so re-fetch every render (no stale cache); refill only rows holding just the hint entry.
   gamepadLoadVoskPacks(true).then(function () {
     ["pad", "kb"].forEach(function (side) {
       var grid3 = document.getElementById(side === "kb" ? "gamepadMappingKbGrid" : "gamepadMappingPadGrid");
@@ -1245,7 +1245,7 @@ function gamepadRenderMapping(mapping) {
       }
     });
   });
-  // 收藏成日加減，每次 render 重抓；淨係填得開關一粒嗰啲（有多粒即已有嘢／用家啱揀緊）。
+  // Favourites change often, so re-fetch every render; refill only dropdowns holding just the switch entry (more entries mean data exists or the user is picking).
   gamepadLoadRadioFavs(true).then(function () {
     ["pad", "kb"].forEach(function (side) {
       var grid4 = document.getElementById(side === "kb" ? "gamepadMappingKbGrid" : "gamepadMappingPadGrid");
@@ -1261,15 +1261,15 @@ function gamepadRenderMapping(mapping) {
       }
     });
   });
-  // 顯隱：恒顯示。
+  // Visibility: always shown.
   var pw = document.getElementById("gamepadMappingPadWrap");
   var kw = document.getElementById("gamepadMappingKbWrap");
   if (pw) pw.style.display = gamepadMappingShown("pad") ? "block" : "none";
   if (kw) kw.style.display = gamepadMappingShown("kb") ? "block" : "none";
 }
 
-// 轉語言即時重標映射表（原地改字：未存改動保留，唔 rebuild，唔問後端）。
-// 鍵名／servo #N±／鈴聲名／(?) 項係語言無關，唔郁。
+// On language switch, re-label the mapping table in place (unsaved edits survive; no rebuild, no backend call).
+// Key names, servo #N±, ringtone names and (?) entries are language-independent and stay untouched.
 function gamepadApplyUiLanguage() {
   var grids = [document.getElementById("gamepadMappingPadGrid"),
     document.getElementById("gamepadMappingKbGrid")];
@@ -1304,7 +1304,7 @@ function gamepadRelabelSelect(sel) {
   else if (id.indexOf("gpMusicSel_") === 0) map = GAMEPAD_MUSIC_FN_KEYS;
   else if (id.indexOf("gpRadioSel_") === 0) map = GAMEPAD_RADIO_FN_KEYS;
   else if (id.indexOf("gpEqSel_") === 0) {
-    // 存值 eq:<preset>：名跟音樂頁同一組。
+    // Stored value eq:<preset> (names come from the same set as the music page).
     for (var ei = 0; ei < sel.options.length; ei++) {
       var ev = sel.options[ei].value;
       if (ev === "eq:") {
@@ -1324,7 +1324,7 @@ function gamepadRelabelSelect(sel) {
   else if (id.indexOf("gpWalkSel_") === 0) map = GAMEPAD_WALK_FN_KEYS;
   else if (id.indexOf("gpActionKind_") === 0) map = GAMEPAD_ACTION_KIND_KEYS;
   if (id.indexOf("gpVoiceSel_") === 0) {
-    // 小智／Vosk 組名跟語言。
+    // The "小智"/Vosk group names follow the language.
     for (var vi = 0; vi < sel.options.length; vi++) {
       var vk = gamepadVoiceFixedKey(sel.options[vi].value);
       if (vk) sel.options[vi].text = t(vk);
@@ -1332,7 +1332,7 @@ function gamepadRelabelSelect(sel) {
     return;
   }
   if (id.indexOf("gpVoskPackSel_") === 0) {
-    // 提示跟語言；包名就地用緩存重算（(?) 刪檔項唔郁）。
+    // The hint follows the language; package names recompute in place from the cache ((?) deleted-file entries stay untouched).
     for (var pi2 = 0; pi2 < sel.options.length; pi2++) {
       var pv = sel.options[pi2].value;
       if (pv === "") {
@@ -1359,7 +1359,7 @@ function gamepadRelabelSelect(sel) {
     return;
   }
   if (id.indexOf("gpLedColor_") === 0) {
-    // 3 粒即 dual 三對，7 粒即普通七色。
+    // 3 entries mean the dual three pairs; 7 entries mean the normal seven colours.
     var dual = sel.options.length === 3;
     for (var j = 0; j < sel.options.length; j++) {
       var val = sel.options[j].value;
@@ -1387,7 +1387,7 @@ function gamepadRelabelSelect(sel) {
       }
     }
   }
-  // gpServo_（#N±）唔使理。
+  // Ignore gpServo_ (#N±).
 }
 
 function gamepadSyncMappingRowBtns(side, k) {
@@ -1691,7 +1691,7 @@ function gamepadRenderSideGrid(side, groups, map) {
   });
 }
 
-// Vosk 語言包緩存（vosk/models 活數據：已裝包；同鈴聲名單一樣懶載）。
+// Vosk language-pack cache (live vosk/models data: installed packs; lazy-loaded like the ringtone list).
 var __gpVoskPacksCache = null;
 
 function gamepadLoadVoskPacks(force) {
@@ -1741,7 +1741,7 @@ function gamepadBuildVoiceSelect(side, k, idx, parsed) {
     };
   })(side, k, idx);
   gamepadFillVoskPacks(pack, isVosk ? parsed.voiceFn : "");
-  // build 嗰陣未入 DOM，直接設（入 DOM 後轉組經上面 onchange＋sync）。
+  // Not in the DOM yet during build, so set it directly (after entering the DOM, group changes go through the onchange + sync above).
   pack.style.display = isVosk ? "inline" : "none";
   return wrap;
 }
@@ -1767,7 +1767,7 @@ function gamepadSyncMusicEq(side, k, idx) {
   eq.style.display = (showKind && mu && mu.value === "eq:") ? "inline" : "none";
 }
 
-// fixed 兩粒重標用（值→i18n key；語言包名就地用緩存重算）。
+// For re-labelling the two fixed entries (value → i18n key; language-pack names recompute in place from the cache).
 function gamepadVoiceFixedKey(v) {
   for (var i = 0; i < GAMEPAD_VOICE_FIXED.length; i++) {
     if (GAMEPAD_VOICE_FIXED[i][0] === v) return GAMEPAD_VOICE_FIXED[i][1];
@@ -1775,7 +1775,7 @@ function gamepadVoiceFixedKey(v) {
   return null;
 }
 
-// 填包單（提示＋已裝包；舊值唔喺度即補 (?)；無包即得提示）。
+// Fill the pack list (hint + installed packs; an old value missing from the list gets a (?) entry; with no packs, keep only the hint).
 function gamepadFillVoskPacks(sel, cur) {
   if (!sel) return;
   sel.innerHTML = "";
@@ -1825,7 +1825,7 @@ function gamepadReadSubRowValue(side, k, idx) {
   if (kind === "music") {
     var mu = document.getElementById(gamepadSubId("gpMusicSel", side, k, idx));
     var muv = (mu && mu.value) ? mu.value : "music_play";
-    // 等化器入口：取值隔籬 eq 下拉。
+    // Equaliser entry: take the value from the neighbouring eq dropdown.
     if (muv === "eq:") {
       var eq = document.getElementById(gamepadSubId("gpEqSel", side, k, idx));
       return (eq && eq.value) ? eq.value : "eq:normal";
@@ -1968,16 +1968,16 @@ function gamepadResetMapping(side) {
   });
 }
 
-// （B 端 Gamepad API 輪詢／開關已移除：本頁只做 A 端顯示＋映射。
-// 示意圖亮燈＋搖桿點位全權經 WebSocket 沿驅動。）
+// (B-side Gamepad API polling/switch removed: this page only does A-side display + mapping.
+// The diagram lights and joystick positions are driven entirely over the WebSocket channel.)
 
-// （B 端瀏覽器鍵盤監聽／開關已移除：示意圖亮燈全權經 WebSocket 沿驅動。）
+// (B-side browser keyboard listener/switch removed: diagram lights are driven entirely over the WebSocket channel.)
 
-// ---------------- 即時示意圖：手柄＋全鍵盤亮燈 ----------------
-// 經 WebSocket gamepad_key 沿驅動（A 端物理鍵；gamepad/key HTTP 回聲亦經此）。
+// ---------------- Live diagrams: gamepad + full keyboard lights ----------------
+// Driven over the WebSocket gamepad_key channel (A-side physical keys; gamepad/key HTTP echoes arrive here too).
 
-// 全鍵盤分區定義（真鍵盤排法：F 行收主區尾齊 backspace；prt/scr/paus 置導航頂）。
-// 每格：[顯示字, 邏輯鍵, 闊度class or ""]。
+// Keyboard zone definitions (real keyboard layout: the F row sits at the end of the main zone, aligned with backspace; prt/scr/paus sit at the top of the navigation zone).
+// Each cell: [display text, logical key, width class or ""].
 var GAMEPAD_KB_MAIN = [
   [["esc", "esc", ""], ["F1", "f1", ""], ["F2", "f2", ""], ["F3", "f3", ""],
    ["F4", "f4", ""], ["F5", "f5", ""], ["F6", "f6", ""], ["F7", "f7", ""],
@@ -2010,7 +2010,7 @@ var GAMEPAD_KB_NAV = [
   [null, ["▲", "up", ""], null],
   [["◀", "left", ""], ["▼", "down", ""], ["▶", "right", ""]]
 ];
-// 媒體列（7 粒：播／停＋音量，置導航／數字區上面，全闊一行）。
+// Media row (7 keys: play/stop + volume, above the navigation/number zones, full width).
 var GAMEPAD_KB_MEDIA = [
   [["⏮", "media_prev", ""], ["▶⏸", "media_play", ""], ["⏭", "media_next", ""],
    ["⏹", "media_stop", ""], ["🔇", "mute", ""], ["🔊", "vol_up", ""], ["🔉", "vol_down", ""]]
@@ -2054,7 +2054,7 @@ function gamepadBuildKeyboardDiagram() {
   var num = document.createElement("div");
   num.className = "kb-zone-num";
   GAMEPAD_KB_NUM.forEach(function (row) { num.appendChild(gamepadKbRowEl(row)); });
-  // 右欄：媒體列置頂，導航＋數字區並排喺下（同闊對齊，唔壓住主區 F 行）。
+  // Right column: media row on top, navigation + number zones side by side below (equal aligned widths, never over the main zone's F row).
   var right = document.createElement("div");
   right.className = "kb-zone-right";
   GAMEPAD_KB_MEDIA.forEach(function (row) { right.appendChild(gamepadKbRowEl(row)); });
@@ -2068,7 +2068,7 @@ function gamepadBuildKeyboardDiagram() {
   board.appendChild(zones);
 }
 
-// 標點顯示返符號本身（; / , …），唔係英文名。
+// Punctuation keys show the symbol itself (; / , …), not its English name.
 var GAMEPAD_KEY_LABELS = {
   minus: "-", equals: "=", lbracket: "[", rbracket: "]", backslash: "\\",
   semicolon: ";", quote: "'", comma: ",", period: ".", slash: "/", grave: "`"
@@ -2077,9 +2077,9 @@ function gamepadKeyLabel(k) {
   return GAMEPAD_KEY_LABELS[k] || k;
 }
 
-// 三處同亮：手柄圖＋鍵盤圖＋映射表行（a/b/x/y、方向鍵兩邊都有，齊亮合理）。
-// 長按嗰行一直著，放手熄——映射表幾十行唔使慢慢搵。
-// 顏色：該次事件有映射動作（非 none）藍燈，無映射綠燈；映射表行按自己嗰邊現值計色。
+// Three places light together: gamepad picture + keyboard picture + mapping-table row (a/b/x/y and the arrow keys exist on both sides, so lighting all is right).
+// A held key keeps its row lit until release, so you never hunt through dozens of mapping rows.
+// Colour: an event with a mapped action (not none) shows blue, a mapping-free one shows green. The mapping-table row colours itself from its own current value.
 function gamepadLightLogical(logical, on, action) {
   if (!logical) return;
   var lit = !!on;
@@ -2604,14 +2604,14 @@ var __cameraPadNo = {};
 var __cameraPadPtr = {};
 var __cameraPadSeq = {};
 var __cameraPadBound = false;
-// 搖桿態（dx/dy −1..1，右＋下＋；held＝手指撳緊；本機偏轉經 axis 送，物理柄經 WS 回聲鏡像）。
+// Joystick state (dx/dy −1..1, right+/down+; held = a finger on it. Local deflection sends axis; a physical pad mirrors via WS echo).
 var __campadStickL = { dx: 0, dy: 0, held: false };
 var __campadStickR = { dx: 0, dy: 0, held: false };
 var __campadMirror = { lx: 0, ly: 0, rx: 0, ry: 0 };
 var __campadAxisSentAt = 0;
 var __campadAxisTimer = null;
 
-// 功能鍵開關：開即閂手柄（2選1；閂就由得佢，兩邊可齊熄）。
+// Feature-key switch: on closes the gamepad (either/or; off is free, so both sides can be off).
 function cameraFeatureToggle() {
   var f = document.getElementById("featureEnabled");
   if (f && f.checked) {
@@ -2637,7 +2637,7 @@ function cameraPadToggleView() {
   try { updateCrosshairVisibility(); } catch (e) {}
   if (cameraPadViewOn) { cameraPadBind(); cameraPadRefresh(); }
   else {
-    // 閂視圖即放晒撳住嘅掣＋回中搖桿（servo jog／轉頭唔好留低一直走）。
+    // Closing the view releases every held button and centres the joysticks, so servo jog/head turn never keep running.
     try { cameraPadReleaseAll(); } catch (e) {}
   }
 }
@@ -2787,9 +2787,9 @@ function cameraPadBind() {
   // 出窗遊走補 up（connect 漏事件專用，見 campadSweepDown）。
   try { document.addEventListener("pointerout", campadSweepDown); } catch (x0) {}
   cv.addEventListener("contextmenu", function (e) { try { e.preventDefault(); } catch (x) {} });
-  // 長按消震：舊 WebView／部分手機瀏覽器 pointerdown preventDefault 擋唔住長按震動＋
-  // callout，touchstart／touchmove 非被動再攔一次——但只攔食中掣／桿／十字嘅觸點，
-  // 空白位放行（dblclick 全屏＋一般觸控靠佢；viewport oncontextmenu 本來已擋 menu）。
+  // Long-press vibration guard: on old WebViews/some mobile browsers, pointerdown preventDefault cannot stop long-press vibration +
+  // callout, so non-passive touchstart/touchmove block it again. Only touches that hit a button/stick/D-pad arm get blocked;
+  // blank areas pass through (dblclick fullscreen and normal touch need them; viewport oncontextmenu already blocks the menu).
   try {
     cv.addEventListener("touchstart", function (e) {
       try {
@@ -2835,15 +2835,15 @@ function cameraPadOnDown(e) {
   if (!cameraPadViewOn) return;
   var p = null;
   try { p = cameraPadPos(e); } catch (x) { return; }
-  // 中掣先算數：食中先 preventDefault，食唔中（空白位）放行——dblclick 全屏靠佢
-  // （preventDefault 會殺 click 合成，之前一律攔即係雙擊永遠唔到 viewport）。
+  // Only a hit button counts: preventDefault only on a hit; blank areas pass through, because dblclick fullscreen depends on it
+  // (preventDefault kills the synthesized click, so blocking everything earlier meant double-tap never reached the viewport).
   var consumed = false;
   // 同一 pointer 未 up 又 down（之前甩咗 up 殘留）：舊嗰筆當放咗先清再當新撳。
   try { campadFlushStalePtr(e.pointerId); } catch (x0) {}
   // 搖桿區優先（範圍大，掣唔會疊佢，見版面 audit）。
   var st = cameraPadStickAt(p.x, p.y);
   if (st) {
-    // 第二隻手指撳同一支唔認（認咗先放手會早收，郁緊嗰隻變孤兒；唔認最多佢無反應）。
+    // A second finger on the same stick is not accepted: its early release would cut the live grab and orphan the moving finger. Ignoring it costs at most no reaction.
     if (!st.st.held) {
       try { if (e.pointerId != null) __cameraPadPtr[e.pointerId] = { stick: st }; } catch (x) {}
       campadStickGrab(st, p.x, p.y);
@@ -2866,8 +2866,8 @@ function cameraPadOnDown(e) {
   }
   if (consumed && e) {
     try { e.preventDefault(); } catch (x) {}
-    // 顯式 capture：手指跣出 canvas／出窗都好，up／cancel 照派返嚟（唔靠隱式，
-    // 唔係放手事件唔見，菇＋servo 一齊留喺偏位）。
+    // Explicit capture: even when the finger slides out of the canvas or window, up/cancel still come back (implicit capture can lose
+    // the release event and leave both the nub and the servo stuck at the deflected position).
     try {
       var cv = document.getElementById("cameraPadCanvas");
       if (cv && cv.setPointerCapture && e.pointerId != null) cv.setPointerCapture(e.pointerId);
@@ -2889,7 +2889,7 @@ function cameraPadOnMove(e) {
     campadStickGrab(hold.stick, p.x, p.y);
     return;
   }
-  // 十字搖桿式：手指唔使離掣，碌去邊臂轉邊臂（舊臂 up、新臂 down）。
+  // Joystick-style D-pad: the finger slides from arm to arm without lifting (old arm gets up, new arm gets down).
   var nd = campadDpadDir(p.x, p.y);
   if (nd !== hold.dir) {
     if (hold.dir) cameraPadPress(hold.dir, false, e.pointerId);
@@ -2920,7 +2920,7 @@ function cameraPadOnUp(e) {
   else if (hold.key) cameraPadPress(hold.key, false, e.pointerId);
 }
 
-// ---- 搖桿 ----
+// ---- Joysticks ----
 
 function campadStickDefs(W, H) {
   var S = Math.min(W * 0.75, H);
@@ -2942,7 +2942,7 @@ function cameraPadStickAt(x, y) {
   return null;
 }
 
-// 手指位置轉偏轉（出底盤即 clamp 圓邊；即時送 axis）。
+// Convert the finger position to a deflection (clamped to the base ring when outside; sends axis live).
 function campadStickGrab(def, x, y) {
   var dx = (x - def.x) / def.R, dy = (y - def.y) / def.R;
   var len = Math.sqrt(dx * dx + dy * dy);
@@ -2959,7 +2959,7 @@ function campadStickReset(st) {
   st.dx = 0; st.dy = 0; st.held = false;
 }
 
-// 偏轉中連發（legacy 轉頭逐次步進，唔發即停；200ms 過後端 150ms 節流）。
+// Repeat during deflection (legacy head turn steps per send; stopping the sends stops it. The 200 ms repeat passes the backend's 150 ms throttle).
 function campadAxisRepeat() {
   if (__campadAxisTimer) return;
   __campadAxisTimer = setInterval(function () {
@@ -3047,11 +3047,11 @@ function cameraPadHit(x, y) {
   return null;
 }
 
-// 十字幾何（版面定，draw／hit／slide 共用；中軸死區＝pivot）。
+// D-pad geometry (fixed layout, shared by draw/hit/slide; the centre-axis dead zone = pivot).
 var __campadDpad = { cx: 0, cy: 0, L: 0, r: 0, dead: 0 };
 
-// 版面（X360：搖桿左右下（放手自動回中）／十字掣左中（一體 plus 形，手指可碌臂轉向）／
-// ABXY 右中 A 下 B 右／start-select 中下／L1L2 左上 R1R2 右上；全部相對 W／H）。
+// Layout (X360: joysticks bottom left/right, auto-centre on release; D-pad mid-left, one plus shape, the finger can slide arms to turn;
+// ABXY mid-right, A bottom B right; start-select bottom middle; L1L2 top left, R1R2 top right; all relative to W/H).
 function cameraPadLayout(W, H) {
   var S = Math.min(W * 0.75, H);
   var dcx = W * 0.135, dcy = H * 0.45, L = S * 0.115, r = S * 0.055;
@@ -3077,7 +3077,7 @@ function cameraPadLayout(W, H) {
   return shapes;
 }
 
-// 十字解向（臂上先有向：中軸死區／角罅／出界回 null；供 down／slide／消震命中）。
+// D-pad direction resolver (a direction exists only on an arm: the centre dead zone, the corner gap or outside returns null. Used by down/slide/guard hits).
 function campadDpadDir(x, y) {
   var g = __campadDpad;
   if (!g || !g.r) return null;
@@ -3102,8 +3102,8 @@ function campadFmtAxis(v) {
   return (r < 0 ? "−" : "+") + Math.abs(r).toFixed(2);
 }
 
-// 畫：掣（鍵名置中，有映射實色、none dim、撳住藍、taken 閃紅）＋搖桿（底盤＋
-// 菇＋L／R 標）＋底讀數條（搖桿 live 偏轉量／撳住 servo 限位 min-max）。
+// Draw: buttons (key name centred; mapped = solid colour, none = dim, pressed = blue, taken flashes red) + sticks (base +
+// nub + L/R marks) + the bottom readout bar (live stick deflection / min-max servo limits while held).
 function cameraPadDraw() {
   var cv = document.getElementById("cameraPadCanvas");
   if (!cv || !cameraPadViewOn) return;
@@ -3122,7 +3122,7 @@ function cameraPadDraw() {
   for (var i = 0; i < __cameraPadShapes.length; i++) {
     drawCampadShape(ctx, __cameraPadShapes[i], now);
   }
-  // 十字掣（一體 plus 形；著臂圓形高亮蓋面）。
+  // D-pad (one plus shape; the active arm gets a round highlight on its face).
   drawCampadCross(ctx, W, H, now);
   var defs = campadStickDefs(W, H);
   for (var s = 0; s < defs.length; s++) {
@@ -3131,7 +3131,7 @@ function cameraPadDraw() {
   drawCampadReadout(ctx, W, H);
 }
 
-// 十字掣本體（12 頂點 plus 形；臂＝圓心±L、半闊 r、梢 L+r，同解向幾何一致）。
+// D-pad body (12-vertex plus shape; arm = centre ±L, half-width r, tip L+r, matching the direction geometry).
 function drawCampadCross(ctx, W, H, now) {
   var g = __campadDpad;
   if (!g || !g.r) return;
@@ -3158,7 +3158,7 @@ function drawCampadCross(ctx, W, H, now) {
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = "rgba(255,255,255,0.45)";
   ctx.stroke();
-  // 著臂高亮（藍；taken:false 閃紅）。
+  // Active-arm highlight (blue; taken:false flashes red).
   var arms = [["up", cx, cy - L], ["down", cx, cy + L], ["left", cx - L, cy], ["right", cx + L, cy]];
   for (var i = 0; i < arms.length; i++) {
     var k = arms[i][0];
@@ -3174,7 +3174,7 @@ function drawCampadCross(ctx, W, H, now) {
       ctx.stroke();
     }
   }
-  // 臂名（無映射 dim）。
+  // Arm names (dim when unmapped).
   var labels = [["up", "▲", cx, cy - L], ["down", "▼", cx, cy + L],
     ["left", "◀", cx - L, cy], ["right", "▶", cx + L, cy]];
   var kfs = Math.max(10, Math.min(19, r * 0.62));
@@ -3288,7 +3288,7 @@ function drawCampadReadout(ctx, W, H) {
   ctx.fillText(txt, W / 2, by + bh / 2);
 }
 
-// canvas 掣短鍵名（▲▼◀▶／大寫）。
+// Short canvas button names (▲▼◀▶ / uppercase).
 function cameraPadKeyShort(k) {
   if (k === "up") return "▲";
   if (k === "down") return "▼";

@@ -367,6 +367,13 @@ public class XiaozhiClient {
         sendListenControl("stop", null);
     }
 
+    /** Manual mode (push to talk, alpha2-brain#16): frames flow only between this
+     *  listen start and the listen stop the device sends on key release. No server
+     *  VAD, no auto-continue - the device owns the turn boundaries. */
+    public void sendListenStartManual() throws IOException {
+        sendListenControl("start", "manual");
+    }
+
     /** PHASE 4 (text input): sends a piece of typed text as if it were a recognized
      *  utterance, using the device->server "Wake Word Detected" message shape from
      *  websocket.md section 4.1 #4 - {"type":"listen","state":"detect","text":"..."}.
@@ -660,6 +667,7 @@ public class XiaozhiClient {
                 // 區分 server 完全沒收到 audio / 收到但辨識不到 / 辨識到但 llm/tts 無跟上。
                 Log.i(TAG, "STT result: " + msg.optString("text"));
                 EventBus.get().publish(EVT_STT, "{\"text\":\"" + jsonEscape(msg.optString("text")) + "\"}");
+                WakeController.onXiaozhiStt(msg.optString("text"));
                 break;
             case "llm":
                 Log.i(TAG, "LLM response: emotion=" + msg.optString("emotion") + " text=" + msg.optString("text"));
@@ -671,6 +679,9 @@ public class XiaozhiClient {
                 Log.i(TAG, "TTS state: " + ttsState + " text=" + msg.optString("text"));
                 EventBus.get().publish(EVT_TTS, "{\"state\":\"" + jsonEscape(ttsState)
                         + "\",\"text\":\"" + jsonEscape(msg.optString("text")) + "\"}");
+                if ("sentence_start".equals(ttsState)) {
+                    WakeController.onXiaozhiTtsSentence(msg.optString("text"));
+                }
                 TtsStateListener listener = ttsStateListener;
                 if (listener != null) {
                     listener.onTtsState(ttsState);

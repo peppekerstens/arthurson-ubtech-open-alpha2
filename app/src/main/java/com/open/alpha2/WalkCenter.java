@@ -66,6 +66,14 @@ public final class WalkCenter {
         this.ubxPlayer = ubxPlayer;
     }
 
+    /** The motion gate of the app (alpha2-brain#148). ApiDispatcher sets it. Without a gate
+     *  the walk is refused: no gate means no approval. */
+    private volatile MotionGate motionGate;
+
+    public void setMotionGate(MotionGate gate) {
+        motionGate = gate;
+    }
+
     // -- 步態載入 ------------------------------------------------------------
 
     private synchronized GaitProgram program() {
@@ -164,6 +172,15 @@ public final class WalkCenter {
      * @return true＝行緊（或已起步）；false＝起唔到（lastError 有原因）
      */
     public synchronized boolean hold(float speed, boolean back) {
+        // Motion gate (alpha2-brain#148): a walk moves the whole body. This covers the walk
+        // routes of the HTTP API and the gamepad. A refused start also stops a walk in progress.
+        String gateWhy = PlayRefusal.refusalForPlay(motionGate, back ? "walk back" : "walk forward");
+        if (gateWhy != null) {
+            android.util.Log.w("MotionGate", "refused: " + gateWhy);
+            lastError = gateWhy;
+            if (ubxPlayer.isWalking()) ubxPlayer.stop();
+            return false;
+        }
         if (!MainActivity.isBootServoReady()) {
             lastError = "booting";
             return false;

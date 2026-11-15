@@ -72,6 +72,8 @@ public final class UbxApi {
     }
 
     public HttpServer.ApiResponse ubxPlayResponse(String name, String p) {
+        String gateWhy = actionDirect.wholeBodyRefusal("ubx/play"); // alpha2-brain#148: gate inside too
+        if (gateWhy != null) return refusedResponse(gateWhy);
         java.io.File f;
         if (p != null) {
             f = new java.io.File(p);
@@ -110,7 +112,8 @@ public final class UbxApi {
             // 正在播時即時生效：用新速度由頭重播同一文件（内部快照隔离，旧计划安全交接）。
             boolean restarted = false;
             java.io.File last = actionDirect.getLastPlayedFile();
-            if (ubxPlayer.isPlaying() && !ubxPlayer.isWalking() && last != null && last.isFile()) {
+            if (ubxPlayer.isPlaying() && !ubxPlayer.isWalking() && last != null && last.isFile()
+                    && actionDirect.wholeBodyRefusal("ubx/speed restart") == null) {
                 try {
                     UbxFile rubx = UbxParser.parseFile(last);
                     HardwareDirectManager rdm = HardwareDirectManager.get(appContext);
@@ -146,6 +149,8 @@ public final class UbxApi {
     /** 單舵機經 cmd05 直發；只在串口不可用時 FAILED。 */
     public UbxErrorCode.API_ERROR_CODE servoSendOneCode(int id, int angle, int timeMs) {
         if (id < ApiValidator.SERVO_ID_MIN || id > ApiValidator.SERVO_ID_MAX) return UbxErrorCode.API_ERROR_CODE.API_ERROR_FAILED;
+        // Motion gate (alpha2-brain#148): the gamepad and other callers do not pass the dispatcher guard.
+        if (actionDirect.servoRefusal(id) != null) return UbxErrorCode.API_ERROR_CODE.API_ERROR_FAILED;
         if (angle < ApiValidator.SERVO_ANGLE_MIN) angle = ApiValidator.SERVO_ANGLE_MIN;
         if (angle > ApiValidator.SERVO_ANGLE_MAX) angle = ApiValidator.SERVO_ANGLE_MAX;
         if (timeMs < ApiValidator.SERVO_TIME_MIN_MS) timeMs = ApiValidator.SERVO_TIME_MIN_MS;
@@ -226,13 +231,23 @@ public final class UbxApi {
         return HttpServer.ApiResponse.ok(sb.toString());
     }
 
+    /** 403 for a call that the motion gate refuses (alpha2-brain#148). */
+    private static HttpServer.ApiResponse refusedResponse(String why) {
+        return new HttpServer.ApiResponse(403, "application/json; charset=utf-8", JsonUtil.okFalse(why));
+    }
+
     public HttpServer.ApiResponse servoAllResponse(Map<String, String> query) {
+        // Motion gate (alpha2-brain#148): the gamepad IK path calls this method directly.
+        String gateWhy = actionDirect.allServosRefusal();
+        if (gateWhy != null) return refusedResponse(gateWhy);
         HttpServer.ApiResponse boot = bootServoBlocked();
         if (boot != null) return boot;
         int[] angles = ApiValidator.requireAngles20(query);
         int time = ApiValidator.optionalIntRange(query, "time", ApiValidator.SERVO_TIME_MIN_MS, ApiValidator.SERVO_TIME_MAX_MS, 1000);
         // setAllServos 按版本：2-mic 官方 cmd52／5-mic cmd03。
-        boolean sent = HardwareDirectManager.get(appContext).chest().setAllServos(angles, (short) time);
+        // The move goes between two stream read cycles (alpha2-rl#217).
+        boolean sent = ServoReadStream.moveBetweenCycles(() ->
+                HardwareDirectManager.get(appContext).chest().setAllServos(angles, (short) time));
         if (sent) ubxPlayer.notePose(angles);
         return MainActivity.sentReadyResponse(sent, directChestReady());
     }
@@ -248,6 +263,9 @@ public final class UbxApi {
      * 呢個 endpoint 只寫已掃描嘅軸，唔會用 0 覆蓋未讀到嘅出廠 trim。</p>
      */
     public HttpServer.ApiResponse servoCalibrateResponse(Map<String, String> query) {
+        // Motion gate (alpha2-brain#148): trim writes and the move of all servos to home.
+        String gateWhy = actionDirect.wholeBodyRefusal("servo/calibrate");
+        if (gateWhy != null) return refusedResponse(gateWhy);
         HttpServer.ApiResponse boot = bootServoBlocked();
         if (boot != null) return boot;
         Integer[] trims = ApiValidator.optionalTrims20or22(query);
@@ -442,6 +460,9 @@ public final class UbxApi {
     }
 
     public HttpServer.ApiResponse servoModifyIdResponse(java.util.Map<String, String> query) {
+        // Motion gate (alpha2-brain#148): a servo ID write changes which servo moves.
+        String gateWhy = actionDirect.wholeBodyRefusal("servo/modify-id");
+        if (gateWhy != null) return refusedResponse(gateWhy);
         HttpServer.ApiResponse boot = bootServoBlocked();
         if (boot != null) return boot;
         int id = ApiValidator.requireIntRange(query, "id", ApiValidator.SERVO_ID_MIN, ApiValidator.SERVO_ID_MAX);

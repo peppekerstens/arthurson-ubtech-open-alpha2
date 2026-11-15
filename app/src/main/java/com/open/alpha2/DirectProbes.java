@@ -5,13 +5,14 @@ import android.content.Context;
 import com.ubtechinc.alpha.hardware.HardwareDirectManager;
 
 /**
- * 直驅串口就緒探針。
+ * Direct serial port readiness probes.
  *
- * 之前 {@code directChestReady()}/{@code directHeaderReady()}/{@code headerReady()}/
- * {@code chestReady()} 在 ApiDispatcher / UbxApi / LedCenter / DeviceStatus /
- * SonarCenter / ChestQuery / XiaozhiBridge 各自內聯複製同一段
- * {@code HardwareDirectManager.get(ctx).chest()/head().isAvailable()} try/catch。
- * 收斂到這裡，行為不變（拋錯即 false）。
+ * ApiDispatcher, UbxApi, LedCenter, DeviceStatus, SonarCenter, ChestQuery and
+ * XiaozhiBridge each inlined the same try/catch around
+ * {@code HardwareDirectManager.get(ctx).chest()/head().isAvailable()} in
+ * {@code directChestReady()}/{@code directHeaderReady()}/{@code headerReady()}/
+ * {@code chestReady()}. This class holds that code in one place. Behavior is
+ * unchanged (an exception returns false).
  */
 public final class DirectProbes {
     private DirectProbes() {}

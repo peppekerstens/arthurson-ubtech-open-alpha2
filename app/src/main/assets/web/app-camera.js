@@ -1,7 +1,7 @@
 // Open Alpha2 — client logic (app-camera.js)
-// 內容: 相機直播、影相、錄影、拖拽準星頭部瞄準。
-// 全部檔案共用 window/global scope (沒有用 ES module), 載入順序由 index.html 的
-// <script src="..."> 順序決定 - 詳見 index.html 頭那段 comment。
+// Content: camera live view, photos, video recording, drag-crosshair head aiming.
+// All files share the window/global scope (no ES modules). Load order follows the
+// <script src="..."> order in index.html - see the comment block at the top of index.html.
 
 
 // ---------------- Camera: MJPEG live stream ----------------
@@ -24,7 +24,7 @@
 
 let cameraLiveRunning = false;
 let fpsPollTimer = null;
-// webcam 數位變焦 x1-x5
+// webcam digital zoom x1-x5
 let cameraZoom = 1.0;
 let cameraZoomHardwareSupported = false;
 
@@ -74,7 +74,7 @@ function applyCameraZoomCss(zoom) {
     const z = Math.max(1.0, Math.min(5.0, parseFloat(zoom) || 1.0));
     img.style.transform = z > 1.01 ? "scale(" + z.toFixed(1) + ")" : "";
     img.style.transformOrigin = "center center";
-    // 讓 viewport 保持 overflow:hidden 以裁切放大後的邊緣（見 style.css .camera-viewport）
+    // Keep the viewport at overflow:hidden so the enlarged edges get clipped (see .camera-viewport in style.css)
     img.style.willChange = z > 1.01 ? "transform" : "";
   }
   const els2 = cameraZoomElements();
@@ -104,7 +104,7 @@ async function setCameraZoom(val) {
       }
     }
   } catch(e) {
-    // 後端未就緒時僅前端生效，不報錯
+    // While the backend is not ready this works front-end only; do not report an error
   }
 }
 async function initCameraZoom() {
@@ -229,7 +229,7 @@ async function refreshSupportedSizes() {
     if (hint) hint.textContent = "Preview: " + (res.preview||[]).join(", ") + " | Picture: " + (res.picture||[]).join(", ") + " | FPS range: " + (res.fpsRanges||[]).join(", ") + " | 當前: " + res.current;
     if (res.preview && res.preview.length && sel) {
       const cur = sel.value;
-      // 過濾掉已取消的低解像度
+      // Filter out the cancelled low resolutions
       const filtered = res.preview.filter(sz => EXCLUDED.indexOf(sz) === -1);
       const list = filtered.length ? filtered : res.preview;
       sel.innerHTML = "";
@@ -240,10 +240,10 @@ async function refreshSupportedSizes() {
         sel.appendChild(opt);
       });
       if (!Array.from(sel.options).some(o=>o.selected)) sel.options[0].selected = true;
-      // 若當前值是被排除的，強制切到 1280x720
+      // If the current value is excluded, force the switch to 1280x720
       if (EXCLUDED.indexOf(cur) !== -1) {
         sel.value = "1280x720";
-        // 同步到後端
+        // Sync to the backend
         const [w,h] = "1280x720".split("x").map(Number);
         Alpha2Api.cameraResolution({w:w,h:h});
       }
@@ -251,10 +251,10 @@ async function refreshSupportedSizes() {
   } catch (e) { if (hint) hint.textContent = t("cam_read_err", { msg: e.message }); }
 }
 
-// ---------------- Camera: 9 檔影相並存入 Android (/sdcard/DCIM/Alpha2) ----------------
-// preview 9 檔用 snapshot_save（快速，基於當前串流幀），picture 5 檔用 take_photo_save（真正單張，高解像經完整 ISP）
+// ---------------- Camera: 9 photo sizes saved into Android (/sdcard/DCIM/Alpha2) ----------------
+// The 9 preview sizes use snapshot_save (fast, from the current stream frame); the 5 picture sizes use take_photo_save (a real still, high resolution through the full ISP)
 async function buildCameraPhoto9Grid() {
-  // 已簡化為單一 4208x3120 按鈕，grid 隱藏，無需動態建
+  // Simplified to one 4208x3120 button; the grid stays hidden, so nothing is built dynamically
   return;
 }
 async function capturePhotoAtResolution(w,h,btnEl,isPicture) {
@@ -316,10 +316,10 @@ function addCaptureItem(kind, url, filename, thumbSrc) {
   list.insertBefore(item, list.firstChild);
 }
 
-/** 影相一刻頭/眼 LED 白燈閃半秒。"flash" preset 本身會不斷循環閃下去不會自動停
- *  (見 led/head/set 個 p5/p6/p7 timing), 所以要自己計時, 500ms 後主動送回
- *  stop / 或者還原回錄影中/聽聲中那個長開色 (見 restoreBaseLed()) - 不是僅盲目
- *  stop, 否則影相那刻如果剛剛好正在錄影/正在聽聲, 個燈會給這下閃燈永久覆蓋底層長開色。 */
+/** A photo makes the head/eye LED blink white for half a second. The "flash" preset itself loops forever with no auto stop
+ *  (see the p5/p6/p7 timing of led/head/set), so time it here and actively send
+ *  stop after 500ms, or restore the steady colour for recording/listening (see restoreBaseLed()) - do not blindly
+ *  stop, or a photo taken during recording/listening would let this blink permanently cover the base steady colour. */
 function flashCaptureLed() {
   const headBrightness = document.getElementById("headBrightness").value;
   const eyeBrightness = document.getElementById("eyeBrightness").value;
@@ -328,16 +328,16 @@ function flashCaptureLed() {
   setTimeout(restoreBaseLed, 500);
 }
 
-/** 取回現在「底層」應該長開的 LED 狀態 - 錄影中(紅) > 聽機械人中(綠) > 沒有(熄)。
- *  影相閃燈完之後、或者其他一次性效果完了之後, 用來還原回正確的長開狀態。 */
+/** Get the LED state that the "base" layer should keep lit now - recording (red) > listening to the robot (green) > none (off).
+ *  Use it to restore the correct steady state after a photo blink or any other one-shot effect. */
 function restoreBaseLed() {
   const headBrightness = document.getElementById("headBrightness").value;
   const eyeBrightness = document.getElementById("eyeBrightness").value;
   let color = null;
   if (mediaRecorder && mediaRecorder.state === "recording") {
-    color = 1; // 紅 - 錄影中
+    color = 1; // red - recording
   } else if (micListening) {
-    color = 2; // 綠 - 聽機械人中
+    color = 2; // green - listening to the robot
   }
   if (color === null) {
     Alpha2Api.ledHeadSet( { preset: "stop" });
@@ -453,7 +453,7 @@ function stopRecording() {
   setRecordingLed(false);
 }
 
-/** 錄影中頭/眼 LED 長開紅燈, 停止錄影就熄返。 */
+/** The head/eye LED stays red while recording and switches off when recording stops. */
 function setRecordingLed(on) {
   if (on) {
     const headBrightness = document.getElementById("headBrightness").value;
@@ -466,10 +466,10 @@ function setRecordingLed(on) {
   }
 }
 
-// ---------------- Camera: 機端錄影 mp4 ----------------
-// 同上面瀏覽器 toggleRecording 唔同：呢個係機器人本機經 MediaRecorder 錄影，
-// 檔存 /sdcard/DCIM/Alpha2（相簿即見），經手柄映射 video_toggle 都撳到。
-// 錄緊嗰陣拍照／改解像度後端會拒（保編碼器），MJPEG 訂閱者會因無新幀超時自斷。
+// ---------------- Camera: on-device mp4 recording ----------------
+// Unlike the browser toggleRecording above: this records on the robot itself through MediaRecorder,
+// saves to /sdcard/DCIM/Alpha2 (visible in the gallery immediately), and a gamepad-mapped video_toggle can press it too.
+// While recording, the backend rejects photos/resolution changes (to protect the encoder), and MJPEG subscribers time out without new frames and disconnect on their own.
 let robotVideoRecording = false;
 let robotVideoBusy = false; // robotVideoToggle 重入保護：連撳兩下唔好發兩個 start/stop
 
@@ -528,7 +528,7 @@ async function robotVideoToggle() {
 
 let crosshairDragging = false;
 let crosshairSetupDone = false;
-// 搖桿自動回中開關（關閉後鬆手保持角度，不回正）
+// Joystick auto-centre switch (off keeps the angle on release and does not return to centre)
 let joystickAutoReturn = true;
 
 /** axisValue in [-1, 1]: -1 = servo min, 0 = servo home, +1 = servo max. */
@@ -558,7 +558,7 @@ function updateCrosshairVisibility() {
   if (els.fabRow) {
     els.fabRow.classList.toggle("active", shouldShow);
   }
-  // 統一風格 — 解像度(左上)、Zoom(相機鍵上)、回中(joystick右)、FPS(右上) 皆為功能鍵內容
+  // Unified style - resolution (top left), zoom (above the camera key), auto-centre (right of the joystick), FPS (top right) are all feature-key content
   const resWrap = document.getElementById("cameraResolutionWrap");
   if (resWrap) resWrap.style.display = shouldShow ? "block" : "none";
   const resSel = document.getElementById("cameraResolution");
@@ -588,7 +588,7 @@ function joystickAutoReturnToggle() {
   joystickAutoReturn = cb ? cb.checked : true;
   try { localStorage.setItem("joystickAutoReturn", joystickAutoReturn ? "1" : "0"); } catch(e){}
   if (joystickAutoReturn) {
-    // 開啟自動回中時立即回正（符合「關了再重新開啟會立即回中」預期）
+    // Turning auto-centre on recentres immediately (matches the expectation "re-enabling it returns to centre at once")
     setKnobPosition(0, 0);
     try {
       const t = (typeof servoTime === 'function' ? servoTime() : 500);
@@ -696,7 +696,7 @@ function setupCrosshairIfNeeded() {
       setKnobPosition(0, 0); // self-centering, like a physical joystick
       sendServoForAxis(0, 0); // return the head to home immediately, not throttled
     } else {
-      // 關閉自動回中：鬆手保持當前角度，僅結束拖拽狀態，不回正
+      // Auto-centre off: on release keep the current angle, only end the drag state, no return to centre
     }
   }
 
@@ -754,8 +754,8 @@ function setupCrosshairIfNeeded() {
     if (ARROW_KEYS.indexOf(evt.key) !== -1) {
       heldArrowKeys.delete(evt.key);
       if (heldArrowKeys.size === 0 && !joystickAutoReturn) {
-        // 關閉自動回中時，鬆開最後一鍵保持當前角度，不回正
-        // 僅清除 dragging 視覺，保留 knob 位置與 servo 角度
+        // With auto-centre off, releasing the last key keeps the current angle and does not re-centre
+        // Clear only the dragging visuals, and keep the knob position plus the servo angle
       } else {
         applyArrowKeyState(); // recompute with this key removed - may now be back to (0,0)
         if (heldArrowKeys.size === 0 && joystickAutoReturn) {
@@ -825,9 +825,9 @@ function connectCameraStream() {
     };
     viewport.appendChild(img);
   }
-  // 每次重建串流都需重套當前變焦（新 <img> 無舊 transform）
+  // Every stream rebuild must re-apply the current zoom (a new <img> has no old transform)
   try { applyCameraZoomCss(cameraZoom); } catch(e){}
-  // 面板 token：<img> 設不到 header，鎖機時用 ?panel_token= query fallback（見 PanelAuth）。
+  // Panel token: an <img> cannot set a header, so a locked device falls back to the ?panel_token= query (see PanelAuth).
   let camUrl = "/stream/camera?t=" + Date.now();
   try {
     const pt = (typeof panelTokenGet === "function") ? panelTokenGet() : "";
@@ -836,7 +836,7 @@ function connectCameraStream() {
   img.src = camUrl;
 }
 
-// DOMContentLoaded 單次初始化變焦與搖桿回中（不依賴 app-log.js 順序，自身亦可獨立起）
+// One-time init of zoom and joystick auto-centre on DOMContentLoaded (independent of app-log.js order, can start alone)
 function initCameraUiToggles() { try { initCameraZoom(); } catch(e){} try { initJoystickAutoReturn(); } catch(e){} try { updateCrosshairVisibility(); } catch(e){} try { faceTrackRefreshStatus(); } catch(e){} try { colorTrackRefreshStatus(); } catch(e){} }
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", initCameraUiToggles);
@@ -844,16 +844,16 @@ if (document.readyState === "loading") {
   initCameraUiToggles();
 }
 
-// ---------------- Camera: Android 內置人臉追蹤 ----------------
+// ---------------- Camera: built-in Android face tracking ----------------
 //
-// 後端 FaceTrackCenter（framework FaceDetector，零依賴）：檢到最大一張臉即按
-// 偏移步進驅動頭部 19/20（定案預設：步進 17°、死區 0.10、自動間隔 500/100ms，
-// 追頭＋ROI 預設開）。前端只剩功能鍵行一個開關＋viewport 綠框 overlay，不做任何
-// 影像分析（分析全在機械人端，瀏覽器只畫框）。
-// 注意：播動作（UbxPlayer）時請先停追蹤，兩邊同搶頭部舵機會打架。
+// Backend FaceTrackCenter (framework FaceDetector, zero dependencies): it finds the largest face and steps the head by its
+// offset with head servos 19/20 (settled defaults: 17° step, 0.10 dead zone, auto interval 500/100ms,
+// head tracking + ROI on by default). The front end keeps one switch in the feature-key row + a green-box overlay in the viewport, and does no
+// image analysis itself (all analysis runs on the robot, the browser only draws the box).
+// Note: stop tracking before playing an action (UbxPlayer). Both sides driving the head servos at once will fight.
 //
-// 卡片已移除（定案收斂），`faceTrackStatusHint` 等設定控件不存在——下面所有
-// getElementById 全部有 null-guard，搵唔到即跳過。
+// The card is removed (settled scope), so controls like `faceTrackStatusHint` do not exist - every
+// getElementById below carries a null guard and skips when the element is missing.
 
 let faceTrackPollTimer = null;
 let faceTrackRunning = false;
@@ -870,8 +870,8 @@ function faceTrackRenderBox(json) {
   const fx = Number(json.fx), fy = Number(json.fy);
   const fw = Number(json.fw) || 0.25, fh = Number(json.fh) || 0.3;
   if (!(fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1)) { box.classList.remove("on"); return; }
-  // 中心＋寬高（歸一化）轉 viewport px；img 是 object-fit:contain，簡單按 viewport
-  // 全區定位（近似框，調試用，不保證與 MJPEG 像素級對齊）。
+  // Convert centre + width/height (normalized) to viewport px; the img uses object-fit:contain, so place by the
+  // whole viewport (an approximate box, for debugging; no pixel-level alignment with MJPEG is guaranteed).
   const w = Math.max(24, fw * rect.width);
   const h = Math.max(24, fh * rect.height);
   const left = Math.max(0, Math.min(rect.width - w, fx * rect.width - w / 2));
@@ -916,7 +916,7 @@ async function faceTrackToggleChanged() {
   const on = toggle ? toggle.checked : false;
   try {
     if (on) {
-      // 設定卡已移除：空參數即用後端定案預設（步進 17／死區 0.10／自動 500/100ms，追頭＋ROI 開）。
+      // The settings card is removed: empty parameters use the backend's settled defaults (17° step, 0.10 dead zone, auto 500/100ms, head tracking + ROI on).
       const json = await Alpha2Api.faceTrackStart({});
       faceTrackRenderStatus(json);
       if (json && json.ok && json.running) { faceTrackStartPolling(); colorTrackSyncOff(); }
@@ -925,7 +925,7 @@ async function faceTrackToggleChanged() {
       const json = await Alpha2Api.faceTrackStop();
       faceTrackRenderStatus(json);
       faceTrackStopPolling();
-      // 停後再讀一次確保框清除
+      // Read once more after stopping to make sure the box is cleared
       faceTrackRenderBox({ running: false });
     }
   } catch (e) {
@@ -934,22 +934,22 @@ async function faceTrackToggleChanged() {
   }
 }
 
-// ---------------- Camera: 純 Java 顏色追蹤 ----------------
+// ---------------- Camera: pure-Java color tracking ----------------
 //
-// 後端 ColorTrackCenter（HSV 閾值＋最大 blob，零依賴）：跟到最大色塊質心即按
-// 偏移步進驅動頭部 19/20（定案預設：紅色 hue 335-25°、步進 17°、死區 0.10、
-// 自動間隔 200/100ms，追頭預設開）。前端只剩功能鍵行一個開關＋viewport 橙框
-// overlay，不做任何影像分析。
-// 互斥：後端 start 一邊即停另一邊，前端兩邊 toggle／輪詢亦要同步熄（見
-// colorTrackSyncOff／faceTrackSyncOff，由成功 start 嗰邊調用）。
-// 注意：播動作（UbxPlayer）時請先停追蹤，兩邊同搶頭部舵機會打架。
+// Backend ColorTrackCenter (HSV thresholds + largest blob, zero dependencies): it follows the largest color mass and steps the head by its
+// offset with head servos 19/20 (settled defaults: red hue 335-25°, 17° step, 0.10 dead zone,
+// auto interval 200/100ms, head tracking on by default). The front end keeps one switch in the feature-key row + an orange-box
+// overlay in the viewport, and does no image analysis.
+// Mutually exclusive: a backend start on one side stops the other, so both front-end toggles/polls must also turn off in sync (see
+// colorTrackSyncOff/faceTrackSyncOff, called by the side that started successfully).
+// Note: stop tracking before playing an action (UbxPlayer). Both sides driving the head servos at once will fight.
 
 let colorTrackPollTimer = null;
 let colorTrackRunning = false;
 
-// 追色選擇：同 LED 七色碼對應（見 app-led.js LED_COLORS 1=紅…7=白），hex 照抄嗰邊；
-// HSV 範圍係相機實物經驗值（唔係 LED 發光色本身，現場光有偏差，框出唔到先放寬 sMin）。
-// 白色靠 sMax 去彩色（後端新加，冇佢白乜都 match）。
+// Color presets: mapped to the LED seven colour codes (see LED_COLORS in app-led.js, 1=red…7=white); copy the hex values from there;
+// the HSV ranges are empirical values from real camera tests (not the LED's own light; ambient light shifts them. Widen sMin only when the box fails).
+// White relies on sMax to exclude colors (added to the backend; without it, white matches everything).
 const COLOR_TRACK_PRESETS = [
   { code: 1, key: "color_name_red",    hex: "#ff3b3b", hMin: 335, hMax: 25,  sMin: 0.45, sMax: 1.0,  vMin: 0.25, vMax: 1.0 },
   { code: 2, key: "color_name_green",  hex: "#3bff5c", hMin: 85,  hMax: 155, sMin: 0.40, sMax: 1.0,  vMin: 0.25, vMax: 1.0 },
@@ -959,7 +959,7 @@ const COLOR_TRACK_PRESETS = [
   { code: 6, key: "color_name_cyan",   hex: "#3bfff0", hMin: 155, hMax: 195, sMin: 0.40, sMax: 1.0,  vMin: 0.25, vMax: 1.0 },
   { code: 7, key: "color_name_white",  hex: "#ffffff", hMin: 0,   hMax: 360, sMin: 0,    sMax: 0.25, vMin: 0.60, vMax: 1.0 },
 ];
-let colorTrackPreset = 1; // 預設紅（同後端定案預設一致）
+let colorTrackPreset = 1; // default red (matches the backend's settled default)
 let colorTrackWalkFollow = false;
 
 function colorTrackPresetParams(code) {
@@ -1007,9 +1007,9 @@ function colorTrackUpdatePresetVisibility() {
 async function colorTrackPickPreset(code) {
   colorTrackPreset = code;
   colorTrackMarkSelected();
-  if (!colorTrackRunning) return; // 未行緊：記低選擇，下次 start 用
+  if (!colorTrackRunning) return; // not running: remember the choice for the next start
   try {
-    // 行緊：config 即時換色，唔使停 tracking（後端參數 volatile，下幀即用新範圍）。
+    // Running: the config swaps the color live, so no need to stop tracking (backend params are volatile, the next frame uses the new range).
     const json = await Alpha2Api.colorTrackConfig(colorTrackPresetParams(code));
     colorTrackRenderStatus(json);
   } catch (e) {
@@ -1020,16 +1020,16 @@ async function colorTrackPickPreset(code) {
 async function colorTrackWalkChanged() {
   const toggle = document.getElementById("walkFollowToggle");
   const on = toggle ? toggle.checked : false;
-  // 平地＋清空＋有人睇住先開：開即部機會行，browser confirm 閘一閘（誤掂唔會即刻行）。
+  // Enable it only on level, cleared ground with a watcher: turning it on makes the robot walk, so a browser confirm gates the press (a wrong touch never starts it).
   if (on && !colorTrackWalkFollow) {
     const ok = window.confirm
-      ? window.confirm(t("walk_follow_label") + "：機械人會行路跟目標。平地、清空、有人睇住先好開。確定？")
+      ? window.confirm(t("walk_follow_label") + (uiLang === "en" ? ": The robot will walk and follow the target. Use this only on level, cleared ground with a watcher. Confirm?" : "：機械人會行路跟目標。平地、清空、有人睇住先好開。確定？"))
       : true;
     if (!ok) { if (toggle) toggle.checked = false; return; }
   }
   try {
     const json = await Alpha2Api.colorTrackConfig({ walkFollow: on });
-    colorTrackRenderStatus(json); // toggle 以後端 echo 為準
+    colorTrackRenderStatus(json); // the toggle follows the backend echo
   } catch (e) {
     showError(t("walk_follow_label"), e);
     if (toggle) toggle.checked = colorTrackWalkFollow;
@@ -1048,7 +1048,7 @@ function colorTrackRenderBox(json) {
   const fx = Number(json.fx), fy = Number(json.fy);
   const fw = Number(json.fw) || 0.25, fh = Number(json.fh) || 0.3;
   if (!(fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1)) { box.classList.remove("on"); return; }
-  // 中心＋寬高（歸一化）轉 viewport px；同人臉框一樣按 viewport 全區定位（近似框）。
+  // Convert centre + width/height (normalized) to viewport px; like the face box, place by the whole viewport (an approximate box).
   const w = Math.max(24, fw * rect.width);
   const h = Math.max(24, fh * rect.height);
   const left = Math.max(0, Math.min(rect.width - w, fx * rect.width - w / 2));
@@ -1067,7 +1067,7 @@ function colorTrackRenderStatus(json) {
   if (toggle && toggle.checked !== colorTrackRunning) toggle.checked = colorTrackRunning;
   colorTrackRenderBox(json);
   colorTrackUpdatePresetVisibility();
-  // 行路跟開關以後端為準（config echo；舊版無呢個欄位即當關）。
+  // The walk-follow switch follows the backend (config echo; an old backend without the field counts as off).
   const walkOn = !!(json.config && json.config.walkFollow);
   colorTrackWalkFollow = walkOn;
   const walkToggle = document.getElementById("walkFollowToggle");
@@ -1094,7 +1094,7 @@ function colorTrackStopPolling() {
   if (box) box.classList.remove("on");
 }
 
-// 對面（人臉）成功 start 後調：後端已停顏色，前端同步熄 toggle＋輪詢＋框＋選色列。
+// Called after the other side (face) starts successfully: the backend stopped the color track, so the front end turns off its toggle, poll, box, and color swatch row in sync.
 function colorTrackSyncOff() {
   colorTrackRunning = false;
   colorTrackStopPolling();
@@ -1103,10 +1103,10 @@ function colorTrackSyncOff() {
   colorTrackUpdatePresetVisibility();
 }
 
-// 人臉側成功 start 後調（上面 faceTrackToggleChanged 已接）：後端已停人臉，前端同步熄。
+// Called after the face side starts successfully (wired in faceTrackToggleChanged above): the backend stopped face tracking, so the front end turns off in sync.
 function faceTrackSyncOff() {
   faceTrackRunning = false;
-  faceTrackStopPolling(); // 內已清人臉框 .on
+  faceTrackStopPolling(); // it already clears the face box .on
   const toggle = document.getElementById("faceTrackToggle");
   if (toggle) toggle.checked = false;
 }
@@ -1116,7 +1116,7 @@ async function colorTrackToggleChanged() {
   const on = toggle ? toggle.checked : false;
   try {
     if (on) {
-      // 帶當前選色起（預設紅；選色列點過即換 colorTrackPreset，start 即用）。
+      // Start with the current color choice (default red; a swatch click updates colorTrackPreset, and start uses it at once).
       const json = await Alpha2Api.colorTrackStart(colorTrackPresetParams(colorTrackPreset));
       colorTrackRenderStatus(json);
       if (json && json.ok && json.running) { colorTrackStartPolling(); faceTrackSyncOff(); }
@@ -1125,7 +1125,7 @@ async function colorTrackToggleChanged() {
       const json = await Alpha2Api.colorTrackStop();
       colorTrackRenderStatus(json);
       colorTrackStopPolling();
-      // 停後再讀一次確保框清除
+      // Read once more after stopping to make sure the box is cleared
       colorTrackRenderBox({ running: false });
     }
   } catch (e) {

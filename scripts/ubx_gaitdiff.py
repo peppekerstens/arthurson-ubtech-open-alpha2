@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""原版 vs 改版步態曲線對比：抽主步態段每軸角度列，印相位對齊抽樣值。
-看勻速重採樣/磨滑有沒有改步形（峰值、相位、對稱）。"""
+"""Original vs modified gait curve comparison: take the per-axis angle list of the main gait segment and print the phase-aligned sample values.
+Use it to see whether the uniform resampling / the smoothing changed the gait shape (peaks, phase, symmetry)."""
 import sys
 
 sys.argv = ["x"]
@@ -10,7 +10,7 @@ ACT = "C:\\Users\\user\\Desktop\\alpha2\\UBX\\actions\\"
 
 
 def gait_frames(path):
-    """回主步態段 (timeBase==20) 全部 servo pose（檔案序）"""
+    """Return all servo poses of the main gait segment (timeBase==20) (file order)."""
     m = parse_ubx(path)
     d = m["raw"]
     out = []
@@ -31,8 +31,8 @@ def gait_frames(path):
     return out
 
 
-JOINTS = {1: "R肩上下", 4: "L肩上下", 8: "R髖上下", 13: "L髖上下",
-          9: "R膝", 14: "L膝", 10: "R踝", 15: "L踝"}
+JOINTS = {1: "R shld up", 4: "L shld up", 8: "R hip up", 13: "L hip up",
+          9: "R knee", 14: "L knee", 10: "R ank", 15: "L ank"}
 
 
 def show(path, label):

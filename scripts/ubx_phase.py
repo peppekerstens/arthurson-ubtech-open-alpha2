@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""步相檢查：一個步態循環內，各關節極值出現的相位（cycle fraction）。
-原版 6 格 vs V4 38 格/循環 —— 相位移位即步姿散（跛行感）。"""
+"""Phase check: within one gait cycle, the phase (cycle fraction) at which each joint extreme appears.
+Original 6 ticks vs V4 38 ticks per cycle -- a phase shift means the gait scatters (a limp look)."""
 import sys
 
 sys.argv = ["x"]
@@ -10,7 +10,7 @@ ACT = "C:\\Users\\user\\Desktop\\alpha2\\UBX\\actions\\"
 
 
 def cycle(path):
-    """回主步態段（timeBase==20）第一個完整循環 pose 列（原版 6 格；V4 38 格）"""
+    """Return the pose list of the first full cycle of the main gait segment (timeBase==20) (original 6 ticks; V4 38 ticks)."""
     m = parse_ubx(path)
     d = m["raw"]
     best = []
@@ -38,9 +38,9 @@ def cycle(path):
 
 
 EVENTS = {
-    "R髖前max": (8, max), "R髖後min": (8, min),
-    "L髖前max": (13, max), "L髖後min": (13, min),
-    "R膝曲max": (9, min), "L膝曲max": (14, max),
+    "R hip fwd max": (8, max), "R hip back min": (8, min),
+    "L hip fwd max": (13, max), "L hip back min": (13, min),
+    "R knee bend max": (9, min), "L knee bend max": (14, max),
 }
 
 

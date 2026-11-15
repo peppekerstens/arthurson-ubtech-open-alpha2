@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-檢查 api-client.js 每個 wrapper 打去的 URL 真正有後端接。
+Check that the URL each wrapper of api-client.js calls truly has a backend endpoint.
 
-Caller 對後端路由 (見 MainActivity dispatch + app-core.js helper)：
+Caller to backend route (see the MainActivity dispatch + the app-core.js helper):
   api('X')        -> /api/alpha2/X   -> handleApi case X
   sysApi('X')     -> /api/system/X   -> handleSystemApi case X
   directApi('X')  -> /api/direct/X   -> handleDirectApi case X
   xiaozhiApi('X') -> /api/xiaozhi/X  -> XiaozhiBridge.handleXiaozhiApi case X
 
-之前試過 generator 語無倫次出 `api('system/...')` → 打去
-/api/alpha2/system/... → handleApi 404，而 drift check 看不到
-(它只對 code case ↔ spec)。這個 script 補回 client → server 這段。
+The generator once emitted a nonsensical `api('system/...')` -> the call went to
+/api/alpha2/system/... -> handleApi 404, and the drift check could not see it
+(it only compares the code cases to the spec). This script adds back the client to server segment.
 
-用法: python scripts/check-api-client-routes.py (啱 CI 用)
-回傳 0=全對，1=有錯。
+Usage: python scripts/check-api-client-routes.py (suitable for CI)
+Returns 0 = all correct, 1 = an error is present.
 """
 import pathlib
 import re
@@ -31,7 +31,7 @@ disptext = DISP.read_text(encoding="utf-8")
 
 
 def handler_cases(name: str, src: str = text, tail: str = r"\n    (?:private|public) ") -> set:
-    """抽某 handle*Api() 方法體內全部 case "..." (裸路徑)。"""
+    """Extract all case "..." values (bare paths) inside a handle*Api() method body."""
     m = re.search(
         r"(?:private|public) HttpServer\.ApiResponse " + name + r"\(.*?\)\s*\{(.*?)" + tail,
         src, re.DOTALL)
@@ -40,31 +40,31 @@ def handler_cases(name: str, src: str = text, tail: str = r"\n    (?:private|pub
 
 
 cases = {
-    # handleApi 成段搬了去 ApiDispatcher (檔尾，最後一個 method)。
+    # handleApi moved in whole to ApiDispatcher (end of file, the last method).
     "api": handler_cases("handleApi", disptext, tail=r"\n\}\s*$"),
-    # handleSystemApi/directApi 跟著搬過去 (system 在中間，direct 在檔尾)。
+    # handleSystemApi/directApi followed (system in the middle, direct at the end of file).
     "sysApi": handler_cases("handleSystemApi", disptext),
     "directApi": handler_cases("handleDirectApi", disptext, tail=r"\n\}\s*$"),
     "xiaozhiApi": handler_cases("handleXiaozhiApi", xztext),
 }
 
 client = CLIENT.read_text(encoding="utf-8")
-# 2026-09-09：單雙引號都認（之前僅單引號，手寫雙引號即漏檢）。
+# 2026-09-09: single and double quotes both count (before only single quotes; a hand-written double quote was a missed check).
 calls = re.findall(r"return (api|sysApi|directApi|xiaozhiApi)\([\"']([^\"']+)[\"'], params\)", client)
-assert calls, "api-client.js 內一個 wrapper call 都搵唔到"
+assert calls, "not a single wrapper call found in api-client.js"
 
 bad = []
 for caller, rel in calls:
     if rel not in cases[caller]:
-        bad.append(f"{caller}('{rel}') 無對應後端 case")
+        bad.append(f"{caller}('{rel}') has no matching backend case")
 
 print(f"client calls: {len(calls)}  api={sum(1 for c, _ in calls if c == 'api')} "
       f"sys={sum(1 for c, _ in calls if c == 'sysApi')} "
       f"direct={sum(1 for c, _ in calls if c == 'directApi')} "
       f"xiaozhi={sum(1 for c, _ in calls if c == 'xiaozhiApi')}")
 if bad:
-    print("❌ 誤路由 (client 有，後端無)：")
+    print("❌ misrouted (the client has it, the backend does not):")
     for b in bad:
         print(f"  - {b}")
     sys.exit(1)
-print("✅ 全部 wrapper 路由正確")
+print("✅ all wrapper routes correct")

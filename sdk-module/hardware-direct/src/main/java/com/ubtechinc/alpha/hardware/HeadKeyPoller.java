@@ -92,6 +92,8 @@ public class HeadKeyPoller extends HeadKeyMgr {
      */
     private static final long DOUBLE_DEDUP_MS = 1000;
     private long lastBothFireMs = -1;
+    /** The time of the last click code (uptime ms, -1: none), for the click log line. */
+    private long lastClickMs = -1;
 
     public void setListener(Listener l) { listener = l; }
 
@@ -238,6 +240,7 @@ public class HeadKeyPoller extends HeadKeyMgr {
                     publish = true;
                     break;
                 case KEY_OLD_FORMOR_SHORT:
+                    logClick(code); // alpha2-brain#45 (fork patch)
                     // 舊制 click 模型：一粒碼＝成下短按（driver 冇 release
                     // 邊沿）——即行 press（著 LED 14＜「−」＞＋行一格），release
                     // 隔 CLICK_RELEASE_DELAY_MS 先放：LED worker 有時間著燈，
@@ -249,6 +252,7 @@ public class HeadKeyPoller extends HeadKeyMgr {
                     publish = true;
                     break;
                 case KEY_OLD_BACK_SHORT:
+                    logClick(code); // alpha2-brain#45 (fork patch)
                     // 同上（LED 16＜「＋」＞）。
                     tmp.add(KEY_PLUS);
                     plusClickRelease = true;
@@ -284,6 +288,13 @@ public class HeadKeyPoller extends HeadKeyMgr {
         // press 出咗先排 release（Timer 最長 150ms 後到，次序保證）。
         if (minusClickRelease) scheduleClickRelease(KEY_MINUS_UP);
         if (plusClickRelease) scheduleClickRelease(KEY_PLUS_UP);
+    }
+
+    /** Fork patch (alpha2-brain#45): log each click with the time since the last click. */
+    private void logClick(int code) {
+        long nowMs = SystemClock.uptimeMillis();
+        Log.i(TAG, HeadKeyClick.logLine(code, lastClickMs < 0 ? -1 : nowMs - lastClickMs));
+        lastClickMs = nowMs;
     }
 
     /**

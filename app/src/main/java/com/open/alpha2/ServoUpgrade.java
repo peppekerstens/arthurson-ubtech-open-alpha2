@@ -51,6 +51,9 @@ public final class ServoUpgrade {
     private final ChestQuery chestQuery;
 
     private volatile boolean upgradeInProgress = false;
+
+    /** True while a servo firmware upgrade runs (ServoReadStream pauses then). */
+    public boolean isBusy() { return upgradeInProgress; }
     private volatile int upgradeProgress = 0;
     private volatile int upgradeTotalPages = TOTAL_PAGES;
     private volatile int upgradeCurrentPage = 0;
@@ -287,6 +290,11 @@ public final class ServoUpgrade {
             if (!chestReady()) return "chest not ready (pure-direct)";
         }
         upgradeInProgress = true;
+        // alpha2-brain#26: stop the servo read stream and wait for it before the first frame.
+        if (!ServoReadStream.haltForUpgrade("servo firmware upgrade")) {
+            upgradeInProgress = false;
+            return "the servo read stream did not stop: upgrade not started";
+        }
         upgradeProgress = 0;
         upgradeCurrentPage = 0;
         upgradeStatus = "starting id " + servoId;

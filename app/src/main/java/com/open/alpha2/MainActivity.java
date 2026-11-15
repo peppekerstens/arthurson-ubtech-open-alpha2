@@ -409,6 +409,8 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
                 cameraApi, audioCenter, ringtoneCenter, micCenter, robot, grammarCenter,
                 ubxPlayer, musicController, localServices, sonarCenter, actionsPackController,
                 apkDownloadController, gamepadCenter, walkCenter);
+        // Wake word and local commands (alpha2-brain#16). Off until wake/set?enabled=true.
+        WakeController.init(this, xiaozhiBridge, vosk, apiDispatcher);
 
         // 播歌指示燈（disco 開住播歌）同「小智已連線」燈共用胸口同一盞 mute 燈，
         // 由 XiaozhiBridge 做 OR。起喺 xiaozhiBridge 之後。
@@ -684,6 +686,13 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         ubxApi = new UbxApi(this, ubxPlayer, actionDirect, chestQuery);
         chestUpgrade = new ChestUpgrade(this, chestQuery);
         servoUpgrade = new ServoUpgrade(this, chestQuery);
+        // Servo read stream (alpha2-rl#3): reads only, pauses during a firmware upgrade.
+        ServoReadStream.init(this, new ServoReadStream.BusyCheck() {
+            @Override public boolean busy() {
+                return (chestUpgrade != null && chestUpgrade.isBusy())
+                        || (servoUpgrade != null && servoUpgrade.isBusy());
+            }
+        });
         // (ringtoneCenter/ledCenter 已在 onCreate 頭段建好，見上面。)
         audioCenter = new AudioCenter(this, ubxPlayer, actionDirect, mainHandler, ledCenter);
         EventBus.get().publish("authorize", "{\"code\":1,\"info\":\"have offline authority\"}");
@@ -774,7 +783,10 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         // logcat 的 DirectSerialPort RX hex 照樣保留, 要看 raw 幀去那裡看。
         boolean noisyHeartbeat = payload.length >= 1
                 && (payload[0] == (byte) 0x8B || payload[0] == (byte) 0x8D);
-        if (!noisyHeartbeat) {
+        // Replies to the servo read stream go out as one servo_reads event per cycle instead
+        // (ServoReadStream, alpha2-rl#3). The parsers below still see them.
+        boolean streamReply = !noisyHeartbeat && ServoReadStream.onChestPayload(payload);
+        if (!noisyHeartbeat && !streamReply) {
             EventBus.get().publish("chest_rcv", "{\"hex\":\"" + toHex(frame, frame.length) + "\"}");
         }
         int plen = payload.length;
@@ -1104,6 +1116,7 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         mainHandler.removeCallbacks(bootVoiceRunnable);
         if (gestureCenter != null) gestureCenter.shutdown();
         if (gamepadCenter != null) gamepadCenter.shutdown();
+        ServoReadStream.shutdown();
         if (ubxPlayer != null) ubxPlayer.stopVoice();
         if (micCenter != null) micCenter.shutdownMicHold();
         if (deviceStatus != null) deviceStatus.setAccelerometerEnabled(false);
@@ -1163,6 +1176,7 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         }
         if (cameraController != null) cameraController.shutdown();
         if (audioController != null) audioController.shutdown();
+        MultiMicController.get().shutdown();
         if (audioPlaybackController != null) audioPlaybackController.shutdown();
         if (ledCenter != null) ledCenter.shutdown();
         if (ringtoneCenter != null) ringtoneCenter.stopRingtonePlayback();
@@ -1280,6 +1294,11 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         }
         if ("camera".equals(path)) {
             cameraApi.handleCameraStream(socket);
+        } else if ("mic".equals(path) && query.containsKey("channels") && !"1".equals(query.get("channels"))) {
+            // 5-mic FPGA card (card 0): channels=5 or 8, see MultiMicController.
+            MultiMicController.get().handleStream(socket, query);
+        } else if ("mic/record".equals(path)) {
+            MultiMicController.get().handleRecord(socket, query);
         } else if ("mic".equals(path)) {
             micCenter.handleMicStream(socket);
         } else {

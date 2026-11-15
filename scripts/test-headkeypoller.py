@@ -75,6 +75,7 @@ def main() -> int:
 
     files = [
         str(hw / "HeadKeyPoller.java"),
+        str(hw / "HeadKeyClick.java"),  # fork: the click log line of HeadKeyPoller (alpha2-brain#45, #53)
         str(hw / "HardwareVersion.java"),
         str(hk / "HeadKeyMgr.java"),
         str(native / "nativeClass.java"),

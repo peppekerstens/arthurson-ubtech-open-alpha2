@@ -5,20 +5,20 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * MCP tool 定義（全部自動生成，切勿手改）。
+ * MCP tool definitions (fully generated; do not edit by hand).
  *
- * 來源：openapi/open-alpha2-openapi.yml（參數約束）＋
- * openapi/mcp-openapi-sync.yml（工具清單/description/alias/required）。
- * 再生：python scripts/generate-mcp-tools.py
+ * Sources: openapi/open-alpha2-openapi.yml (parameter constraints) +
+ * openapi/mcp-openapi-sync.yml (tool list/description/alias/required).
+ * Regenerate: python scripts/generate-mcp-tools.py
  *
- * 約定：
- * - inputSchema 參數約束（type/enum/minimum/maximum/default）繼承 spec，
- *   與 ApiValidator.java 同一套規則；spec 加參數而 sync 未表態會生成失敗
- *   （見 generator 的 uncovered 檢查），逼兩邊對齊。
- * - alias（time_ms→time、enabled→on、distance_cm→distance、speed_ms→speed）
- *   在此只暴露 MCP 名；callTool() 側讀 MCP 名（見 XiaozhiBridge）。
- * - LED color/brightness 在 MCP 為 optional（preset=stop 免填，callTool 執行
- *   required_if），與舊手寫行為一致；spec 側維持必填。
+ * Rules:
+ * - The inputSchema parameter constraints (type/enum/minimum/maximum/default) inherit from the spec,
+ *   the same rule set as ApiValidator.java. A spec parameter with no sync decision fails the generation
+ *   (see the generator uncovered check). It forces the two sides to line up.
+ * - alias (time_ms to time, enabled to on, distance_cm to distance, speed_ms to speed)
+ *   This side exposes only the MCP name; the callTool() side reads the MCP name (see XiaozhiBridge).
+ * - The LED color/brightness are optional in the MCP (preset=stop needs no fill; callTool runs
+ *   required_if). The same as the old hand-written behaviour. The spec side stays required.
  */
 public final class McpToolsGenerated {
     private McpToolsGenerated() {}
@@ -45,7 +45,7 @@ public final class McpToolsGenerated {
         {
             JSONObject t = new JSONObject();
             t.put("name", "self.robot.play_action");
-            t.put("description", "Play a built-in robot action by Chinese or English name (fuzzy-matched server-side, e.g. \"跳舞\" or \"dance\"). Call self.robot.list_actions first if unsure of the exact name.");
+            t.put("description", "Play a built-in robot action by Chinese or English name (fuzzy-matched server-side, e.g. \"跳舞\" or \"dance\"). Call self.robot.list_actions first if unsure of the exact name. A name that ends in \".ubx\" plays that file from /sdcard/actions.");
             JSONObject s = new JSONObject();
             s.put("type", "object");
             JSONObject props = new JSONObject();
@@ -159,7 +159,7 @@ public final class McpToolsGenerated {
         {
             JSONObject t = new JSONObject();
             t.put("name", "self.robot.led_set_head");
-            t.put("description", "Set the head LED ring. color 1=red 2=green 3=blue 4=yellow 5=purple 6=cyan 7=white; brightness 1-9; preset long/flash/breathe/chase/dual, or \"stop\" (off; color/brightness ignored).");
+            t.put("description", "Set the head LED ring. color 1=red 2=green 3=blue 4=yellow 5=purple 6=cyan 7=white; brightness 1-9 (default 5); preset long/flash/breathe/chase/dual, or \"stop\" (off; color/brightness ignored).");
             JSONObject s = new JSONObject();
             s.put("type", "object");
             JSONObject props = new JSONObject();
@@ -182,7 +182,7 @@ public final class McpToolsGenerated {
             {
                 JSONObject p = new JSONObject();
                 p.put("type", "integer");
-                p.put("description", "1-9, required unless preset=stop.");
+                p.put("description", "1-9, optional; default 5.");
                 p.put("minimum", 1);
                 p.put("maximum", 9);
                 props.put("brightness", p);
@@ -219,7 +219,7 @@ public final class McpToolsGenerated {
             {
                 JSONObject p = new JSONObject();
                 p.put("type", "integer");
-                p.put("description", "1-9, required unless preset=stop.");
+                p.put("description", "1-9, optional; default 5.");
                 p.put("minimum", 1);
                 p.put("maximum", 9);
                 props.put("brightness", p);
@@ -263,7 +263,7 @@ public final class McpToolsGenerated {
         {
             JSONObject t = new JSONObject();
             t.put("name", "self.sensors.get_pir");
-            t.put("description", "Read the last known PIR motion state (most recent event, not a live poll; \"unknown\" if disabled or nothing received yet).");
+            t.put("description", "Read the last known PIR motion state (most recent event, not a live poll). \"since\" is the ISO time of the last state. A \"clear\" state with a \"note\" means no motion seen since the app start (no event arrived yet).");
             JSONObject s = new JSONObject();
             s.put("type", "object");
             JSONObject props = new JSONObject();
@@ -483,7 +483,7 @@ public final class McpToolsGenerated {
             t.put("inputSchema", s);
             tools.put(t);
         }
-        // 2026-09-09：再生漏改 TOOL_COUNT 即靜默錯，runtime 斷言釘死。
+        // 2026-09-09: a regeneration that misses TOOL_COUNT is a silent error; the runtime assertion pins it.
         if (tools.length() != TOOL_COUNT) throw new IllegalStateException(
                 "TOOL_COUNT=" + TOOL_COUNT + " but built " + tools.length());
         return tools;

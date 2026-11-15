@@ -1,47 +1,50 @@
 package com.open.alpha2;
 
+import com.ubtechinc.alpha.hardware.ChestSafety;
+
 import java.util.Arrays;
 import java.util.Map;
 
 /**
- * 輕量 OpenAPI 驅動的參數校驗層 (1+2 方案的第1層)。
+ * A lightweight OpenAPI-driven parameter validation layer (layer 1 of the 1+2 plan).
  *
- * 對應 {@code openapi/open-alpha2-openapi.yml} 的 parameters / schema 定義，
- * 將舊 {@code MainActivity.require / queryOrDefault / Integer.parseInt / enum 檢查}
- * 這些散在各 handle*Api case 的重複 boilerplate 集中到一處。
+ * It corresponds to the parameters / schema definitions of {@code openapi/open-alpha2-openapi.yml},
+ * and centralizes into one place the repetitive boilerplate of the old
+ * {@code MainActivity.require / queryOrDefault / Integer.parseInt / enum checks}
+ * that was scattered across each handle*Api case.
  *
- * 設計原則：
- *  - 零額外依賴 (只用 Map/String)，符合此專案 "Android framework + JDK only" 政策 (見 HttpServer.java:34)。
- *  - API 22 相容 (不用 Map.getOrDefault)。
- *  - 拋 IllegalArgumentException，交由 handleApi 外層 catch 統一轉成 {"ok":false,"error":...} (沿用現有 require 的行為)。
- *  -  不做重量級 JSON Schema 校驗，僅做本專案實際需要的：必填、整數、整數範圍、枚舉、boolean。
+ * Design principles:
+ *  - Zero extra dependencies (only Map/String), matching this project's "Android framework + JDK only" policy (see HttpServer.java:34).
+ *  - API 22 compatible (no Map.getOrDefault).
+ *  - Throws IllegalArgumentException; the outer catch of handleApi converts it uniformly to {"ok":false,"error":...} (following the existing behavior of require).
+ *  - No heavyweight JSON Schema validation; only what this project actually needs: required, integer, integer range, enum, boolean.
  *
- * 用法示例 (替換前 vs 後)：
- *   // 舊:
+ * Usage example (before vs after):
+ *   // before:
  *   byte id = Byte.parseByte(require(query,"id"));
  *   int angle = Integer.parseInt(require(query,"angle"));
- *   // 新:
+ *   // after:
  *   int id = ApiValidator.requireIntRange(query,"id",1,20);
  *   int angle = ApiValidator.requireInt(query,"angle");
  *
- *   // 舊:
+ *   // before:
  *   String preset = queryOrDefault(query,"preset","long");
  *   switch(preset){ case "flash": ... default: ...}
  *   if(!Arrays.asList("long","flash","breathe"...).contains(preset)) error
- *   // 新:
+ *   // after:
  *   String preset = ApiValidator.optionalEnum(query,"preset",new String[]{"long","flash","breathe","chase","dual","stop"},"long");
  */
 public final class ApiValidator {
     private ApiValidator() {}
 
-    /** servo 範圍單一來源（同 openapi spec／MCP schema／McpToolsGenerated 約束一致）：
-     *  id 1-22、angle 0-255、time 20-32767ms。之前 UbxApi／ApiDispatcher／
-     *  XiaozhiBridge 各寫裸 literal，改漏一處即前後端驗證不一致，收斂到這裡。 */
+    /** Single source of truth for the servo ranges (consistent with the openapi spec / MCP schema / McpToolsGenerated constraints):
+     *  id 1-22, angle 0-255, time 20-32767ms. Previously UbxApi / ApiDispatcher /
+     *  XiaozhiBridge each wrote bare literals; missing one place on a change caused a front/back-end validation mismatch. Converged here. */
     public static final int SERVO_ID_MIN = 1;
     public static final int SERVO_ID_MAX = 22;
-    /** 全機舵機粒數（servo/all CSV 長度、loop 上限）。 */
+    /** Total servo count of the whole body (length of the servo/all CSV, loop upper bound). */
     public static final int SERVO_COUNT = 22;
-    /** 舊 20 軸 CSV 長度（servo/all 向後兼容：20＝只動 1-20，22＝全動）。 */
+    /** Old 20-axis CSV length (servo/all backward compatibility: 20 = move only 1-20, 22 = move all). */
     public static final int SERVO_COUNT_LEGACY = 20;
     public static final int SERVO_ANGLE_MIN = 0;
     public static final int SERVO_ANGLE_MAX = 255;
@@ -51,10 +54,10 @@ public final class ApiValidator {
     public static final int SERVO_TRIM_MIN = -1000;
     public static final int SERVO_TRIM_MAX = 1000;
 
-    /** 每軸行程＋原點（同 app-core.js SERVO_CALIBRATION 一字不差，實機量度；
-     *  改一邊記得改另一邊——servo tab slider 同手柄 jog 共用同一套，
-     *  邊個都唔可以將舵機頂過機械限位）。
-     *  index 0＝1 號舵機；未知軸回 0-255 wire 範圍（fail-safe）。 */
+    /** Per-axis travel + origin (exactly the same as SERVO_CALIBRATION in app-core.js, measured on the real device;
+     *  when changing one side, remember to change the other - the servo tab slider and the gamepad jog share the same set,
+     *  and nobody may push a servo past the mechanical limit).
+     *  index 0 = servo number 1; an unknown axis returns the 0-255 wire range (fail-safe). */
     private static final int[] SERVO_CAL_MIN = {
             5, 50, 55, 5, 30, 55, 100, 20, 35, 35,
             100, 40, 20, 10, 25, 50, 95, 95, 75, 105,
@@ -83,7 +86,7 @@ public final class ApiValidator {
         return SERVO_CAL_HOME[id - 1];
     }
 
-    /** 校準 clamp（未知軸回 0-255 wire clamp；同 app-core.js clampServoAngle 一致）。 */
+    /** Calibration clamp (an unknown axis returns the 0-255 wire clamp; consistent with clampServoAngle in app-core.js). */
     public static int clampServoAngle(int id, int value) {
         int lo = servoCalMin(id);
         int hi = servoCalMax(id);
@@ -92,12 +95,12 @@ public final class ApiValidator {
         return value;
     }
 
-    /** LED 範圍單一來源（同 openapi spec／MCP schema／McpToolsGenerated 約束一致）：
-     *  color 1-7、brightness 1-9、mouth speed 100-1000ms。之前 HTTP（requireColor
-     *  等）同 MCP（LedCenter mcpLedSet*）各寫裸 literal／直情唔驗，MCP 超範圍
-     *  靜默落 JNI——收斂到這裡，兩邊同一套。
-     *  注意：TTS／disco 內部直調 breathing(0)（最快）唔經呢度驗——0 只係
-     *  內部保留值，公開 API（HTTP／MCP／UI slider）一律 100-1000。 */
+    /** Single source of truth for the LED ranges (consistent with the openapi spec / MCP schema / McpToolsGenerated constraints):
+     *  color 1-7, brightness 1-9, mouth speed 100-1000ms. Previously HTTP (requireColor
+     *  etc.) and MCP (LedCenter mcpLedSet*) each wrote bare literals / did not validate at all; an out-of-range MCP value
+     *  silently fell into JNI - converged here, one set on both sides.
+     *  Note: TTS/disco call breathing(0) (fastest) directly inside, bypassing this validation - 0 is
+     *  an internal reserved value; the public API (HTTP/MCP/UI slider) is always 100-1000. */
     public static final int LED_COLOR_MIN = 1;
     public static final int LED_COLOR_MAX = 7;
     public static final int LED_BRIGHTNESS_MIN = 1;
@@ -105,7 +108,7 @@ public final class ApiValidator {
     public static final int LED_MOUTH_SPEED_MIN_MS = 100;
 
     public static final int LED_MOUTH_SPEED_MAX_MS = 1000;
-    // ── 內部共用解析（全部 trim；訊息形狀不變）─────────────────────
+    // ── Internal shared parsing (all trim; message shape unchanged) ─────────────────────
     private static int parseIntOrThrow(String key, String v) {
         try {
             return Integer.parseInt(v.trim());
@@ -162,7 +165,7 @@ public final class ApiValidator {
         throw new IllegalArgumentException("parameter '" + key + "' must be one of " + Arrays.toString(allowed) + ", got: " + v);
     }
 
-    // ── 基礎 ────────────────────────────────────────────────────────
+    // ── Basic ────────────────────────────────────────────────────────
     public static String require(Map<String, String> q, String key) {
         String v = q.get(key);
         if (v == null || v.isEmpty()) {
@@ -176,8 +179,8 @@ public final class ApiValidator {
         return (v != null && !v.isEmpty()) ? v : defaultValue;
     }
 
-    // ── 整數 ────────────────────────────────────────────────────────
-    // 全部 trim（URL 傳 " 90 " 不應該 400）。
+    // ── Integer ────────────────────────────────────────────────────────
+    // All trim (a URL passing " 90 " should not 400).
     public static int requireInt(Map<String, String> q, String key) {
         return parseIntOrThrow(key, require(q, key));
     }
@@ -192,7 +195,7 @@ public final class ApiValidator {
         return rangeCheck(key, requireInt(q, key), min, max);
     }
 
-    /** 可選整數三態（缺席/空字串回 null；有值超限即 400；camera w/h 配對用）。 */
+    /** Optional integer tri-state (absent/empty string returns null; a value out of range is a 400; used for the camera w/h pair). */
     public static Integer optionalIntegerRange(Map<String, String> q, String key, int min, int max) {
         String v = q.get(key);
         if (v == null || v.isEmpty()) return null;
@@ -205,8 +208,8 @@ public final class ApiValidator {
         return rangeCheck(key, parseIntOrThrow(key, v), min, max);
     }
 
-    /** 浮點參數嘅範圍驗證。min/max 用 double：浮點範圍通常係小數（比例、增益、門檻），
-     *  唔係整數。 */
+    /** Range check for a floating-point parameter. min/max use double: float ranges are usually decimals (ratios, gains, thresholds),
+     *  not integers. */
     public static float optionalFloatRange(Map<String, String> q, String key,
                                            double min, double max, float defaultValue) {
         String v = q.get(key);
@@ -219,12 +222,12 @@ public final class ApiValidator {
         return f;
     }
 
-    /** TTS 音高／語速範圍 (speech/tts、speech/tts_prosody/set 嘅 pitch／rate；1.0＝正常)。 */
+    /** TTS pitch/rate range (pitch/rate of speech/tts, speech/tts_prosody/set; 1.0 = normal). */
     public static final float TTS_PROSODY_MIN = 0.5f;
     public static final float TTS_PROSODY_MAX = 2.0f;
 
-    /** speech/tts、speech/tts_prosody/set 嘅 pitch／rate：可選，null＝無帶。
-     *  範圍 TTS_PROSODY_MIN..MAX，NaN／Infinity 一律拒收。 */
+    /** pitch/rate of speech/tts, speech/tts_prosody/set: optional, null = not passed.
+     *  Range TTS_PROSODY_MIN..MAX; NaN/Infinity are always rejected. */
     public static Float optionalTtsProsody(Map<String, String> q, String key) {
         String v = q.get(key);
         if (v == null || v.isEmpty()) return null;
@@ -245,7 +248,7 @@ public final class ApiValidator {
         return parseLongOrThrow(key, v);
     }
 
-    // ── 浮點 (vosk/endpointer t_*, ubx/speed value) ──────────────────
+    // ── Float (vosk/endpointer t_*, ubx/speed value) ──────────────────
     public static float requireFloat(Map<String, String> q, String key) {
         return parseFloatOrThrow(key, require(q, key));
     }
@@ -266,9 +269,9 @@ public final class ApiValidator {
         return parseDoubleOrThrow(key, v);
     }
 
-    // ── Nullable (缺席/空字串回 null, 有值則嚴格解析, 非法拋錯) ──────
-    // 用於「兩個可選參數要一齊給先有效」(camera w/h) 同「有參數=設定, 無=查詢」
-    // (speech/offline_auto_switch on) 這類三態邏輯, 取代 query.get() + 手動判空。
+    // ── Nullable (absent/empty string returns null; a value is strictly parsed; an invalid value throws) ──────
+    // For tri-state logic like "two optional parameters are only valid together" (camera w/h) or
+    // "parameter present = set, absent = query" (speech/offline_auto_switch on), replacing query.get() + manual null checks.
     public static Integer optionalInteger(Map<String, String> q, String key) {
         String v = q.get(key);
         if (v == null || v.isEmpty()) return null;
@@ -286,7 +289,7 @@ public final class ApiValidator {
         return (v != null && !v.isEmpty()) ? v : null;
     }
 
-    // ── 枚舉 ────────────────────────────────────────────────────────
+    // ── Enum ────────────────────────────────────────────────────────
     public static String requireEnum(Map<String, String> q, String key, String[] allowed) {
         return checkEnumOrThrow(key, require(q, key), allowed);
     }
@@ -314,7 +317,42 @@ public final class ApiValidator {
         return parseBoolOrNull(key, v.trim()).booleanValue();
     }
 
-    // ── 常用組合 (對應 openapi 的具體 constraints) ─────────────────
+    // ── Common combinations (matching the specific constraints of the openapi) ─────────────────
+    /** Servo ids 1-22 split by commas ("2,3,5"), sorted, without doubles. Missing or empty gives a
+     *  copy of {@code defaultIds}. At most {@code maxCount} ids (servo/stream/start). */
+    public static int[] optionalServoIdList(Map<String, String> q, String key, int[] defaultIds, int maxCount) {
+        String text = q.get(key);
+        if (text == null || text.trim().isEmpty()) return defaultIds.clone();
+        boolean[] seen = new boolean[SERVO_ID_MAX + 1];
+        int n = 0;
+        for (String p : text.split(",")) {
+            String t = p.trim();
+            if (t.isEmpty()) continue;
+            int id;
+            try {
+                id = Integer.parseInt(t);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException(key + " must be servo ids 1-22 split by commas, got: " + text);
+            }
+            if (id < SERVO_ID_MIN || id > SERVO_ID_MAX) {
+                throw new IllegalArgumentException(key + ": servo id must be between 1 and 22, got: " + id);
+            }
+            if (!seen[id]) {
+                seen[id] = true;
+                n++;
+            }
+        }
+        if (n == 0 || n > maxCount) {
+            throw new IllegalArgumentException(key + " must name 1 to " + maxCount + " servos");
+        }
+        int[] out = new int[n];
+        int k = 0;
+        for (int id = 1; id < seen.length; id++) {
+            if (seen[id]) out[k++] = id;
+        }
+        return out;
+    }
+
     public static int requireColor(Map<String, String> q) {
         return requireIntRange(q, "color", 1, 7);
     }
@@ -339,12 +377,12 @@ public final class ApiValidator {
         return optionalIntRange(q, "speed", 100, 1000, 150);
     }
 
-    /** nuance/iflytek 已死 (機身無 alpha2services,
-     *  RobotStub.speech_startTTS 恆回 NOT_INIT)，這個 list 已經收窄到僅 "android" -
-     *  傳舊值會直接 invalid-parameter（見下面 test）。之前試過留在 list 誠實回
-     *  NOT_INIT，後來決定收窄：死引擎不應該再出現在合法參數裡面
-     *  (ApiValidatorTest 有覆蓋拒收)。 */
-    /** TTS 引擎：只准 android（機身無 alpha2services，binder 已死）。 */
+    /** nuance/iflytek are dead (no alpha2services on the body,
+     *  RobotStub.speech_startTTS always returns NOT_INIT); this list has been narrowed to "android" only -
+     *  passing an old value gives invalid-parameter directly (see the test below). Previously tried to leave them in the list and return
+     *  NOT_INIT honestly, then decided to narrow: dead engines should not appear in the legal parameters again
+     *  (ApiValidatorTest covers the rejection). */
+    /** TTS engine: android only allowed (no alpha2services on the body, the binder is dead). */
     public static String requireSpeechEngine(Map<String, String> q) {
         return optionalEnum(q, "engine", new String[]{"android"}, "android");
     }
@@ -355,6 +393,47 @@ public final class ApiValidator {
 
     public static String optionalSerialPort(Map<String, String> q) {
         return optionalEnum(q, "port", new String[]{"head","chest"}, "head");
+    }
+
+    // ── Chest "Sit down" guard (alpha2-brain#24, alpha2-python e98d6d1) ──
+    // cmd 0x19 [00] is NOT a servo power off: it starts the stock "Sit down" move.
+    // cmd 0x40 [01 ..] (power save, enter) can do the same. Both need allow_sit_down=true.
+
+    /** allow_sit_down (default false): the explicit opt-in for the chest "Sit down" move.
+     *  The openapi spec declares it as type boolean, so only the exact strings
+     *  "true" and "false" are accepted. Any other value gives a 400. */
+    public static boolean optionalAllowSitDown(Map<String, String> q) {
+        String v = q.get("allow_sit_down");
+        if (v == null) return false;
+        v = v.trim();
+        if ("true".equals(v)) return true;
+        if ("false".equals(v)) return false;
+        throw new IllegalArgumentException("parameter 'allow_sit_down' must be true or false, got: " + v);
+    }
+
+    /** direct/chest/servo_power: on (0/1). on=0 without allow_sit_down=true gives a 400. */
+    public static boolean requireChestServoPower(Map<String, String> q) {
+        boolean on = requireIntRange(q, "on", 0, 1) != 0;
+        if (!on && !optionalAllowSitDown(q)) throw new IllegalArgumentException(ChestSafety.SIT_DOWN_19);
+        return on;
+    }
+
+    /** direct/chest/power_save: enter (0/1). enter=1 without allow_sit_down=true gives a 400. */
+    public static boolean requireChestPowerSaveEnter(Map<String, String> q) {
+        boolean enter = requireIntRange(q, "enter", 0, 1) != 0;
+        if (enter && !optionalAllowSitDown(q)) throw new IllegalArgumentException(ChestSafety.SIT_DOWN_40);
+        return enter;
+    }
+
+    /** debug/serial/send: check allow_sit_down first, for every port: a bad value gives a
+     *  400 even on port=head (alpha2-brain#60 N-1). Only then, on port=chest, refuse frames
+     *  with cmd 0x19 [00] or cmd 0x40 [01 ..] unless allow_sit_down=true. Head frames are
+     *  not checked (head cmd 0x19 is another command). */
+    public static void checkSerialSendSitDown(Map<String, String> q, String port, byte[] data) {
+        boolean allowSitDown = optionalAllowSitDown(q);
+        if (!"chest".equals(port)) return;
+        String why = ChestSafety.checkChestFrames(data, allowSitDown);
+        if (why != null) throw new IllegalArgumentException(why);
     }
 
     public static String optionalUiLang(Map<String, String> q) {
@@ -377,7 +456,7 @@ public final class ApiValidator {
         return requireEnum(q, "engine", new String[]{"xiaozhi","android"});
     }
 
-    /** 開機語音模式三選一（見 XiaozhiConfig boot_voice/get|set，實驗 tab 卡）。 */
+    /** Boot voice mode, three choices (see XiaozhiConfig boot_voice/get|set, experiments tab card). */
     public static String requireBootVoiceMode(Map<String, String> q) {
         return requireEnum(q, "mode", new String[]{"off","xiaozhi","vosk"});
     }
@@ -404,7 +483,7 @@ public final class ApiValidator {
         return f;
     }
 
-    /** 實驗 tab 面板 token：8–64 字元 URL-safe（英數/-/_，見 PanelAuth）。 */
+    /** Experiments tab panel token: 8-64 URL-safe characters (alphanumeric/-/_; see PanelAuth). */
     public static void checkPanelTokenFormat(String token) {
         if (token == null) {
             throw new IllegalArgumentException("missing required parameter: token/panel_token");
@@ -415,7 +494,7 @@ public final class ApiValidator {
         }
     }
 
-    /** misc/set_uuid value: 1-31 ASCII 字元 (見 openapi minLength/maxLength)。 */
+    /** misc/set_uuid value: 1-31 ASCII characters (see the openapi minLength/maxLength). */
     public static String requireUuidValue(Map<String, String> q) {
         String v = require(q, "value");
         if (v.length() < 1 || v.length() > 31) {
@@ -441,13 +520,13 @@ public final class ApiValidator {
     public static int[] requireAngles20(Map<String, String> q) {
         String csv = require(q, "angles");
         String[] parts = csv.split(",");
-        // 向後兼容：20（只動 1-20）或 22（全動）都收；其它長度即 400。
+        // Backward compatibility: accept both 20 (move only 1-20) and 22 (move all); any other length is a 400.
         if (parts.length != SERVO_COUNT && parts.length != SERVO_COUNT_LEGACY) {
             throw new IllegalArgumentException("parameter 'angles' must have exactly " + SERVO_COUNT_LEGACY + " or " + SERVO_COUNT + " comma-separated values, got " + parts.length);
         }
         int[] out = new int[parts.length];
         for (int i = 0; i < parts.length; i++) {
-            // 逐顆 0-255（同 spec/MCP schema；同 servo/one 一致，防靜默截 byte wrap 落舵機）。
+            // Per element 0-255 (same as the spec/MCP schema; consistent with servo/one, preventing a silent byte wrap from reaching the servo).
             int v;
             try {
                 v = Integer.parseInt(parts[i].trim());
@@ -511,4 +590,3 @@ public final class ApiValidator {
         return HttpServer.ApiResponse.error(msg);
     }
 }
-

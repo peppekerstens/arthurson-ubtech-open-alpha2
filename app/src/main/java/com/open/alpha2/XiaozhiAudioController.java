@@ -98,6 +98,24 @@ public class XiaozhiAudioController {
     /** Implemented by XiaozhiClient - decouples this controller from knowing anything
      *  about the WebSocket connection itself. Called on this controller's own capture
      *  thread; must not block. */
+    /** Gets each raw 60 ms PCM frame of the capture before the Opus encoder
+     *  (WakeController: local Vosk grammar on the same microphone). Runs on the
+     *  capture thread: copy the frame and return at once. */
+    public interface PcmTap {
+        void onPcm(short[] pcm);
+    }
+
+    private volatile PcmTap pcmTap;
+    /** false = capture keeps the microphone open but sends no frame to the server
+     *  (wake-word mode and half duplex while the robot speaks). */
+    private volatile boolean uplink = true;
+
+    public void setPcmTap(PcmTap tap) { pcmTap = tap; }
+
+    public void setUplink(boolean on) { uplink = on; }
+
+    public boolean isUplink() { return uplink; }
+
     public interface EncodedFrameSink {
         void onEncodedFrame(byte[] opusData) throws IOException;
     }
@@ -256,7 +274,8 @@ public class XiaozhiAudioController {
         final int LOG_EVERY_N_FRAMES = 33;
 
         while (capturing && audioRecord != null) {
-            if (System.currentTimeMillis() - captureSessionStart > MAX_SESSION_MS) {
+            // The wake-word capture (PCM tap set) runs for hours: no session cap.
+            if (pcmTap == null && System.currentTimeMillis() - captureSessionStart > MAX_SESSION_MS) {
                 Log.i(TAG, "XiaoZhi capture session hit MAX_SESSION_MS - stopping");
                 capturing = false;
                 break;
@@ -273,6 +292,17 @@ public class XiaozhiAudioController {
             }
             if (!capturing || totalRead < pcmBuf.length) {
                 break; // partial frame at shutdown - not worth encoding/sending
+            }
+            PcmTap tap = pcmTap;
+            if (tap != null) {
+                try {
+                    tap.onPcm(pcmBuf);
+                } catch (Throwable t) {
+                    Log.w(TAG, "PCM tap failed: " + t.getMessage());
+                }
+            }
+            if (!uplink) {
+                continue; // microphone open, nothing to the server
             }
             frameCounter++;
             if (frameCounter % LOG_EVERY_N_FRAMES == 0) {
@@ -337,8 +367,13 @@ public class XiaozhiAudioController {
     }
 
     public boolean isCapturing() {
-        return capturing;
+        // A short pause of the capture in reopenPlayback() counts as capturing:
+        // the wake-word watchdog must not start a second capture in that gap.
+        return capturing || captureReopening;
     }
+
+    /** true while reopenPlayback() stops and starts the capture again. */
+    private volatile boolean captureReopening = false;
 
     // ================= Playback (Opus <- server -> AudioTrack) =================
 
@@ -355,7 +390,7 @@ public class XiaozhiAudioController {
      *  thread (must NOT be the main thread) until playback has either started or
      *  failed. */
     public StartResult startPlayback(long timeoutMs) {
-        if (audioTrack != null) {
+        if (audioTrack != null && playing) {
             return StartResult.ok();
         }
         final CountDownLatch latch = new CountDownLatch(1);
@@ -506,7 +541,9 @@ public class XiaozhiAudioController {
 
         int idleMs = 0;
         while (playing && audioTrack != null) {
-            if (System.currentTimeMillis() - playbackSessionStart > MAX_SESSION_MS) {
+            // The wake-word mode (PCM tap set) keeps the playback open for hours: no
+            // session cap (alpha2-brain#20: after 5 min the answers had no sound).
+            if (pcmTap == null && System.currentTimeMillis() - playbackSessionStart > MAX_SESSION_MS) {
                 Log.i(TAG, "XiaoZhi playback session hit MAX_SESSION_MS - stopping");
                 playing = false;
                 break;
@@ -519,6 +556,7 @@ public class XiaozhiAudioController {
                         audioTrack.pause();
                     } catch (Exception ignored) {
                     }
+                    VoiceTiming.get().idle();
                     if (!prebufferThenPlay()) {
                         finishAndReleasePlayback();
                         return;
@@ -537,6 +575,7 @@ public class XiaozhiAudioController {
             queuedBytes.addAndGet(-pcm.length);
             try {
                 audioTrack.write(pcm, 0, pcm.length);
+                VoiceTiming.get().written();
             } catch (Exception e) {
                 Log.w(TAG, "AudioTrack.write() failed, stopping playback: " + e.getMessage());
                 playing = false;
@@ -572,6 +611,7 @@ public class XiaozhiAudioController {
             queuedBytes.addAndGet(-pcm.length);
             try {
                 audioTrack.write(pcm, 0, pcm.length);
+                VoiceTiming.get().written();
             } catch (Exception e) {
                 Log.w(TAG, "AudioTrack.write() failed during prebuffer: " + e.getMessage());
                 return false;
@@ -579,6 +619,7 @@ public class XiaozhiAudioController {
         }
         try {
             audioTrack.play();
+            VoiceTiming.get().play();
         } catch (Exception e) {
             Log.w(TAG, "AudioTrack.play() failed: " + e.getMessage());
             return false;
@@ -587,6 +628,9 @@ public class XiaozhiAudioController {
     }
 
     private void finishAndReleasePlayback() {
+        // isPlaybackOpen() must say false after each end of the write loop, also after
+        // a write error (then "playing" was still true and nothing opened it again).
+        playing = false;
         AudioTrack track = audioTrack;
         audioTrack = null;
         if (track != null) {
@@ -612,6 +656,37 @@ public class XiaozhiAudioController {
 
     public boolean isPlaying() {
         return playing;
+    }
+
+    /** true when the AudioTrack and the decoder are open and take frames. */
+    public boolean isPlaybackOpen() {
+        return playing && audioTrack != null && decoder != null;
+    }
+
+    /** Opens the playback when it is closed (alpha2-brain#20). When the capture runs,
+     *  it uses the safe order of this HAL: capture stop, playback start, 250 ms,
+     *  capture start with the same sink. The PCM tap and the uplink flag stay as they
+     *  are. An AudioTrack that opens while the AudioRecord runs spoils the input. */
+    public synchronized StartResult reopenPlayback(long timeoutMs) {
+        if (isPlaybackOpen()) return StartResult.ok();
+        if (!capturing || audioRecord == null) return startPlayback(timeoutMs);
+        EncodedFrameSink sink = frameSink;
+        captureReopening = true;
+        try {
+            stopCapture();
+            StartResult p = startPlayback(timeoutMs);
+            try {
+                Thread.sleep(250);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            StartResult c = startCapture(sink, timeoutMs);
+            if (p.error != null) return p;
+            if (c.error != null) return StartResult.fail("capture after playback: " + c.error);
+            return StartResult.ok();
+        } finally {
+            captureReopening = false;
+        }
     }
 
     // ================= Shutdown (both halves) =================

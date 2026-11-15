@@ -1,17 +1,18 @@
 package com.open.alpha2;
 
 /**
- * 顏色追蹤純算法（零依賴：只用 java.*，唔掂 android.*／項目類）。
+ * Pure color-tracking algorithm (zero dependencies: java.* only, no android.* or project classes).
  *
- * 點解獨立一檔：{@link ColorTrackCenter} 拖住 CameraController／UbxApi
- *（後者再拖 com.ubtechinc 外部 AAR），`scripts/test-apivalidator.py`
- * 純 javac runner 編唔到咁重嘅 closure；呢檔只用 java.*，ColorTrackTest
- * 直接測，中間唔經任何 stub。Center 側直接調用，唔包多層 wrapper。
+ * Why a separate file: {@link ColorTrackCenter} pulls in CameraController/UbxApi
+ * (which pulls in the external com.ubtechinc AAR); the pure javac runner in
+ * `scripts/test-apivalidator.py` cannot compile that heavy closure. This file
+ * uses java.* only, so ColorTrackTest tests it directly, without any stub.
+ * The Center side calls it directly, with no extra wrapper layer.
  */
 public final class ColorTrackLogic {
     private ColorTrackLogic() {}
 
-    /** RGB(0-255) → HSV：｛h 0-360，s 0-1，v 0-1｝。灰階（delta=0）h 照報 0。 */
+    /** RGB(0-255) to HSV: {h 0-360, s 0-1, v 0-1}. Gray (delta=0) reports h = 0. */
     public static float[] rgbToHsv(int r, int g, int b) {
         float rf = r / 255f;
         float gf = g / 255f;
@@ -34,7 +35,7 @@ public final class ColorTrackLogic {
         return new float[] { h, s, max };
     }
 
-    /** Hue 區間判斷（wrap-aware：hMin>hMax 即橫跨 0°，如紅色 335-25）。端點 inclusive。 */
+    /** Hue range test (wrap-aware: hMin>hMax crosses 0 deg, e.g. red 335-25). Endpoints inclusive. */
     public static boolean hueInRange(float h, float hMin, float hMax) {
         if (hMin <= hMax) return h >= hMin && h <= hMax;
         return h >= hMin || h <= hMax;
@@ -45,7 +46,7 @@ public final class ColorTrackLogic {
         return hueInRange(h, hMin, hMax) && s >= sMin && s <= sMax && v >= vMin && v <= vMax;
     }
 
-    /** 最大連通 blob（4-鄰接 flood fill，iterative，免 recursion 爆 stack）。 */
+    /** Largest connected blob (4-neighbor flood fill, iterative; no recursion, no stack overflow). */
     public static final class Blob {
         public int count;
         public long sumX;
@@ -58,8 +59,8 @@ public final class ColorTrackLogic {
     }
 
     /**
-     * 回最大 blob；全部細過 minPixels 即回 null（當掃唔到）。
-     * mask 唔會被改寫（visited 另開，caller 個 mask 可重用）。
+     * Returns the largest blob; returns null if every blob is smaller than minPixels (nothing found).
+     * Does not modify the mask (visited is a separate array; the caller can reuse its mask).
      */
     public static Blob largestBlob(boolean[] mask, int w, int h, int minPixels) {
         if (mask == null || mask.length < w * h || w <= 0 || h <= 0) return null;
@@ -68,7 +69,7 @@ public final class ColorTrackLogic {
         Blob best = null;
         for (int i = 0; i < w * h; i++) {
             if (!mask[i] || visited[i]) continue;
-            // 新連通域：flood fill 量 count＋質心＋bbox。
+            // New connected region: flood fill measures count, centroid, and bbox.
             int count = 0;
             long sumX = 0;
             long sumY = 0;
@@ -90,7 +91,7 @@ public final class ColorTrackLogic {
                 if (cx > x1) x1 = cx;
                 if (cy < y0) y0 = cy;
                 if (cy > y1) y1 = cy;
-                // 4-鄰接（對角唔連：斜掂一點嘅兩舊色唔當同一舊，少啲誤合併）。
+                // 4-neighbor (diagonals excluded: diagonal color patches are not one blob, which cuts false merges).
                 if (cx > 0) {
                     int n = cur - 1;
                     if (mask[n] && !visited[n]) { visited[n] = true; stack[sp++] = n; }
@@ -124,9 +125,9 @@ public final class ColorTrackLogic {
     }
 
     /**
-     * 行路跟決策（純函數，可單測）：回 "left"／"right"／"forward"／"none"。
-     * 偏得多先轉向（對正先好行，唔係越行越偏），置中但細（遠）就行前一步，
-     * 夠大（近）就企定（淨個頭繼續瞄）。
+     * Walk-follow decision (pure function, unit-testable): returns "left"/"right"/"forward"/"none".
+     * Turn only when the offset is large (face the target before moving, so the robot does not drift further).
+     * Centered but small (far) takes one step forward; large enough (close) stands still (the head keeps aiming).
      */
     public static String walkDecision(float dx, float coverage, float turnDb, float closeCoverage) {
         if (Math.abs(dx) > turnDb) return dx < 0 ? "left" : "right";

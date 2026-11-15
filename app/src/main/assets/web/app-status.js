@@ -1,8 +1,8 @@
 // Open Alpha2 — client logic (app-status.js)
-// 內容: Tab 切換、裝置資訊
-// (電量/WiFi/藍牙/UUID直顯/胸板固件)。
-// 全部檔案共用 window/global scope (沒有用 ES module), 載入順序由 index.html 的
-// <script src="..."> 順序決定 - 詳見 index.html 頭那段 comment。
+// Content: tab switching, device info
+// (battery / WiFi / Bluetooth / direct UUID display / chest firmware).
+// All files share the window/global scope (no ES modules). The load order follows
+// the <script src="..."> order in index.html. See the comment block at its head.
 
 // ---------------- Tabs ----------------
 
@@ -20,14 +20,14 @@ function switchTab(tabId) {
 function refreshDeviceInfo() {
   return Alpha2Api.batteryStatus().then(function (battery) {
     document.getElementById("batteryOut").textContent = battery.ok
-      ? (battery.level + "/" + battery.scale + " " + (battery.charging ? "⚡充電中" : "") + " (" + battery.status + ")")
-      : "讀取失敗";
+      ? (battery.level + "/" + battery.scale + " " + (battery.charging ? (uiLang === "en" ? "⚡Charging" : "⚡充電中") : "") + " (" + battery.status + ")")
+      : (uiLang === "en" ? "Read failed" : "讀取失敗");
 
     return Alpha2Api.btStatus();
   }).then(function (bt) {
     document.getElementById("btOut").textContent = bt.ok
-      ? (bt.available ? ((bt.name || "(未命名)") + " — " + (bt.enabled ? "已開啟" : "已關閉")) : "不支援")
-      : "讀取失敗";
+      ? (bt.available ? ((bt.name || (uiLang === "en" ? "(unnamed)" : "(未命名)")) + " — " + (bt.enabled ? (uiLang === "en" ? "On" : "已開啟") : (uiLang === "en" ? "Off" : "已關閉"))) : (uiLang === "en" ? "Not supported" : "不支援"))
+      : (uiLang === "en" ? "Read failed" : "讀取失敗");
 
     return refreshMicFw().then(function () {
       return refreshBatteryFw();
@@ -103,9 +103,9 @@ function refreshBatteryFw() {
   });
 }
 
-// ---------------- 胸板固件直顯 ----------------
-// 同 ADVANCED 卡 chestCheck() 讀同一個 chest/version，這裡寫自己格 (chestFwOut)。
-// 入頁自動查一次；胸 MCU 不覆會顯示 not found（同 ADVANCED 卡一致，不是 bug）。
+// ---------------- Direct chest firmware display ----------------
+// Reads the same chest/version endpoint as chestCheck() on the ADVANCED card. This writes its own field (chestFwOut).
+// Query once automatically on page entry. When the chest MCU does not answer, show not found (same as the ADVANCED card, not a bug).
 function refreshChestFw() {
   const out = document.getElementById("chestFwOut");
   if (out) out.textContent = t("uuid_querying_hint");
