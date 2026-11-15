@@ -65,6 +65,25 @@ CHANGED_UPSTREAM_JS = (
     "};\n"
 )
 
+# a multi-line comment block: three Chinese lines in the base, re-wrapped into
+# two English lines in the translation, so the old and new sides of the edit
+# region have a different number of lines.
+BASE_JS_MULTILINE = (
+    "function foo() {\n"
+    "  // 中文註釋第一行\n"
+    "  // 中文註釋第二行\n"
+    "  // 中文註釋第三行\n"
+    "  return 1;\n"
+    "}\n"
+)
+TRANSLATED_JS_MULTILINE = (
+    "function foo() {\n"
+    "  // The English comment is re-wrapped into two\n"
+    "  // lines instead of three, so the block counts differ\n"
+    "  return 1;\n"
+    "}\n"
+)
+
 
 class FakeRepoMixin:
     def _mkrepo(self):
@@ -108,6 +127,35 @@ class ExtractTest(FakeRepoMixin, unittest.TestCase):
         self.assertEqual(by_zh['const msg = "你好";']["en"], 'const msg = "Hello";')
         # the dict line was not changed (already bilingual) so it has no row
         self.assertNotIn("greet: { zh: '你好', en: 'Hello' },", by_zh)
+
+    def test_extract_rewrapped_block(self):
+        # a region whose old and new sides have a different number of lines
+        # must come out as one joined row, not a shifted line-by-line match
+        self._mkrepo()
+        self._commit_js(BASE_JS_MULTILINE, "base: add the app")
+        self._commit_js(TRANSLATED_JS_MULTILINE, "S-23: translate the app")
+
+        out = os.path.join(self.repo, "tools", "i18n", "s23-zh-en.tsv")
+        unpaired = os.path.join(self.repo, "tools", "i18n", "unpaired.txt")
+        extract_tm.main(["--repo", self.repo, "--ref", "HEAD",
+                         "--out", out, "--unpaired", unpaired])
+        rows = tm.read_tsv(out)
+
+        block = [r for r in rows if "中文註釋第一行" in r["zh"]]
+        self.assertEqual(len(block), 1)
+        row = block[0]
+        self.assertEqual(row["kind"], "comment")
+        self.assertEqual(row["context"], "foo")
+        # all three Chinese lines are in the row (the third line is the one a
+        # line-by-line zip would drop) and the English is the full re-wrap
+        self.assertIn("中文註釋第一行", row["zh"])
+        self.assertIn("中文註釋第二行", row["zh"])
+        self.assertIn("中文註釋第三行", row["zh"])
+        self.assertIn("re-wrapped into two", row["en"])
+        self.assertIn("block counts differ", row["en"])
+
+        # invariant: no row in the memory has an empty English column
+        self.assertTrue(all(r["en"].strip() for r in rows))
 
 
 class ApplyTest(FakeRepoMixin, unittest.TestCase):
@@ -156,8 +204,7 @@ class ExportTest(FakeRepoMixin, unittest.TestCase):
 
         js_path = os.path.join(self.repo, "s23-i18n.js")
         xml_path = os.path.join(self.repo, "strings-en.xml")
-        export_i18n.main(["--repo", self.repo, "--tm", out,
-                          "--out-js", js_path, "--out-xml", xml_path])
+        export_i18n.main(["--tm", out, "--out-js", js_path, "--out-xml", xml_path])
         with open(js_path, encoding="utf-8") as f:
             js = f.read()
         with open(xml_path, encoding="utf-8") as f:

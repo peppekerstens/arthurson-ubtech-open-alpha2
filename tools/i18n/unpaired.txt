@@ -1,0 +1,2 @@
+file	kind	context	zh	en	reason
+scripts/test-apivalidator.py	doc		流程：找 android.jar (SDK) + javac → 編譯被測類 + Test → 跑 main() → 非零 exit = 失敗 (啱 CI 用)。 跑三套：ApiValidatorTest (ApiValidator closure)＋ColorTrackTest (ColorTrackLogic 單檔)＋MusicEqTest (MusicEq 單檔，後兩者連 android.jar 都唔掂)。		empty English column (no translation on the new side)

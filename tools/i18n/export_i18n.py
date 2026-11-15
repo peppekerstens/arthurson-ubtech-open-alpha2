@@ -18,7 +18,8 @@ import os
 import re
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 import tm_common as tm  # noqa: E402
 
 
@@ -81,20 +82,17 @@ def main(argv=None):
     ap.add_argument("--tm", default=None,
                     help="path to the TSV memory (default: s23-zh-en.tsv next to this script)")
     ap.add_argument("--out-js", default=None,
-                    help="output JS dictionary path (default: <repo>/tools/i18n/s23-i18n.js)")
+                    help="output JS dictionary path (default: s23-i18n.js next to this script)")
     ap.add_argument("--out-xml", default=None,
-                    help="output Android strings.xml path (default: <repo>/tools/i18n/strings-en.xml)")
-    ap.add_argument("--repo", default=os.getcwd(),
-                    help="repo root used to default the output paths")
+                    help="output Android strings.xml path (default: strings-en.xml next to this script)")
     args = ap.parse_args(argv)
 
-    default_tm = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                              "s23-zh-en.tsv")
+    default_tm = os.path.join(HERE, "s23-zh-en.tsv")
     rows = [r for r in tm.read_tsv(args.tm or default_tm) if r["kind"] == "string"]
     keys = make_keys(rows)
 
-    out_js = args.out_js or os.path.join(args.repo, "tools", "i18n", "s23-i18n.js")
-    out_xml = args.out_xml or os.path.join(args.repo, "tools", "i18n", "strings-en.xml")
+    out_js = args.out_js or os.path.join(HERE, "s23-i18n.js")
+    out_xml = args.out_xml or os.path.join(HERE, "strings-en.xml")
     os.makedirs(os.path.dirname(out_js) or ".", exist_ok=True)
     os.makedirs(os.path.dirname(out_xml) or ".", exist_ok=True)
     export_js(rows, keys, out_js)
