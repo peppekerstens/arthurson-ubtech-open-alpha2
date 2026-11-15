@@ -66,6 +66,26 @@ public final class WakeEnabledPolicyTest {
         // The pref key of the stored default.
         check("pref key is default_enabled", "default_enabled".equals(WakeEnabledPolicy.KEY_DEFAULT_ENABLED));
 
+        // Test mode does not survive a restart (hub hard rule).
+        WakeEnabledPolicy before = new WakeEnabledPolicy();
+        before.setOverride(false);
+        WakeEnabledPolicy after = new WakeEnabledPolicy(); // the app restarts: a new object
+        check("restart: no test mode", !after.overridden());
+        check("restart: stored nothing gives on", after.effective((Boolean) null));
+        check("restart: stored true gives on", after.effective(Boolean.TRUE));
+        check("restart: stored false stays off", !after.effective(Boolean.FALSE));
+        // No shared static state: an override in one object never leaks to a new object.
+        WakeEnabledPolicy a1 = new WakeEnabledPolicy();
+        a1.setOverride(false);
+        check("override is per object", !new WakeEnabledPolicy().overridden());
+        // WakeController must never write the key "enabled" to the preferences.
+        String src = readSource("app/src/main/java/com/open/alpha2/WakeController.java");
+        check("source readable", src != null);
+        if (src != null) {
+            check("no pref write of enabled", !src.contains("putBoolean(\"enabled\"")
+                    && !src.contains("getBoolean(\"enabled\""));
+        }
+
         // parse: only true/false/1/0 are valid.
         check("parse true", Boolean.TRUE.equals(WakeEnabledPolicy.parse("true")));
         check("parse TRUE", Boolean.TRUE.equals(WakeEnabledPolicy.parse(" TRUE ")));
