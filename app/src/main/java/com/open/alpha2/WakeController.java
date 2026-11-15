@@ -175,14 +175,23 @@ public final class WakeController {
         return appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
+    /** The stored value of default_enabled, or null when nothing is stored. */
+    private Boolean storedDefaultOrNull() {
+        SharedPreferences p = prefs();
+        return p.contains(WakeEnabledPolicy.KEY_DEFAULT_ENABLED)
+                ? Boolean.valueOf(p.getBoolean(WakeEnabledPolicy.KEY_DEFAULT_ENABLED, WakeEnabledPolicy.BUILT_IN_DEFAULT))
+                : null;
+    }
+
     /** The stored default (settings value default_enabled). On unless the owner turns it off. */
     private boolean defaultEnabled() {
-        return prefs().getBoolean("default_enabled", WakeEnabledPolicy.BUILT_IN_DEFAULT);
+        Boolean stored = storedDefaultOrNull();
+        return stored != null ? stored.booleanValue() : WakeEnabledPolicy.BUILT_IN_DEFAULT;
     }
 
     /** The override of wake/set?enabled (memory only), else the stored default. */
     private boolean enabledNow() {
-        return enabledPolicy.effective(defaultEnabled());
+        return enabledPolicy.effective(storedDefaultOrNull());
     }
 
     private List<String> wakeWords() {
@@ -261,7 +270,7 @@ public final class WakeController {
         SharedPreferences.Editor ed = prefs().edit();
         try {
             if (q.containsKey("default_enabled")) {
-                ed.putBoolean("default_enabled", Boolean.parseBoolean(q.get("default_enabled")));
+                ed.putBoolean(WakeEnabledPolicy.KEY_DEFAULT_ENABLED, Boolean.parseBoolean(q.get("default_enabled")));
             }
             if (q.containsKey("words")) ed.putString("words", q.get("words"));
             String newLanguages = languages();

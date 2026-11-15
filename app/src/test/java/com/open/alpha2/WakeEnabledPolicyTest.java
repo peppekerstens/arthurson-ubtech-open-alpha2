@@ -42,6 +42,20 @@ public final class WakeEnabledPolicyTest {
         check("set true wins over default off", q.effective(false));
         check("restart returns to default off", !new WakeEnabledPolicy().effective(false));
 
+        // enabledNow: nothing stored gives the built-in default (on); a stored value decides.
+        WakeEnabledPolicy n = new WakeEnabledPolicy();
+        check("nothing stored gives on", n.effective((Boolean) null));
+        check("stored false gives off", !n.effective(Boolean.FALSE));
+        check("stored true gives on", n.effective(Boolean.TRUE));
+        n.setOverride(true);
+        check("override true wins over stored false", n.effective(Boolean.FALSE));
+        n.setOverride(false);
+        check("override false wins over stored true", !n.effective(Boolean.TRUE));
+        check("override false wins over nothing stored", !n.effective((Boolean) null));
+
+        // The pref key of the stored default.
+        check("pref key is default_enabled", "default_enabled".equals(WakeEnabledPolicy.KEY_DEFAULT_ENABLED));
+
         System.out.println("WakeEnabledPolicyTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }

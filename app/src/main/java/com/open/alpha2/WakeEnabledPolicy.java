@@ -11,6 +11,9 @@ final class WakeEnabledPolicy {
     /** The stored default when nothing is stored: the wake word is on. */
     static final boolean BUILT_IN_DEFAULT = true;
 
+    /** The key of the stored default in the wake preferences. */
+    static final String KEY_DEFAULT_ENABLED = "default_enabled";
+
     /** null: no override, use the stored default. */
     private volatile Boolean override;
 
@@ -23,6 +26,14 @@ final class WakeEnabledPolicy {
     boolean effective(boolean storedDefault) {
         Boolean o = override;
         return o != null ? o.booleanValue() : storedDefault;
+    }
+
+    /**
+     * The state now, from the stored value. A null stored value means that nothing is
+     * stored: the built-in default applies.
+     */
+    boolean effective(Boolean stored) {
+        return effective(stored != null ? stored.booleanValue() : BUILT_IN_DEFAULT);
     }
 
     /** True when a test mode (an override) is active. */
