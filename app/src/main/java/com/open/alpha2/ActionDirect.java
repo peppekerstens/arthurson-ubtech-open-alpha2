@@ -425,12 +425,11 @@ public final class ActionDirect {
         motionGate = gate;
     }
 
-    /** The refusal text, or null when the gate allows a whole action. Logs a refusal. */
+    /** The refusal text, or null when the gate allows a whole action. Logs a refusal.
+     *  The choice is in the pure function PlayRefusal (alpha2-brain#144), so a plain
+     *  Java test can run it. */
     private String playRefusal(String what) {
-        MotionGate g = motionGate;
-        String why = (g == null)
-                ? "Motion is refused: " + what + " has no motion gate."
-                : g.refusalForWholeBody(what);
+        String why = PlayRefusal.refusalForPlay(motionGate, what);
         if (why != null) Log.w("MotionGate", "refused: " + why);
         return why;
     }
@@ -557,6 +556,13 @@ public final class ActionDirect {
      *  What XiaoZhi passes is an action name in human language (Chinese/English); fuzzy match
      *  here finds the id of the real body file. */
     public SonarCenter.McpResult mcpPlayAction(org.json.JSONObject arguments) {
+        // Motion gate (alpha2-brain#144): the refusal check comes first, so the LLM hears
+        // the gate text "Motion is refused: ..." and can say the motion is off. With the
+        // gate on the result is unchanged (playActionDirect keeps its own gate check).
+        String why = playRefusal("play_action");
+        if (why != null) {
+            return SonarCenter.McpResult.err(why);
+        }
         String actionName = arguments.optString("name", "");
         if (actionName.isEmpty()) {
             return SonarCenter.McpResult.missingArg("name");
@@ -589,8 +595,13 @@ public final class ActionDirect {
         return new SonarCenter.McpResult(!MainActivity.isOk(code), String.valueOf(code));
     }
 
-    /** Body of self.robot.play_random_action (forwarded by XiaozhiBridge). */
+    /** Body of self.robot.play_random_action (forwarded by XiaozhiBridge).
+     *  Motion gate (alpha2-brain#144): the refusal check comes first, like mcpPlayAction. */
     public SonarCenter.McpResult mcpPlayRandomAction() {
+        String why = playRefusal("play_random_action");
+        if (why != null) {
+            return SonarCenter.McpResult.err(why);
+        }
         String randomId = resolveRandomActionId();
         if (randomId == null) {
             return SonarCenter.McpResult.err("no random-movement actions available");
