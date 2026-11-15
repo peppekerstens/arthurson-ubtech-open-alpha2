@@ -7386,7 +7386,7 @@ paths:
                   properties:
                       enabled:
                         type: boolean
-                        description: The wake word is on now: the test mode value if there is one, else default_enabled
+                        description: "The wake word is on now: the test mode value if there is one, else default_enabled"
                       default_enabled:
                         type: boolean
                         description: The stored default after a restart (default true)
@@ -7475,7 +7475,7 @@ paths:
                   properties:
                       enabled:
                         type: boolean
-                        description: The wake word is on now: the test mode value if there is one, else default_enabled
+                        description: "The wake word is on now: the test mode value if there is one, else default_enabled"
                       default_enabled:
                         type: boolean
                         description: The stored default after a restart (default true)
@@ -7670,7 +7670,7 @@ paths:
                   properties:
                       enabled:
                         type: boolean
-                        description: The wake word is on now: the test mode value if there is one, else default_enabled
+                        description: "The wake word is on now: the test mode value if there is one, else default_enabled"
                       default_enabled:
                         type: boolean
                         description: The stored default after a restart (default true)
