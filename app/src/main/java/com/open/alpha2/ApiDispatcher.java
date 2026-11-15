@@ -858,6 +858,11 @@ public final class ApiDispatcher {
                 sb.append("}}");
                 return HttpServer.ApiResponse.ok(sb.toString());
             }
+            // Stored setting "stand up at start" (alpha2-brain#148, hub D-217). Off by default.
+            case "boot_standup/get":
+                return actionDirect.bootStandupApi(query, false);
+            case "boot_standup/set":
+                return actionDirect.bootStandupApi(query, true);
             // -- Experiments tab panel token authentication (see PanelAuth: opt-in, default off = fully open;
             // status/verify always open; set/clear while enabled requires proof of the old value (current or Bearer)) --
             case "auth/status":

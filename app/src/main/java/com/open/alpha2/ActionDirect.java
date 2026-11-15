@@ -463,6 +463,30 @@ public final class ActionDirect {
         return why;
     }
 
+    /** Name of the stored setting "stand up at start" in the shared preferences (hub D-217). */
+    static final String PREF_BOOT_STANDUP = "boot_standup_enabled";
+
+    /** The stored setting "stand up at start". Off by default. It survives a restart. */
+    public boolean isBootStandupEnabled() {
+        return appContext.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_BOOT_STANDUP, false);
+    }
+
+    public void setBootStandupEnabled(boolean enabled) {
+        appContext.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(PREF_BOOT_STANDUP, enabled).commit();
+    }
+
+    /** Body of the two routes system/boot_standup/get and system/boot_standup/set. */
+    public HttpServer.ApiResponse bootStandupApi(java.util.Map<String, String> query, boolean set) {
+        if (set) {
+            Boolean v = ApiValidator.optionalBooleanObject(query, "enabled");
+            if (v == null) throw new IllegalArgumentException("parameter 'enabled' is required (true or false)");
+            setBootStandupEnabled(v.booleanValue());
+        }
+        return HttpServer.ApiResponse.ok("{\"ok\":true,\"boot_standup_enabled\":" + isBootStandupEnabled() + "}");
+    }
+
     public HttpServer.ApiResponse actionPlayDirect(String name) {
         String why = playRefusal("action/play");
         if (why != null) return new HttpServer.ApiResponse(403, "application/json; charset=utf-8", JsonUtil.okFalse(why));
@@ -534,11 +558,17 @@ public final class ActionDirect {
      * fire-and-forget，冇 ACK 可等，調用方唔好當 false 係「MCU 冇做」。
      */
     public boolean officialBootStandup() {
-        // Motion gate (alpha2-brain#148): the stand-up pose moves all servos. With the gate off
+        // Stored setting (alpha2-brain#148, hub D-217): the stand-up pose moves all servos, so it
+        // runs only when the owner turned boot_standup_enabled on. Off by default. When it is off
         // no servo command goes out. The caller still sends START and the rest of the boot.
-        String refused = PlayRefusal.refusalForBootStandup(motionGate);
-        if (refused != null) {
-            Log.w("MotionGate", "refused: " + refused);
+        PlayRefusal.BootStandup choice =
+                PlayRefusal.bootStandupChoice(motionGate, isBootStandupEnabled());
+        if (choice == PlayRefusal.BootStandup.RUN_GATE_OFF) {
+            Log.w("MotionGate", "boot standup runs with the motion gate off: the setting "
+                    + PREF_BOOT_STANDUP + " is the stored owner approval of this move");
+        }
+        if (choice == PlayRefusal.BootStandup.SKIP) {
+            Log.w("MotionGate", "boot standup off (setting " + PREF_BOOT_STANDUP + ")");
             HardwareDirectManager gdm = HardwareDirectManager.get(appContext);
             if (gdm.chest().isAvailable()) {
                 gdm.chest().sendStart();

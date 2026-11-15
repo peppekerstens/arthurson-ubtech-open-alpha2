@@ -35,6 +35,24 @@ final class PlayRefusal {
         return refusalForPlay(gate, BOOT_STANDUP);
     }
 
+    /** The choice of the boot stand-up (alpha2-brain#148, hub D-217). */
+    enum BootStandup {
+        /** The setting is off: send no servo command. */
+        SKIP,
+        /** The setting is on and the gate allows the move. */
+        RUN,
+        /** The setting is on and the gate refuses the move. The setting is the stored owner
+         *  approval of this one move, so the stand-up runs. */
+        RUN_GATE_OFF
+    }
+
+    /** Pure choice of the boot stand-up. The stored setting boot_standup_enabled decides.
+     *  A missing gate or a gate that is off does not stop the move when the setting is on. */
+    static BootStandup bootStandupChoice(MotionGate gate, boolean settingEnabled) {
+        if (!settingEnabled) return BootStandup.SKIP;
+        return refusalForBootStandup(gate) == null ? BootStandup.RUN : BootStandup.RUN_GATE_OFF;
+    }
+
     /** The refusal text for a move of one servo, or null. Without a gate the move is refused. */
     static String refusalForServoMove(MotionGate gate, int servoId) {
         if (gate == null) return "Motion is refused: servo " + servoId + " has no motion gate.";

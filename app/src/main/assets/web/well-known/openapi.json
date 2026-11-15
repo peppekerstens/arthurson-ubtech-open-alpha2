@@ -10919,6 +10919,123 @@
         "operationId": "systemDiscover_get"
       }
     },
+    "/api/system/boot_standup/get": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Stand up at start - read the stored setting",
+        "description": "The app sends a stand pose to all servos about 30 s after each start only when this setting is true. The setting is stored, so it survives a restart. It is false by default. When it is true, the stand-up may run with the motion gate off: the setting is the stored owner approval of this one move. The rest of the boot runs in each case (alpha2-brain#148, hub D-217).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored setting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "boot_standup_enabled": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Panel token missing or wrong (only when enabled)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "systemBootStandupGet_get"
+      }
+    },
+    "/api/system/boot_standup/set": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Stand up at start - turn the stored setting on or off",
+        "description": "The app sends a stand pose to all servos about 30 s after each start only when this setting is true. The setting is stored, so it survives a restart. It is false by default. When it is true, the stand-up may run with the motion gate off: the setting is the stored owner approval of this one move. The rest of the boot runs in each case (alpha2-brain#148, hub D-217).",
+        "parameters": [
+          {
+            "name": "enabled",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "true lets the app stand up at start, false stops it"
+          },
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored setting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "boot_standup_enabled": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The value of enabled is missing, or it is not true or false",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Panel token missing or wrong (only when enabled)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "systemBootStandupSet_get"
+      }
+    },
     "/api/system/auth/status": {
       "get": {
         "tags": [

@@ -141,10 +141,23 @@ public final class PlayRefusalTest {
         check(PlayRefusal.refusalForAllServosMove(null) != null, "all servos, no gate: refused");
         check(PlayRefusal.refusalForAllServosMove(headOnly) != null, "all servos, head only: refused");
         check(PlayRefusal.refusalForAllServosMove(gateOn) == null, "all servos, gate on: allowed");
-        // Source check: officialBootStandup asks the gate before the first servo command.
+        // The stored setting "stand up at start" decides the boot stand-up (hub D-217).
+        check(PlayRefusal.bootStandupChoice(gateOn, false) == PlayRefusal.BootStandup.SKIP,
+                "boot choice, setting off, gate on: no move");
+        check(PlayRefusal.bootStandupChoice(new MotionGate(), false) == PlayRefusal.BootStandup.SKIP,
+                "boot choice, setting off, gate off: no move");
+        check(PlayRefusal.bootStandupChoice(null, false) == PlayRefusal.BootStandup.SKIP,
+                "boot choice, setting off, no gate: no move");
+        check(PlayRefusal.bootStandupChoice(gateOn, true) == PlayRefusal.BootStandup.RUN,
+                "boot choice, setting on, gate on: move");
+        check(PlayRefusal.bootStandupChoice(new MotionGate(), true) == PlayRefusal.BootStandup.RUN_GATE_OFF,
+                "boot choice, setting on, gate off: move, logged as gate off");
+        check(PlayRefusal.bootStandupChoice(null, true) == PlayRefusal.BootStandup.RUN_GATE_OFF,
+                "boot choice, setting on, no gate: move, logged as gate off");
+        // Source check: officialBootStandup asks the setting and the gate before the first servo command.
         int bs = src.indexOf("public boolean officialBootStandup()");
         int firstSet = src.indexOf("setAllServos(", bs);
-        int gateAsk = src.indexOf("PlayRefusal.refusalForBootStandup(motionGate)", bs);
+        int gateAsk = src.indexOf("PlayRefusal.bootStandupChoice(motionGate, isBootStandupEnabled())", bs);
         check(bs > 0 && gateAsk > bs && firstSet > gateAsk, "source: the boot standup asks the gate first");
 
         System.out.println("PlayRefusalTest: " + passed + " passed, " + failed + " failed");
