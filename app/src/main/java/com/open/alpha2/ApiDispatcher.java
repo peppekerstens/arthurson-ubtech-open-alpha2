@@ -994,8 +994,8 @@ public final class ApiDispatcher {
             }
             // Chest cmd 0x19 and cmd 0x40 (alpha2-brain#24). cmd 0x19 [00] is NOT a servo
             // power off: it starts the stock "Sit down" move (chest V142, V352). cmd 0x40
-            // enter=1 can do the same. Both need allow_sit_down=true, else 400. To release
-            // the servos, squat and read each servo angle (cmd 6).
+            // enter=1 also starts it (V142). Both need allow_sit_down=true, else 400. To
+            // release the servos, play the squat first, then send cmd 6 to each servo.
             case "chest/servo_power": {
                 boolean on = ApiValidator.requireChestServoPower(query);
                 boolean allow = ApiValidator.optionalAllowSitDown(query);

@@ -1,19 +1,21 @@
 package com.ubtechinc.alpha.hardware;
 
 /**
- * Guard against the chest "Sit down" trap (alpha2-brain#24, alpha2-python#18).
+ * Guard against an unwanted "Sit down" move (alpha2-brain#24, alpha2-python#18).
  *
  * <p>Firmware analysis in Renode (chest V142 and V352) shows:
  * <ul>
  *   <li>cmd 0x19 {@code [00]} is not a servo power off. It starts the stock "Sit down"
- *       move: the chest sends a move to all 20 servos. When the charger flag of the chest
- *       is set, it does nothing. cmd 0x19 {@code [01]} sets the power on, which is already
- *       on from boot.</li>
- *   <li>cmd 0x40 {@code [01 ...]} (power save, enter) also runs "Sit down" on V142.</li>
+ *       move of the chest: the chest moves all 20 servos to the sit pose and keeps them
+ *       under power. The chest skips the command when its charger flag is set. Nobody
+ *       tested the move on the real robot. cmd 0x19 {@code [01]} sets the power on, which
+ *       is already on from boot.</li>
+ *   <li>cmd 0x40 {@code [01 ...]} (power save, enter) also starts the stock "Sit down"
+ *       move on V142.</li>
  * </ul>
  *
- * <p>To release the servos, squat and send a cmd 6 read to each servo. To hold them
- * again, send a move.
+ * <p>To release the servos, play the squat first, then send cmd 6 to each servo. To hold
+ * them again, send a move.
  *
  * <p>Same rules as alpha2-python e98d6d1 {@code protocol.check_chest_frames}: refuse
  * cmd 0x19 with a payload other than {@code [01]} and cmd 0x40 with a first byte other
@@ -84,14 +86,15 @@ public final class ChestSafety {
     }
 
     public static final String SIT_DOWN_19 = "cmd 0x19 [00] is not a servo power off."
-            + " It starts the 'Sit down' move of the chest (firmware V142 and V352,"
-            + " alpha2-brain#24). A standing robot can fall. To release the servos, squat"
-            + " and send cmd 6 to each servo (a servo angle read)."
+            + " It starts the stock 'Sit down' move of the chest (firmware V142 and V352,"
+            + " alpha2-brain#24): the chest moves all 20 servos to the sit pose and keeps them"
+            + " under power. Nobody tested the move on the real robot. To release the servos,"
+            + " play the squat first, then send cmd 6 to each servo (a servo angle read)."
             + " Send allow_sit_down=true only when you want the sit-down move.";
-    public static final String SIT_DOWN_40 = "cmd 0x40 [01] (power save, enter) can start the"
-            + " 'Sit down' move of the chest (firmware V142, alpha2-brain#24). Squat and"
-            + " release the servos with cmd 6 first. Send allow_sit_down=true only when you"
-            + " want the sit-down move.";
+    public static final String SIT_DOWN_40 = "cmd 0x40 [01] (power save, enter) also starts the"
+            + " stock 'Sit down' move of the chest (firmware V142, alpha2-brain#24). To release"
+            + " the servos, play the squat first, then send cmd 6 to each servo."
+            + " Send allow_sit_down=true only when you want the sit-down move.";
 
     private static final int HEAD0 = 0xF8;
     private static final int HEAD1 = 0x8F;
