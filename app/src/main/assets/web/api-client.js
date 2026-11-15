@@ -1101,6 +1101,16 @@ const Alpha2Api = (function() {
     return sysApi('auth/verify', params);
   }
 
+  function systemBootStandupGet(params) {
+    // Stand up at start - read the stored setting
+    return sysApi('boot_standup/get', params);
+  }
+
+  function systemBootStandupSet(params) {
+    // Stand up at start - turn the stored setting on or off
+    return sysApi('boot_standup/set', params);
+  }
+
   function systemDiscover(params) {
     // Search all the machine data at once (app, chest firmware, UUID, battery, sonar, PIR, pose; each slow query capped at 1.5s)
     return sysApi('discover', params);
@@ -1489,6 +1499,8 @@ const Alpha2Api = (function() {
     systemAuthSet,
     systemAuthStatus,
     systemAuthVerify,
+    systemBootStandupGet,
+    systemBootStandupSet,
     systemDiscover,
     systemMusicList,
     systemMusicPause,
