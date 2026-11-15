@@ -47,6 +47,34 @@ public final class WakeCommandMatchTest {
         eq(true, WakeCommandMatch.hasStop("[unk] stop [unk]"), "stop in a sentence");
         eq(false, WakeCommandMatch.hasStop("stopping"), "no part stop");
 
+        // alpha2-brain#133: the word check. Only the exact configured wake word
+        // wakes (case and punctuation do not matter). Accepted: "alpha", "Alpha.".
+        // Not accepted: "aha", "aha.", "ah", "alfa".
+        eq(true, WakeCommandMatch.hasWakeWord("alpha", wake), "133: alpha");
+        eq(true, WakeCommandMatch.hasWakeWord("Alpha.", wake), "133: Alpha. (punctuation)");
+        eq(false, WakeCommandMatch.hasWakeWord("aha", wake), "133: aha");
+        eq(false, WakeCommandMatch.hasWakeWord("aha.", wake), "133: aha.");
+        eq(false, WakeCommandMatch.hasWakeWord("ah", wake), "133: ah");
+        eq(false, WakeCommandMatch.hasWakeWord("alfa", wake), "133: alfa");
+        eq(true, WakeCommandMatch.hasWakeWord("alpha stand up", wake), "133: wake word in the phrase");
+        eq(true, WakeCommandMatch.hasWakeWord("[unk] robot [unk]", wake), "133: the other wake word");
+        eq(false, WakeCommandMatch.hasWakeWord("", wake), "133: empty");
+
+        // alpha2-brain#133: the word confidence of the wake word (the highest of
+        // the wake-word tokens). -1 = no wake-word token, or conf unknown.
+        eq(1.0, WakeCommandMatch.wakeConf(Arrays.asList("alpha"), Arrays.asList(1.0), wake),
+                "133: conf of alpha");
+        eq(0.6, WakeCommandMatch.wakeConf(Arrays.asList("oh", "alpha"), Arrays.asList(1.0, 0.6), wake),
+                "133: conf with a word in front");
+        eq(0.8, WakeCommandMatch.wakeConf(Arrays.asList("alpha", "alpha"), Arrays.asList(0.4, 0.8), wake),
+                "133: the highest of the wake words");
+        eq(-1.0, WakeCommandMatch.wakeConf(Arrays.asList("ah", "oh"), Arrays.asList(0.8, 0.7), wake),
+                "133: no wake-word token");
+        eq(-1.0, WakeCommandMatch.wakeConf(Arrays.asList("alpha"), Arrays.asList((Double) null), wake),
+                "133: conf unknown (fail-open)");
+        eq(-1.0, WakeCommandMatch.wakeConf(Arrays.asList(), Arrays.asList(), wake), "133: empty");
+        eq(-1.0, WakeCommandMatch.wakeConf(null, null, wake), "133: no result array");
+
         // Robot session 2026-11-01: "alpha", a pause, then "stand up". The wake turn opens
         // after the cue, and WakeController starts the window again at that time.
         long wakeAt = 1_000_000L;
