@@ -36,6 +36,18 @@ final class WakeEnabledPolicy {
         return effective(stored != null ? stored.booleanValue() : BUILT_IN_DEFAULT);
     }
 
+    /**
+     * Parse a boolean value of a request. It accepts true, false, 1 and 0 (the same words as
+     * ApiValidator). Any other value, or null, gives null: the caller must refuse it.
+     */
+    static Boolean parse(String value) {
+        if (value == null) return null;
+        String v = value.trim();
+        if ("true".equalsIgnoreCase(v) || "1".equals(v)) return Boolean.TRUE;
+        if ("false".equalsIgnoreCase(v) || "0".equals(v)) return Boolean.FALSE;
+        return null;
+    }
+
     /** True when a test mode (an override) is active. */
     boolean overridden() {
         return override != null;

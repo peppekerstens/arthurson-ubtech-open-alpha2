@@ -21,6 +21,16 @@ public final class WakeEnabledPolicyTest {
         }
     }
 
+    /** The source of a file, relative to the repository root. null when it is missing. */
+    private static String readSource(String path) {
+        try {
+            return new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)),
+                    java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException e) {
+            return null;
+        }
+    }
+
     public static void main(String[] args) {
         // wake/set?enabled=false: off now, on again after a restart.
         WakeEnabledPolicy p = new WakeEnabledPolicy();
@@ -55,6 +65,17 @@ public final class WakeEnabledPolicyTest {
 
         // The pref key of the stored default.
         check("pref key is default_enabled", "default_enabled".equals(WakeEnabledPolicy.KEY_DEFAULT_ENABLED));
+
+        // parse: only true/false/1/0 are valid.
+        check("parse true", Boolean.TRUE.equals(WakeEnabledPolicy.parse("true")));
+        check("parse TRUE", Boolean.TRUE.equals(WakeEnabledPolicy.parse(" TRUE ")));
+        check("parse 1", Boolean.TRUE.equals(WakeEnabledPolicy.parse("1")));
+        check("parse false", Boolean.FALSE.equals(WakeEnabledPolicy.parse("false")));
+        check("parse 0", Boolean.FALSE.equals(WakeEnabledPolicy.parse("0")));
+        check("parse banana is refused", WakeEnabledPolicy.parse("banana") == null);
+        check("parse empty is refused", WakeEnabledPolicy.parse("") == null);
+        check("parse null is refused", WakeEnabledPolicy.parse(null) == null);
+        check("parse yes is refused", WakeEnabledPolicy.parse("yes") == null);
 
         System.out.println("WakeEnabledPolicyTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);

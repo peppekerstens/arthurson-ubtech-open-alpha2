@@ -270,7 +270,10 @@ public final class WakeController {
         SharedPreferences.Editor ed = prefs().edit();
         try {
             if (q.containsKey("default_enabled")) {
-                ed.putBoolean(WakeEnabledPolicy.KEY_DEFAULT_ENABLED, Boolean.parseBoolean(q.get("default_enabled")));
+                // Refuse a value that is not true or false (same words as ApiValidator).
+                Boolean v = WakeEnabledPolicy.parse(q.get("default_enabled"));
+                if (v == null) return "default_enabled must be true or false";
+                ed.putBoolean(WakeEnabledPolicy.KEY_DEFAULT_ENABLED, v.booleanValue());
             }
             if (q.containsKey("words")) ed.putString("words", q.get("words"));
             String newLanguages = languages();
@@ -334,7 +337,11 @@ public final class WakeController {
             return "bad value: " + e.getMessage();
         }
         boolean wasOn = mode != Mode.OFF;
-        Boolean enable = q.containsKey("enabled") ? Boolean.valueOf(q.get("enabled")) : null;
+        Boolean enable = null;
+        if (q.containsKey("enabled")) {
+            enable = WakeEnabledPolicy.parse(q.get("enabled"));
+            if (enable == null) return "enabled must be true or false";
+        }
         // alpha2-brain#136: a test mode, in memory only. A restart clears it.
         if (enable != null) enabledPolicy.setOverride(enable);
         ed.apply();
