@@ -631,7 +631,7 @@ public final class WakeController {
         return Math.sqrt(sum / (double) f.length);
     }
 
-    /** Removes [unk] and extra spaces. */
+    /** Removes [unk], punctuation and extra spaces. */
     private static String clean(String text) {
         return WakeCommandMatch.clean(text);
     }
