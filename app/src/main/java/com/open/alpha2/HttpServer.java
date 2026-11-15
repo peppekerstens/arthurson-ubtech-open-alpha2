@@ -41,6 +41,8 @@ import java.util.concurrent.TimeUnit;
 public class HttpServer implements Runnable {
     private static final String TAG = "HttpServer";
     public static final int PORT = 8888;
+    /** 客戶端讀取逾時：閒置 keep-alive／卡住嘅連線唔再無限佔住 pool thread（WebSocket 升級後由 WebSocketServer 自己覆寫）。 */
+    private static final int CLIENT_READ_TIMEOUT_MS = 60_000;
 
     /**
      * For endpoints that need the raw POST body bytes rather than a UTF-8-decoded
@@ -140,11 +142,6 @@ public class HttpServer implements Runnable {
             return new ApiResponse(401, "application/json; charset=utf-8",
                     JsonUtil.okFalse(String.valueOf(message)), h);
         }
-
-        /** The single escaping implementation lives in JsonUtil (the cycle the old comment worried about no longer exists: JsonUtil has zero dependencies). */
-        private static String esc(String s) {
-            return JsonUtil.esc(s);
-        }
     }
 
     private final AssetManager assets;
@@ -236,6 +233,7 @@ public class HttpServer implements Runnable {
     private void handleClient(Socket socket, String remoteAddr) {
         try {
             socket.setTcpNoDelay(true);
+            socket.setSoTimeout(CLIENT_READ_TIMEOUT_MS);
             // Keep-alive loop: serve as many requests as the client sends on this same
             // TCP connection instead of closing after one. Loop ends when the client sends "Connection:
             // close", disconnects, or a request can't be parsed.
@@ -243,6 +241,8 @@ public class HttpServer implements Runnable {
             while (keepAlive) {
                 keepAlive = handleOneRequest(socket);
             }
+        } catch (java.net.SocketTimeoutException e) {
+            // 閒置 keep-alive 逾時屬正常關閉，唔使 log error stack。
         } catch (Exception e) {
             // The exception is fully caught here and
             // the socket is always closed in the finally block below regardless, so
@@ -292,7 +292,7 @@ public class HttpServer implements Runnable {
             if (++headerLines > 100) return false;
             int idx = line.indexOf(':');
             if (idx > 0) {
-                headers.put(line.substring(0, idx).trim().toLowerCase(),
+                headers.put(line.substring(0, idx).trim().toLowerCase(java.util.Locale.ROOT),
                         line.substring(idx + 1).trim());
             }
         }
@@ -539,12 +539,7 @@ public class HttpServer implements Runnable {
         return "application/octet-stream";
     }
 
-    private static void writeResponse(OutputStream out, int status, String contentType, byte[] body, boolean keepAlive)
-            throws IOException {
-        writeResponse(out, status, contentType, body, keepAlive, false);
-    }
-
-    /** ApiResponse version: also writes the extra headers (a 401 auto-adds WWW-Authenticate, guarding against a missed write). */
+    /** ApiResponse 版：附帶 extra headers（401 自動補 WWW-Authenticate，防漏寫）。 */
     static void writeResponse(OutputStream out, ApiResponse resp, boolean keepAlive)
             throws IOException {
         writeResponse(out, resp, keepAlive, false);

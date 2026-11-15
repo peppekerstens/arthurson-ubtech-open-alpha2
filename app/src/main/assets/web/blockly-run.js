@@ -1380,18 +1380,25 @@
       this.id = 'alphaEditFabControls';
       this.top = 0;
       this.left = 0;
-      // Layout: 5 separate dark round buttons (42px diameter desktop / 34px mobile, Code Lab style), each with its own circle
-      // background. Buttons are separated only by an even gap (GAP=15 desktop / 8 mobile), in one horizontal
-      // row. No groups and no divider lines (the old { sep:true } + GROUP_GAP was
-      // removed, because Code Lab spaces all 5 evenly, with no special divider between undo/redo and
-      // cut/copy/paste.
-      // Mobile needs smaller sizes: in portrait, the toolbox takes ~110px and leaves ~240px of canvas,
-      // so the 42px group (270px wide) would stick out past the toolbox and get clipped (mobile screenshots showed
-      // only two buttons in the bottom bar). The 34px group is 202px wide and fits.
+      // 版面: 5 粒獨立深色圓形按鈕 (直徑 42px desktop / 38px 手機, Code Lab 同款), 自己一個圓圈
+      // 背景, 按鈕與按鈕之間僅用均勻間距 (GAP=15 desktop / 8 手機) 分隔, 橫向
+      // 排完一行, 沒有分組、沒有分隔線 (之前個 { sep:true } + GROUP_GAP 已經
+      // 刪走, 因為 Code Lab 係 5 粒均勻、undo/redo 同 cut/copy/paste 之間無
+      // 特別分隔)。
+      // 手機版要縮細: 直版手機 toolbox 食咗 ~112px 之後剩低 ~240px 畫布,
+      // 42px 版成組 270px 闊會伸出 toolbox 外被剪 (見手機截圖底欄得返兩粒掣),
+      // 38px 版成組 222px 先至放得入。
       const isMobile = (typeof window !== 'undefined' && window.matchMedia &&
         window.matchMedia('(max-width: 900px)').matches);
-      this.BUTTON_SIZE = isMobile ? 34 : 42;
-      this.GAP = isMobile ? 8 : 15;
+      // 2026-10: 34px 在手機上仍然偏細 (Apple/Google 建議 ~44px 觸控區),
+      // 但 42px 5 粒成組會闊過窄手機畫布。38px 折衷: 成組 5*38+4*8=222px,
+      // 390px 手機 toolbox 112px 後仍然放得入, 手指又易撳好多。
+      // 320px 超窄機再落一級 34px (成組 194px), 唔係最尾粒 paste 會同
+      // 垃圾桶疊住。
+      const isTiny = (typeof window !== 'undefined' && window.matchMedia &&
+        window.matchMedia('(max-width: 340px)').matches);
+      this.BUTTON_SIZE = isTiny ? 34 : (isMobile ? 38 : 42);
+      this.GAP = isTiny ? 6 : (isMobile ? 8 : 15);
       this.MARGIN_HORIZONTAL = isMobile ? 8 : 12;
       this.MARGIN_VERTICAL = isMobile ? 8 : 12;
       this.buttons = [
@@ -1469,11 +1476,25 @@
         // getBoundingRectangle() and compute from it.
         const tRect = trashcan.getBoundingRectangle();
         const tHeight = tRect.bottom - tRect.top;
-        this.left = tRect.left - this.MARGIN_HORIZONTAL - width;
-        // On a narrow mobile canvas: if the group is wider than the free space, do not reach into the toolbox or out of bounds.
-        // Clamp it to the canvas left edge (outside the toolbox) — better than clipping the group to two buttons.
-        if (this.left < this.MARGIN_HORIZONTAL) this.left = this.MARGIN_HORIZONTAL;
-        this.top = tRect.top + (tHeight - this.BUTTON_SIZE) / 2;
+        // toolbox 本身會蓋住畫布左邊 (HTML toolbox z-index 高過 SVG)。
+        // 之前只 clamp 到 8px, 窄手機 (360/390) 第一粒 undo 會俾 toolbox
+        // 食咗, 睇得到兩三粒但撳唔到最左嗰粒。這裡用 toolbox 實際闊度
+        // 做下限; 如果 toolbox 同垃圾桶之間唔夠位放成組, 就改放畫布
+        // 左上角 (toolbox 右邊), 遠離垃圾桶/縮放掣。
+        const toolbox = (this.workspace.getToolbox && this.workspace.getToolbox());
+        const toolboxWidth = (toolbox && typeof toolbox.getWidth === 'function') ? toolbox.getWidth() : 0;
+        const minLeft = toolboxWidth + this.MARGIN_HORIZONTAL;
+        const leftByTrash = tRect.left - this.MARGIN_HORIZONTAL - width;
+        if (leftByTrash >= minLeft) {
+          this.left = leftByTrash;
+          this.top = tRect.top + (tHeight - this.BUTTON_SIZE) / 2;
+        } else {
+          const maxLeft = (uiMetrics.viewWidth && uiMetrics.viewWidth > width)
+            ? Math.max(this.MARGIN_HORIZONTAL, uiMetrics.viewWidth - width - this.MARGIN_HORIZONTAL)
+            : minLeft;
+          this.left = Math.min(minLeft, maxLeft);
+          this.top = this.MARGIN_VERTICAL;
+        }
       } else {
         // Fallback: the trashcan is not built yet (this should never happen — addTrashcan() always runs before
         // this component registers), so keep the original corner placement logic as a failsafe.
@@ -1509,13 +1530,15 @@
       this.id = 'alphaZoomFabControls';
       this.top = 0;
       this.left = 0;
-      // Same size and same family as EditFabControls (desktop 42 / mobile 34),
-      // see the mobile screenshot above: landscape height is tight, and a vertical 42px group (156px + the trashcan) would collide.
+      // 同 EditFabControls 一樣大, 同一個系列 (desktop 42 / 手機 38,
+      // 見上面手機截圖: 橫版高度唔夠, 42px 版垂直成組 156px+垃圾桶會頂住)。
       const isMobileZoom = (typeof window !== 'undefined' && window.matchMedia &&
         window.matchMedia('(max-width: 900px)').matches);
-      this.BUTTON_SIZE = isMobileZoom ? 34 : 42; // same size as EditFabControls, same family
-      this.GAP = isMobileZoom ? 8 : 15;
-      this.MARGIN_ABOVE_TRASH = isMobileZoom ? 10 : 16; // gap to the trashcan top (Code Lab editor-tool keeps about 18px above the trashcan)
+      const isTinyZoom = (typeof window !== 'undefined' && window.matchMedia &&
+        window.matchMedia('(max-width: 340px)').matches);
+      this.BUTTON_SIZE = isTinyZoom ? 34 : (isMobileZoom ? 38 : 42); // 同 EditFabControls 一樣大, 同一個系列
+      this.GAP = isTinyZoom ? 6 : (isMobileZoom ? 8 : 15);
+      this.MARGIN_ABOVE_TRASH = isMobileZoom ? 10 : 16; // 同垃圾桶頂的距離 (Code Lab editor-tool 同垃圾桶之間約 18px)
       this.buttons = [
         { action: 'center', icon: 'center', titleKey: 'page_edit_center_title' },
         { action: 'zoom_in', icon: 'zoom_in', titleKey: 'page_edit_zoom_in_title' },
@@ -1604,6 +1627,31 @@
 
   let editFabControls = null;
   let zoomFabControls = null;
+  let fabLayoutKey = null;
+  let fabBreakpointListenerBound = false;
+
+  // 按鈕大細分三級 (desktop 42 / 手機 38 / 超窄機 34), 用一個 key 記住
+  // 目前用邊級; 轉向/縮窗跨過 900px 或 340px 都要重新起。
+  function fabSizeKey() {
+    if (typeof window === 'undefined' || !window.matchMedia) return 'desktop';
+    if (window.matchMedia('(max-width: 340px)').matches) return 'tiny';
+    if (window.matchMedia('(max-width: 900px)').matches) return 'mobile';
+    return 'desktop';
+  }
+
+  // 平板轉向 (820 <-> 1180) 會跨過 900px 界線, 浮動按鈕大細要跟返
+  // 新 layout 重新起 (34/38px vs 42px)。直接 dispose 再 new, component
+  // manager 同 DOM 都會清乾淨; workspace/undo 歷史完全唔受影響。
+  function rebuildFabControls() {
+    if (!workspace) return;
+    if (fabLayoutKey === fabSizeKey() && editFabControls && zoomFabControls) return;
+    if (editFabControls) { editFabControls.dispose(); editFabControls = null; }
+    if (zoomFabControls) { zoomFabControls.dispose(); zoomFabControls = null; }
+    fabLayoutKey = fabSizeKey();
+    editFabControls = new EditFabControls(workspace);
+    zoomFabControls = new ZoomFabControls(workspace);
+    Blockly.svgResize(workspace);
+  }
 
   function currentSelectedBlock() {
     return (Blockly.common && Blockly.common.getSelected) ? Blockly.common.getSelected() : null;
@@ -1690,17 +1738,26 @@
         clearTimeout(saveTimer);
         saveTimer = setTimeout(autoSaveToLocalStorage, 800);
       });
-      // Selecting or deselecting a block is a UI event — after the 2026-09 Code Lab alignment, the floating buttons
-      // have no disabled state, so no separate listener needs to track SELECTED and toggle
-      // cut/copy. That whole section was deleted.
-      // Build the two IPositionable component groups (see the long comments on the EditFabControls/
-      // ZoomFabControls classes above). This can only happen after the workspace is injected and has
-      // a real SVG root, so it runs here inside init(),
-      // not at module load time.
-      editFabControls = new EditFabControls(workspace);
-      zoomFabControls = new ZoomFabControls(workspace);
-      // 2026-09: the action list + music list are now fetched once, automatically, when blockly-page.js opens the page
-      // (fire-and-forget). Neither dropdown fetches on its own here anymore, and the top-bar manual buttons were removed.
+      // 選/取消選 block 都是 UI event —— 2026-09 對齊 Code Lab 之後浮動按鈕
+      // 無 disabled 狀態, 不再需要獨立 listener 追 SELECTED 來 toggle
+      // cut/copy, 成段刪走。
+      // 起返兩組 IPositionable component (詳見上面 EditFabControls/
+      // ZoomFabControls 這兩個 class 的大段註解) —— 一定要在 workspace
+      // inject 了、有真正的 SVG root 之後先可以起, 所以擺在 init() 這裡做,
+      // 不是在 module load 當時就起。
+      rebuildFabControls();
+      // 跨過 900px / 340px (手機/平板轉向、桌面縮窗) 時重新量度按鈕大細。
+      if (!fabBreakpointListenerBound && window.matchMedia) {
+        fabBreakpointListenerBound = true;
+        try {
+          [window.matchMedia('(max-width: 900px)'), window.matchMedia('(max-width: 340px)')].forEach(function (fabMq) {
+            if (fabMq.addEventListener) fabMq.addEventListener('change', rebuildFabControls);
+            else if (fabMq.addListener) fabMq.addListener(rebuildFabControls);
+          });
+        } catch (e) { /* 舊 WebView 沒有 addListener 就維持原本大細, 不緊要 */ }
+      }
+      // 2026-09: 動作清單 + 音樂清單改由 blockly-page.js 開頁嗰陣統一自動抓
+      // (fire-and-forget), 呢度唔再各自抓, 頂欄手動掣亦已移除。
     },
     run: runProgram,
     stop: stopProgram,
@@ -1726,12 +1783,14 @@
       if (!main) return;
       const collapsed = !main.classList.contains('bk-side-collapsed');
       main.classList.toggle('bk-side-collapsed', collapsed);
-      try { localStorage.setItem('blocklySideCollapsed', collapsed ? '1' : '0'); } catch (e) { /* ignore: if nothing is saved, the next load defaults to expanded */ }
-      // The .bk-side flex-basis has a CSS transition (0.18s), so the canvas width must change along with the
-      // animation, and several resize calls cover the whole transition (Blockly.svgResize makes
-      // ComponentManager reposition everything, so here we only call it at the right time points). The sidebar
-      // collapse button (#bkSideTrigger) is HTML, and the arrow direction is pure CSS
-      // (rotate) that turns with .bk-side-collapsed; no JS set is needed.
+      const trigger = document.getElementById('bkSideTrigger');
+      if (trigger) trigger.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      try { localStorage.setItem('blocklySideCollapsed', collapsed ? '1' : '0'); } catch (e) { /* 不緊要, 沒有記錄低就下次預設展開 */ }
+      // .bk-side flex-basis 有 CSS transition (0.18s), 畫布闊度要跟著個過渡
+      // 動畫慢慢變, resize 幾次涵蓋整個過程 (Blockly.svgResize 會觸發
+      // ComponentManager 重新 position 一次, 所以這裡僅要負責在正確的時間點
+      // call 它)。側欄收起掣 (#bkSideTrigger) 是 HTML, 箭嘴方向純 CSS
+      // (rotate) 跟 .bk-side-collapsed 轉, 不用 JS set。
       if (workspace) {
         Blockly.svgResize(workspace);
         setTimeout(function () { Blockly.svgResize(workspace); }, 100);
@@ -1745,6 +1804,8 @@
       const main = document.querySelector('.bk-main');
       if (!main) return;
       main.classList.toggle('bk-side-collapsed', collapsed);
+      const trigger = document.getElementById('bkSideTrigger');
+      if (trigger) trigger.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
     },
     clearWorkspace: function () {
       if (workspace) workspace.clear();

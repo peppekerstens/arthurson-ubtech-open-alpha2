@@ -5,6 +5,12 @@ A pure Java unit test runner (zero dependencies, no JUnit/gradle).
 See the header of app/src/test/java/com/open/alpha2/ApiValidatorTest.java for the reason:
 the gradle cache has no junit, and the `--offline` build must not break.
 
+流程：找 android.jar (SDK) + javac → 編譯被測類 + Test
+→ 跑 main() → 非零 exit = 失敗 (啱 CI 用)。
+跑五套：ApiValidatorTest (ApiValidator closure)＋IkPoseTest (IkPose，
+期望值由 app-ik.js 出)＋IkTransitionTest (Gamepad IK 均速過渡數學)＋
+ColorTrackTest (ColorTrackLogic 單檔)＋MusicEqTest (MusicEq 單檔，
+後兩者連 android.jar 都唔掂)。
 
 Flow: find android.jar (the SDK) + javac -> compile the class under test + the Test
 -> run main() -> a non-zero exit = failure (suitable for CI).
@@ -92,8 +98,13 @@ def main() -> int:
     print(f"SDK: {sdk}  android.jar: {jar.name}")
 
     src = ROOT / "app" / "src" / "main" / "java" / "com" / "open" / "alpha2"
-    test = ROOT / "app" / "src" / "test" / "java" / "com" / "open" / "alpha2" / "ApiValidatorTest.java"
-    assert test.exists(), f"test file gone: {test}"
+    testdir = ROOT / "app" / "src" / "test" / "java" / "com" / "open" / "alpha2"
+    test = testdir / "ApiValidatorTest.java"
+    iktest = testdir / "IkPoseTest.java"
+    iktrans = testdir / "IkTransitionTest.java"
+    assert test.exists(), f"測試檔不見了: {test}"
+    assert iktest.exists(), f"測試檔不見了: {iktest}"
+    assert iktrans.exists(), f"測試檔不見了: {iktrans}"
 
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="apivalidator-test-"))
     # The ApiValidator -> HttpServer -> WebSocketServer -> EventBus closure
@@ -109,7 +120,11 @@ def main() -> int:
         # alpha2-brain#24: ApiValidator uses the chest "Sit down" guard (pure java.*).
         str(ROOT / "sdk-module" / "hardware-direct" / "src" / "main" / "java" / "com" / "ubtechinc"
             / "alpha" / "hardware" / "ChestSafety.java"),
+        str(src / "IkPose.java"),
+        str(src / "IkTransition.java"),
         str(test),
+        str(iktest),
+        str(iktrans),
     ]
     cp = [javac, "-encoding", "UTF-8", "-nowarn", "-cp", str(jar), "-d", str(tmp)] + files
     r = subprocess.run(cp, capture_output=True, text=True)
@@ -130,8 +145,33 @@ def main() -> int:
         print("FAIL")
         return r.returncode
 
-    # The second suite: ColorTrackTest (ColorTrackLogic is pure java.*; no android stub).
-    testdir = ROOT / "app" / "src" / "test" / "java" / "com" / "open" / "alpha2"
+    # 第一套加碼：IkPoseTest（同 ApiValidator 一齊編，期望值由 app-ik.js 出）。
+    r = subprocess.run(
+        [java, "-cp", str(tmp) + os.pathsep + str(jar), "com.open.alpha2.IkPoseTest"],
+        capture_output=True, text=True,
+    )
+    print(r.stdout, end="")
+    if r.stderr:
+        print(r.stderr, end="", file=sys.stderr)
+    if r.returncode != 0:
+        shutil.rmtree(tmp, ignore_errors=True)
+        print("FAIL")
+        return r.returncode
+
+    # 第一套再加碼：IkTransitionTest（Gamepad IK 均速過渡數學）。
+    r = subprocess.run(
+        [java, "-cp", str(tmp) + os.pathsep + str(jar), "com.open.alpha2.IkTransitionTest"],
+        capture_output=True, text=True,
+    )
+    print(r.stdout, end="")
+    if r.stderr:
+        print(r.stderr, end="", file=sys.stderr)
+    if r.returncode != 0:
+        shutil.rmtree(tmp, ignore_errors=True)
+        print("FAIL")
+        return r.returncode
+
+    # 第二套：ColorTrackTest (ColorTrackLogic 純 java.*，唔經 android stub)。
     files2 = [
         str(src / "ColorTrackLogic.java"),
         str(testdir / "ColorTrackTest.java"),
@@ -233,7 +273,7 @@ def main() -> int:
         ("com.ubtechinc.alpha.hardware.DirectChestControllerTest",
          [hw / "DirectChestController.java", hw / "DirectSerialPort.java", hw / "DirectSerialConfig.java",
           hw / "RobotWire.java", hw / "SerialFrameCodec.java", hw / "ChestSafety.java",
-          hw / "DeveloperPacketData.java",
+          hw / "DeveloperPacketData.java", hw / "HardwareVersion.java",
           stubs / "android" / "util" / "Log.java", hwtest / "DirectChestControllerTest.java"]),
     ]
     for main_class, srcs in suites:

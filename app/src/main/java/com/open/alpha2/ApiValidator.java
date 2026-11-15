@@ -50,6 +50,9 @@ public final class ApiValidator {
     public static final int SERVO_ANGLE_MAX = 255;
     public static final int SERVO_TIME_MIN_MS = 20;
     public static final int SERVO_TIME_MAX_MS = 32767;
+    /** trim/offset 同 servo/one、前端 tuner 一致嘅安全範圍。 */
+    public static final int SERVO_TRIM_MIN = -1000;
+    public static final int SERVO_TRIM_MAX = 1000;
 
     /** Per-axis travel + origin (exactly the same as SERVO_CALIBRATION in app-core.js, measured on the real device;
      *  when changing one side, remember to change the other - the servo tab slider and the gamepad jog share the same set,
@@ -131,7 +134,10 @@ public final class ApiValidator {
 
     private static float parseFloatOrThrow(String key, String v) {
         try {
-            return Float.parseFloat(v.trim());
+            float f = Float.parseFloat(v.trim());
+            // "NaN" 解析成功但同任何 min/max 比較都 false，會穿過範圍檢查；Infinity 亦唔係合法輸入
+            if (Float.isNaN(f) || Float.isInfinite(f)) throw new NumberFormatException(v);
+            return f;
         } catch (Exception e) {
             throw new IllegalArgumentException("parameter '" + key + "' must be a number, got: " + v);
         }
@@ -139,7 +145,10 @@ public final class ApiValidator {
 
     private static double parseDoubleOrThrow(String key, String v) {
         try {
-            return Double.parseDouble(v.trim());
+            double f = Double.parseDouble(v.trim());
+            // "NaN" 解析成功但同任何 min/max 比較都 false，會穿過範圍檢查；Infinity 亦唔係合法輸入
+            if (Double.isNaN(f) || Double.isInfinite(f)) throw new NumberFormatException(v);
+            return f;
         } catch (Exception e) {
             throw new IllegalArgumentException("parameter '" + key + "' must be a number, got: " + v);
         }
@@ -452,12 +461,12 @@ public final class ApiValidator {
         return requireEnum(q, "mode", new String[]{"off","xiaozhi","vosk"});
     }
 
-    /** ubx/speed value: 0.5|0.67|1|1.5|2 (see the openapi enum + UbxPlayer.setSpeed). */
+    /** ubx/speed value: 0.5–2.0 倍 (見 openapi minimum/maximum + UbxPlayer.setSpeed)。 */
     public static float requireUbxSpeed(Map<String, String> q) {
         return parseUbxSpeedValue(require(q, "value"));
     }
 
-    /** Shared string version (for helpers like ubxSpeedResponse that have already extracted the query; the same enum set). */
+    /** 共用字串版 (供 ubxSpeedResponse 這類已抽出 query 的 helper覆用, 同一套範圍)。 */
     public static float parseUbxSpeedValue(String v) {
         if (v == null || v.isEmpty()) {
             throw new IllegalArgumentException("missing required parameter: value");
@@ -466,13 +475,12 @@ public final class ApiValidator {
         try {
             f = Float.parseFloat(v.trim());
         } catch (Exception e) {
-            throw new IllegalArgumentException("parameter 'value' must be one of [0.5, 0.67, 1, 1.5, 2], got: " + v);
+            throw new IllegalArgumentException("parameter 'value' must be between 0.5 and 2.0, got: " + v);
         }
-        float[] allowed = new float[]{0.5f, 0.67f, 1.0f, 1.5f, 2.0f};
-        for (float a : allowed) {
-            if (Math.abs(f - a) < 0.001f) return a;
+        if (Float.isNaN(f) || f < 0.5f || f > 2.0f) {
+            throw new IllegalArgumentException("parameter 'value' must be between 0.5 and 2.0, got: " + v);
         }
-        throw new IllegalArgumentException("parameter 'value' must be one of [0.5, 0.67, 1, 1.5, 2], got: " + v);
+        return f;
     }
 
     /** Experiments tab panel token: 8-64 URL-safe characters (alphanumeric/-/_; see PanelAuth). */
@@ -533,7 +541,43 @@ public final class ApiValidator {
         return out;
     }
 
-    // ── Response helpers (unified {"ok":...} shape) ────────────────────────
+    /**
+     * 校準用 trim CSV：20 或 22 個 comma-separated 值，空字串／"-"／"null"
+     * 代表該軸跳過（未掃描／無回授）。回傳長度同輸入一致，未提供 'trims'
+     * 時回 null（由 caller 決定是否 required）。
+     */
+    public static Integer[] optionalTrims20or22(Map<String, String> q) {
+        String csv = q.get("trims");
+        if (csv == null) return null;
+        // -1 保留尾隨空欄，22 軸最後一格留空都算數。
+        String[] parts = csv.split(",", -1);
+        if (parts.length != SERVO_COUNT && parts.length != SERVO_COUNT_LEGACY) {
+            throw new IllegalArgumentException("parameter 'trims' must have exactly "
+                    + SERVO_COUNT_LEGACY + " or " + SERVO_COUNT
+                    + " comma-separated values, got " + parts.length);
+        }
+        Integer[] out = new Integer[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            String s = parts[i].trim();
+            if (s.isEmpty() || "-".equals(s) || "null".equalsIgnoreCase(s)) continue;
+            int v;
+            try {
+                v = Integer.parseInt(s);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("parameter 'trims' element " + (i + 1)
+                        + " must be integer or empty, got: " + parts[i]);
+            }
+            if (v < SERVO_TRIM_MIN || v > SERVO_TRIM_MAX) {
+                throw new IllegalArgumentException("parameter 'trims' element " + (i + 1)
+                        + " must be between " + SERVO_TRIM_MIN + " and " + SERVO_TRIM_MAX
+                        + ", got: " + v);
+            }
+            out[i] = Integer.valueOf(v);
+        }
+        return out;
+    }
+
+    // ── 回應 helpers (統一 {"ok":...} 形狀) ────────────────────────
     public static HttpServer.ApiResponse ok(String jsonBody) {
         return HttpServer.ApiResponse.ok(jsonBody);
     }

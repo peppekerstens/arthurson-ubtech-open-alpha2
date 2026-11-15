@@ -3,7 +3,7 @@
   "info": {
     "title": "Open Alpha2 API",
     "description": "The local control panel of `com.open.alpha2` on the UBTECH Alpha 2 robot (Android 5.1.1, API 22), the HTTP + WebSocket API.\nGenerated from `MainActivity handleApi()` / `HttpServer`,\nit covers all local robot capabilities (the original 17 AIDL interface functions, now by direct drive), plus the separate system/xiaozhi/stream/upload namespaces.\nBy default it is served as plain HTTP on `HttpServer.PORT = 8888` (`http://<robot-ip>:8888/`), reachable by any browser on the same WiFi.\nAll `/api/*` answers are `application/json; charset=utf-8` of the `{ok: boolean, ...}` shape, with an `error` field on failure. A 401 always carries `WWW-Authenticate: Bearer realm=\"panel\"`.\nLive events (touch/ASR/battery/fall/PIR and more) are pushed over `GET /ws` (RFC6455 WebSocket), not polled.\nThe experiment tab has an opt-in panel token (`/api/system/auth/*`, see PanelAuth.java): off by default (fully open); when enabled the whole panel is locked — all `/api/*` (read calls, other pages, Blockly included), all `/upload/*`, `/stream/*` and `/ws` need authentication (`Authorization: Bearer <token>` first; where a header is not possible, `<img>/WebSocket use the `?panel_token=` fallback), a missing or wrong token returns 401; only `system/auth/*` (the unlock entry) and the static pages stay open. The token is kept in browser localStorage (shared across tabs of the same panel address). The old `?token=` alias is removed (name clash with the Xiaozhi ota `token`), use `-H \"Authorization: Bearer ...\"` with curl or `?panel_token=`.\n",
-    "version": "beta 7",
+    "version": "beta 8.1",
     "contact": {
       "name": "Open Alpha2",
       "url": "https://github.com/arthurson/ubtech-open-alpha2"
@@ -12,7 +12,7 @@
       "name": "GPL-3.0-only",
       "url": "https://www.gnu.org/licenses/gpl-3.0.html"
     },
-    "x-generated": "2026-09-04"
+    "x-generated": "2026-11-01"
   },
   "servers": [
     {
@@ -45,7 +45,7 @@
     },
     {
       "name": "servo",
-      "description": "20-axis servos and sonar"
+      "description": "22-axis servos and sonar"
     },
     {
       "name": "sensor",
@@ -70,6 +70,10 @@
     {
       "name": "system",
       "description": "System functions without the robot services (/api/system/*)"
+    },
+    {
+      "name": "walk",
+      "description": "按住向前行／向後行（步態＝.ubx，後行＝前行步態時間反轉；放手即收步企定；速度 1.0–2.0x，步態 300ms 下限令實際最快約 1.33x；租約守護）"
     },
     {
       "name": "gamepad",
@@ -125,7 +129,7 @@
                 },
                 "example": {
                   "ok": true,
-                  "appVersion": "beta 7",
+                  "appVersion": "beta 8.1",
                   "chestAvailable": true,
                   "headerAvailable": true,
                   "androidTtsReady": true
@@ -186,6 +190,115 @@
           }
         },
         "operationId": "chestVersion_get"
+      }
+    },
+    "/api/mic/version": {
+      "get": {
+        "tags": [
+          "core"
+        ],
+        "summary": "讀 MIC 固件版本 (原廠「系統信息」同名欄位 = ro.hardware.version)",
+        "description": "alpha2_10005 = Lynx 5mic、alpha2_10002 = 舊款。純讀 property，即回，唔經串口。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "面板 token 缺／錯（僅啟用後）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "版本字串",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "version": {
+                          "type": "string",
+                          "example": "alpha2_10005"
+                        },
+                        "is5Mic": {
+                          "type": "boolean"
+                        },
+                        "is2Mic": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "operationId": "micVersion_get"
+      }
+    },
+    "/api/battery/version": {
+      "get": {
+        "tags": [
+          "core"
+        ],
+        "summary": "讀電池固件版本 (原廠「系統信息」同名欄位；胸 cmd 57 [3] POWER_INFO)",
+        "description": "智能電池 UART 協議（V352 新命令），同官方 Alpha2Services VersionCollector 同款問法。智能電池閒置會瞓，後端會 poke 重試到 timeout（default 4000ms）；電池最終唔回覆先回 ok:false / version:\"not found\"。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TimeoutMs"
+          },
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "面板 token 缺／錯（僅啟用後）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "版本字串",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "version": {
+                          "type": "string",
+                          "example": "V1.5"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "operationId": "batteryVersion_get"
       }
     },
     "/api/chest/upgrade": {
@@ -951,15 +1064,10 @@
             "required": true,
             "schema": {
               "type": "number",
-              "enum": [
-                0.5,
-                0.67,
-                1,
-                1.5,
-                2
-              ]
+              "minimum": 0.5,
+              "maximum": 2.0
             },
-            "description": "Speed factor (the music pitch changes with it)"
+            "description": "Speed factor 0.5–2.0 (the music pitch changes with it)"
           },
           {
             "$ref": "#/components/parameters/PanelToken"
@@ -1829,15 +1937,10 @@
             "required": true,
             "schema": {
               "type": "number",
-              "enum": [
-                0.5,
-                0.67,
-                1,
-                1.5,
-                2
-              ]
+              "minimum": 0.5,
+              "maximum": 2.0
             },
-            "description": "Speed factor (the music pitch changes with it)"
+            "description": "Speed factor 0.5–2.0 (the music pitch changes with it)"
           },
           {
             "$ref": "#/components/parameters/PanelToken"
@@ -1885,6 +1988,222 @@
           }
         },
         "operationId": "ubxSpeed_get"
+      }
+    },
+    "/api/walk/start": {
+      "get": {
+        "tags": [
+          "walk"
+        ],
+        "summary": "按住向前行／向後行：未行就起步，行緊就續租約並更新速度",
+        "description": "面板按住期間要每 ~250ms 再叫一次（租約 700ms，超時冇續即自動放手收步）；開機企姿完成前回 {ok:false,error:booting}。起步時會搶佔正在播放嘅普通動作。行緊相反方向時會先硬停（舵機保持末位姿）再由當前姿勢起步。",
+        "parameters": [
+          {
+            "name": "speed",
+            "in": "query",
+            "schema": {
+              "type": "number",
+              "minimum": 1.0,
+              "maximum": 2.0
+            },
+            "description": "速度倍率 1.0–2.0（1.0＝.ubx 原速；步態 300ms 下限，實際最快約 1.33x）；唔帶用預設速度"
+          },
+          {
+            "name": "dir",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "fwd",
+                "back"
+              ],
+              "default": "fwd"
+            },
+            "description": "方向：fwd＝向前行（預設）；back＝向後行（前行步態時間反轉，未經實機驗證）"
+          },
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "面板 token 缺／錯（僅啟用後）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "行路狀態",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "$ref": "#/components/schemas/WalkStatus"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "operationId": "walkStart_get"
+      }
+    },
+    "/api/walk/stop": {
+      "post": {
+        "tags": [
+          "walk"
+        ],
+        "summary": "放手：先行到最近一個著地收步格（約半步內），再收返企定姿勢然後停（hard=true 即刻硬停，舵機保持末位姿）",
+        "parameters": [
+          {
+            "name": "hard",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "true＝硬停（同 ubx/stop 一樣保持末位姿，唔收步）"
+          },
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "面板 token 缺／錯（僅啟用後）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "行路狀態",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "$ref": "#/components/schemas/WalkStatus"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "operationId": "walkStop_post"
+      }
+    },
+    "/api/walk/speed": {
+      "get": {
+        "tags": [
+          "walk"
+        ],
+        "summary": "設預設行路速度（同時即時套用於行緊嘅路）",
+        "parameters": [
+          {
+            "name": "value",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "minimum": 1.0,
+              "maximum": 2.0
+            },
+            "description": "速度倍率 1.0–2.0（步態 300ms 下限，實際最快約 1.33x）"
+          },
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "面板 token 缺／錯（僅啟用後）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "行路狀態",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "$ref": "#/components/schemas/WalkStatus"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "operationId": "walkSpeed_get"
+      }
+    },
+    "/api/walk/status": {
+      "get": {
+        "tags": [
+          "walk"
+        ],
+        "summary": "行路狀態",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "面板 token 缺／錯（僅啟用後）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "行路狀態",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "$ref": "#/components/schemas/WalkStatus"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "operationId": "walkStatus_get"
       }
     },
     "/api/speech/tts": {
@@ -3643,6 +3962,64 @@
           }
         },
         "operationId": "servoAll_get"
+      }
+    },
+    "/api/servo/calibrate": {
+      "get": {
+        "tags": [
+          "servo"
+        ],
+        "summary": "官方流程舵機校準（批次寫 trim → 等 EEPROM → 回標準姿勢）",
+        "description": "對照官方 ServoCalibration 1.0.0.4：一次過送有效 cmd12 trim，等約 7 秒 EEPROM，再送全部舵機回 factory home。只會寫有值嘅軸，唔會用 0 覆蓋未掃描嘅出廠 trim。",
+        "parameters": [
+          {
+            "name": "trims",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "81,,,,,,,,,,,,,,,,,,,,,"
+            },
+            "description": "20 或 22 個逗號分隔 signed trim（-1000..1000）；空欄／-／null = 跳過該軸（未掃描或無回授）"
+          },
+          {
+            "name": "time",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 32767,
+              "default": 2000
+            },
+            "description": "回標準姿勢動作時間 ms"
+          },
+          {
+            "$ref": "#/components/parameters/PanelToken"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "面板 token 缺／錯（僅啟用後）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkWrapper"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "結果（trimSent／trimWritten／trimFailed／homeSent）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "servoCalibrate_get"
       }
     },
     "/api/servo/read": {
@@ -9793,7 +10170,7 @@
         "tags": [
           "gamepad"
         ],
-        "summary": "Change one key mapping (or reset = 1 to restore that side default)",
+        "summary": "Change one key mapping (one key, many actions: action can hold several lines, run in order; or reset = 1 to restore that side default)",
         "parameters": [
           {
             "name": "side",
@@ -9821,9 +10198,9 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "description": "none/stop/vol_up/vol_down/music_play/next/prev/pause/resume/toggle/stop/random/radio_toggle/disco_toggle/filler_toggle/ring_phone/ring_stop/ring_random/ring:<title>/ring:phone:<title>/ring:notification:<title>/head:<preset>:<color>/head:random/eye:<preset>:<color>/eye:random/mouth:breathing:<speedMs>/mouth:off/led_off/camera_photo/face_toggle/color_toggle/video_toggle/sonar_toggle/pir_toggle/accel_toggle/xiaozhi_toggle/vosk_toggle/vosk:<id>/eq:<preset>/radio:<uuid or name>/servo1-22+/servo1-22-/action:<id>"
+              "description": "none/stop/vol_up/vol_down/music_play/next/prev/pause/resume/toggle/stop/random/radio_toggle/disco_toggle/filler_toggle/ring_phone/ring_stop/ring_random/ring:<title>/ring:phone:<title>/ring:notification:<title>/head:<preset>:<color>/head:random/eye:<preset>:<color>/eye:random/mouth:breathing:<speedMs>/mouth:off/led_off/camera_photo/face_toggle/color_toggle/video_toggle/sonar_toggle/pir_toggle/accel_toggle/xiaozhi_toggle/vosk_toggle/vosk:<id>/eq:<preset>/radio:<uuid or name>/servo1-22+/servo1-22-/ik:squat+/ik:squat-/ik:ysquat+/ik:ysquat-/ik:lr+/ik:lr-/ik:fb+/ik:fb-/ik:laugh+/ik:laugh-/ik:kick+/ik:kick-/ik:sirius+/ik:sirius-/ik:hulu+/ik:hulu-/ik:hamlet+/ik:hamlet-/ik:kneel+/ik:kneel-/action:<id>"
             },
-            "description": "Mapped action (it can be omitted when reset = 1; music_* is local music; the servo step covers all 22 axes)"
+            "description": "Mapped action (one, or up to 6 separated by new lines; one press runs all of them in order; it can be omitted when reset = 1; music_* is local music; the servo step covers all 22 axes; ik is an IK action (squat / ysquat / lr; fb = the front-back split, both in one; laugh / kick / sirius / hulu / hamlet / kneel; for the signed actions - goes to -100 = mirror / left kick, + goes to +100 = original pose / right kick; the old fsplit / fsplit2 migrate by themselves, the old fb alias also means the both-in-one), like a servo, hold + / - to keep going, 10% each step, auto stop at 0% / 100% (-100% / +100% for the signed actions))"
           },
           {
             "name": "reset",
@@ -13263,6 +13640,61 @@
       }
     },
     "schemas": {
+      "WalkStatus": {
+        "type": "object",
+        "properties": {
+          "walking": {
+            "type": "boolean",
+            "description": "行路線程仍然喺度（包括收步中）"
+          },
+          "dir": {
+            "type": "string",
+            "enum": [
+              "fwd",
+              "back"
+            ],
+            "description": "最近一次起步嘅方向（冇行路時係上一次嘅方向，預設 fwd）"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "lead_in",
+              "walking",
+              "standing"
+            ]
+          },
+          "speed": {
+            "type": "number",
+            "description": "當前實際速度倍率（行緊先有，0＝冇行）"
+          },
+          "cycles": {
+            "type": "integer",
+            "description": "已完成嘅步態循環數（每個循環 = 2 個步幅）"
+          },
+          "endReason": {
+            "type": "string",
+            "description": "上一次行路結束原因（released／lease／stopped／send-failed）"
+          },
+          "defaultSpeed": {
+            "type": "number"
+          },
+          "leaseMs": {
+            "type": "integer"
+          },
+          "loaded": {
+            "type": "boolean",
+            "description": "前行步態檔已載入"
+          },
+          "loadedBack": {
+            "type": "boolean",
+            "description": "後行步態檔已載入"
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
       "OkWrapper": {
         "type": "object",
         "required": [

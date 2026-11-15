@@ -26,6 +26,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.ubtechinc.alpha.hardware.RobotWire;
+import com.ubtechinc.alpha.hardware.HardwareVersion;
 import com.ubtechinc.alpha.hardware.HardwareDirectManager;
 import com.ubtechinc.alpha.hardware.LocalAlpha2Services;
 import com.ubtechinc.alpha.hardware.ubx.UbxPlayer;
@@ -115,7 +116,7 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
     private SemanticMatcherFr semanticMatcherFr;
 
     /** 日文語意配對引擎實例, 和其他語言版同一套機制、獨立資料
-     *  (semantic_ja.json, 見 SemanticMatcherJa: 85 ACTION＋200 日常 CHAT)。
+     *  (semantic_ja.json, 見 SemanticMatcherJa: 86 ACTION＋200 日常 CHAT)。
      *  哪句用哪個 matcher 由 SemanticCenter 根據對話語言／輸入文字決定
      *  (見 handleSemanticMatch), 靠內容判斷更可靠。 */
     private SemanticMatcherJa semanticMatcherJa;
@@ -163,6 +164,7 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
     private SpeechCenter speechCenter;
     private SonarCenter sonarCenter;
     private GamepadCenter gamepadCenter;
+    private WalkCenter walkCenter;
 
     // -- XiaozhiBridge.HostState (宿主縫)：TTS 兩法轉交 SpeechCenter，sonar 四法
     // 轉交 SonarCenter（delegate＋null-guard；MCP 4 tool 經這裡照讀）。 --
@@ -192,6 +194,18 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
     // 影響到整個 registerDynamicReceiver() 的 new RobotEventReceiver() call 位)。
     private static volatile MainActivity sInstance;
 
+    /**
+     * 開機企姿／START 握手完成之前，唔接受外部 servo 指令。
+     *
+     * <p>機械人死機／reboot 後，舊瀏覽器 tab 可能仍有 IK 動畫喺度排隊；
+     * 如果新 process 一開 HTTP server 就照收，會將上一次 IK 嘅 pose 當成
+     * 新指令，機械人就會「自己硬做返之前既動作」。boot 期間擋住 servo/all
+     * 同 servo/one，等企姿穩定先放行。</p>
+     */
+    private static volatile boolean bootServoReady = false;
+
+    static boolean isBootServoReady() { return bootServoReady; }
+
     /** SONAR_DISTANCE_ACTION 觸發的 broadcast 未到之前, RobotEventReceiver 都要知道
      *  現在的門檻才計得到 "triggered"。沒 instance／sonarCenter (例如 Activity
      *  未起好/已destroy 中間那段窗口) 就當沒門檻, 不會誤判 triggered。 */
@@ -215,7 +229,15 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         sInstance = this;
+        // 開機企姿／START 握手完成之前，先擋住外部 servo 指令。
+        // 必須喺 initRobot() 起 HTTP server 之前設 false（Activity 重建時
+        // static 可能仍然係上一次嘅 true）。
+        bootServoReady = false;
         installCrashRestartHandler();
+        Log.i(TAG, "MIC fw: " + SysProps.hardwareVersion() + " (ro.hardware.version)");
+        Log.i(TAG, "hardware variant: " + (HardwareVersion.is2Mic()
+                ? "alpha2_10002 (2-mic, Android 4.4.2)"
+                : "alpha2_10005 (5-mic)"));
 
         // LedCenter/RingtoneCenter 在這裡建立（不等 initRobot），因為下面
         // registerWifiLedReceiver() 即刻就要用。兩個都只需要 Context/
@@ -225,19 +247,62 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         registerDynamicReceiver();
         ledCenter.registerWifiLedReceiver();
         initRobot();
-        // pure-direct：胸 /dev/ttyS1 + 頭 /dev/ttyS3 + libhead_led.so JNI，
+        // pure-direct：10005 胸/頭 ttyS1/ttyS3 + libhead_led.so JNI；
+        // 10002 胸/頭 ttySAC0/ttySAC1 + 頭板 MCU 串口 LED。
         // 機身已無 alpha2services，無 binder fallback，失敗直接報錯。
         localServices = new LocalAlpha2Services(this);
         new Thread(new Runnable() {
             @Override public void run() {
-                boolean direct = localServices.start();
-                Log.i(TAG, "LocalAlpha2Services direct=" + direct + " (pure-direct, no alpha2services fallback)");
-                // 用戶要求：開app自動做一次蹲下站起（伸展筋骨），只在直驅就緒先播。
-                if (direct) {
-                    if (actionDirect.playActionDirect(ActionDirect.STOP_RECOVERY_ACTION_ID)
-                            != UbxErrorCode.API_ERROR_CODE.API_ERROR_SUCCEED) {
-                        Log.w(TAG, "startup squat not started: " + ubxPlayer.lastError());
+                try {
+                    boolean direct = localServices.start();
+                    Log.i(TAG, "LocalAlpha2Services direct=" + direct + " (pure-direct, no alpha2services fallback)");
+                    // 官方開機流程（參考 Alpha2Services v1.1.7.3）：
+                    //   官方 MainService initThread 一綁好串口就 robotStandup() 發固定企姿
+                    //   （零檔案依賴），~5s 後先由 ChestStartThread 發 cmd 0x01 START、
+                    //   queryChargePlay 發 cmd 0x35[2]（見 ActionDirect.officialBootStandup）。
+                    // 呢度照跟，但加防護：
+                    //   1. 等胸板串口 ready：開機初期 /dev/ttyS1 可能未 ready，每 1s 重試
+                    //      tryEnableDirect()（官方 ChestStartThread 都係輪詢等串口），最多 30s；
+                    //   2. 唔再播「蹲下站起」ubx 伸展——嗰個係檔案依賴多幀動畫，靜默失敗
+                    //      會卡住企唔起身；官方做法係一發固定企姿，可靠得多。
+                    HardwareDirectManager dm = HardwareDirectManager.get(MainActivity.this);
+                    long deadline = System.currentTimeMillis() + 30000;
+                    while (!dm.chest().isAvailable() && System.currentTimeMillis() < deadline) {
+                        dm.tryEnableDirect();
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
                     }
+                    if (!dm.chest().isAvailable()) {
+                        Log.w(TAG, "official boot standup skipped: chest serial unavailable after 30s");
+                        return;
+                    }
+                    boolean stood = actionDirect.officialBootStandup();
+                    Log.i(TAG, "official boot standup sent=" + stood);
+                    // 企姿同 START 握手完成（或失敗）先放行外部 servo 指令；
+                    // 下面電池 warm-up 純讀，唔使再擋。
+                    bootServoReady = true;
+                    // 電池固件 warm-up：智能電池 UART 閒置會瞓（深睡實測要 poke
+                    // ~10 下先醒）。開機熱身：第一輪 10s，唔得隔 2s 再一輪 4s，
+                    // 之後面板／API 一問即回。純讀，失敗唔影響開機。
+                    try {
+                        String batteryFwWarm = chestQuery.queryBatteryVersion(10000);
+                        if (batteryFwWarm == null) {
+                            Thread.sleep(2000);
+                            batteryFwWarm = chestQuery.queryBatteryVersion(4000);
+                        }
+                        Log.i(TAG, "battery fw warm-up: " + batteryFwWarm);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    } catch (Throwable t) {
+                        Log.w(TAG, "battery fw warm-up failed", t);
+                    }
+                } finally {
+                    // 企姿／握手完成（或失敗）先放行外部 servo 指令。
+                    bootServoReady = true;
                 }
             }
         }, "LocalServicesInit").start();
@@ -257,8 +322,7 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         // 維持 null，所有 vosk/* endpoint 經 VoskApi.voskOrError() 回清晰錯誤。
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             try {
-                vosk = new VoskController(this, semanticMatcherZh, semanticMatcherEn, semanticMatcherEs, semanticMatcherFr, semanticMatcherJa,
-                        semanticMatcherDe, semanticMatcherIt, semanticMatcherPt, semanticMatcherKo, semanticMatcherRu);
+                vosk = new VoskController(this);
             } catch (Throwable e) {
                 Log.w(TAG, "VoskController init failed", e);
             }
@@ -333,6 +397,9 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         gamepadCenter = new GamepadCenter(this, actionDirect, ubxApi, ubxPlayer, deviceStatus,
                 audioCenter, ringtoneCenter, ledCenter, speechCenter, cameraApi, sonarCenter,
                 xiaozhiBridge, voskApi);
+        // 按住向前行／向後行（步態 assets/gait/walk_fwd.json＋walk_back.json，源自 .ubx）；手柄 walk:* 映射同 HTTP walk/* 共用。
+        walkCenter = new WalkCenter(this, ubxPlayer);
+        gamepadCenter.attachWalkCenter(walkCenter);
         // dispatcher 包全部上面 controller (+speechCenter 做 Host；sensorState
         // 繼續經 this——TTS／sonar 全部轉交給對應 center；servo/sonar 直調
         // sonarCenter)。
@@ -341,7 +408,7 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
                 chestUpgrade, servoUpgrade, ttsCenter, voskApi, ledCenter, semanticCenter, deviceStatus,
                 cameraApi, audioCenter, ringtoneCenter, micCenter, robot, grammarCenter,
                 ubxPlayer, musicController, localServices, sonarCenter, actionsPackController,
-                apkDownloadController, gamepadCenter);
+                apkDownloadController, gamepadCenter, walkCenter);
         // Wake word and local commands (alpha2-brain#16). Off until wake/set?enabled=true.
         WakeController.init(this, xiaozhiBridge, vosk, apiDispatcher);
 
@@ -1113,6 +1180,7 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
         if (audioPlaybackController != null) audioPlaybackController.shutdown();
         if (ledCenter != null) ledCenter.shutdown();
         if (ringtoneCenter != null) ringtoneCenter.stopRingtonePlayback();
+        musicController.shutdown(); // 音樂 tab 嘅 MediaPlayer：之前冇人 release，Activity 銷毀即洩漏
         // 之前這裡沒有呼叫 stopLocalMusicPlayback()/stopRadioPlayback() -
         // onDestroy() 就算執行了也不會釋放正在播放的 currentMusicPlayer/currentRadioPlayer,
         // 一直以來都是個 leak (MediaPlayer native resource 沒有 release())。沿用

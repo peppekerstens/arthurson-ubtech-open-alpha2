@@ -77,6 +77,8 @@ public final class ApiDispatcher {
         return motionGate;
     }
 
+    private final WalkCenter walkCenter;
+
     public ApiDispatcher(Context context, Host host, XiaozhiBridge.HostState sensorState,
             ActionDirect actionDirect, UbxApi ubxApi, ChestQuery chestQuery,
             ChestUpgrade chestUpgrade, ServoUpgrade servoUpgrade, TtsCenter ttsCenter, VoskApi voskApi,
@@ -86,7 +88,7 @@ public final class ApiDispatcher {
             GrammarCenter grammarCenter, UbxPlayer ubxPlayer, MusicController musicController,
             LocalAlpha2Services localServices, SonarCenter sonarCenter,
             ActionsPackController actionsPackController, ApkDownloadController apkDownloadController,
-            GamepadCenter gamepadCenter) {
+            GamepadCenter gamepadCenter, WalkCenter walkCenter) {
         this.appContext = context.getApplicationContext();
         this.host = host;
         this.sensorState = sensorState;
@@ -115,6 +117,7 @@ public final class ApiDispatcher {
         this.actionsPackController = actionsPackController;
         this.apkDownloadController = apkDownloadController;
         this.gamepadCenter = gamepadCenter;
+        this.walkCenter = walkCenter;
     }
 
     // directChestReady() inlined: uses appContext, no Activity (each center carries its own copy).
@@ -146,7 +149,7 @@ public final class ApiDispatcher {
         String prefix = kind == null || kind.isEmpty() ? "unknown endpoint: "
                 : "unknown " + kind + " endpoint: ";
         return new HttpServer.ApiResponse(404, "application/json; charset=utf-8",
-                "{\"ok\":false,\"error\":\"" + prefix + path + "\"}");
+                "{\"ok\":false,\"error\":\"" + JsonUtil.esc(prefix + path) + "\"}");
     }
 
     /**
@@ -166,6 +169,28 @@ public final class ApiDispatcher {
                 // Return only the real firmware version of the chest MCU (sendCommand 51)
                 long timeoutMs = ApiValidator.optionalLong(query, "timeout", 1500L);
                 String v = chestQuery.queryFirmwareVersion(timeoutMs);
+                if (v != null) {
+                    return HttpServer.ApiResponse.ok("{\"ok\":true,\"version\":\"" + MainActivity.jsonSafe(v) + "\"}");
+                } else {
+                    return HttpServer.ApiResponse.ok("{\"ok\":false,\"version\":\"not found\"}");
+                }
+            }
+            case "mic/version": {
+                // MIC 固件版本：原廠系統信息畫面同名欄位（getprop ro.hardware.version，
+                // Alpha2Services 內部叫 ALPHA_MIC_HARDWARE_VERSION；alpha2_10005 =
+                // Lynx 5mic，alpha2_10002 = 舊款）。純讀，即回。
+                String v = SysProps.hardwareVersion();
+                return HttpServer.ApiResponse.ok("{\"ok\":true,\"version\":\"" + MainActivity.jsonSafe(v)
+                        + "\",\"is5Mic\":" + "alpha2_10005".equals(v)
+                        + ",\"is2Mic\":" + "alpha2_10002".equals(v) + "}");
+            }
+            case "battery/version": {
+                // 電池固件版本：原廠系統信息同名欄位（胸 cmd 57 [3] POWER_INFO，
+                // 智能電池 UART 協議；官方 VersionCollector 同款問法）。
+                // 智能電池閒置會瞓：輕睡（~90s 內）poke 3-5 下會醒，所以
+                // default 4000 ≈ 4-5 下 poke；深睡靠開機 warm-up 叫醒。
+                long timeoutMs = ApiValidator.optionalLong(query, "timeout", 4000L);
+                String v = chestQuery.queryBatteryVersion(timeoutMs);
                 if (v != null) {
                     return HttpServer.ApiResponse.ok("{\"ok\":true,\"version\":\"" + MainActivity.jsonSafe(v) + "\"}");
                 } else {
@@ -292,6 +317,16 @@ public final class ApiDispatcher {
                 // Enum validation is done uniformly inside ubxSpeedResponse via ApiValidator.parseUbxSpeedValue;
                 // here only the required check (absent means 400), avoiding a double parse.
                 return ubxApi.ubxSpeedResponse(ApiValidator.require(query, "value"));
+
+            // -- 按住向前行／向後行（步態＝.ubx；租約守護，見 WalkCenter）-------------------------
+            case "walk/start":
+                return walkCenter.startResponse(query);
+            case "walk/stop":
+                return walkCenter.stopResponse(query);
+            case "walk/speed":
+                return walkCenter.speedResponse(query);
+            case "walk/status":
+                return walkCenter.statusResponse();
 
             // -- Speech / TTS -----------------------------------------------------------
             // engine: android only (only engine that speaks). nuance/iflytek
@@ -421,7 +456,9 @@ public final class ApiDispatcher {
             }
             case "servo/all":
                 return motionGate.guardAll(() -> ubxApi.servoAllResponse(query), ApiDispatcher::motionRefused);
-            // threshold state goes through sonarCenter, direct call.
+            case "servo/calibrate":
+                return ubxApi.servoCalibrateResponse(query);
+            // threshold state 經 sonarCenter 直調。
             case "servo/sonar":
                 return sonarCenter.servoSonarResponse(query);
             case "servo/sonar/get":
@@ -760,9 +797,11 @@ public final class ApiDispatcher {
     public HttpServer.ApiResponse handleSystemApi(String path, Map<String, String> query, String method, String body,
             Map<String, String> headers) {
         switch (path) {
-            // Search all machine data in one shot (the pure-direct version of the seven sys/* of the lynx era; one response is complete,
-            // each slow query has a 1.5s cap). Battery version string: the local chest firmware has no such command, absent as-is;
-            // battery level/charging go through the Android system broadcast.
+            // 一次搜齊機器資料（lynx 年代 sys/* 七連發的 pure-direct 版，一個回包齊完，
+            // 慢 query 各 1.5s 上限）。batteryFw 讀胸 cmd 57（V352 POWER_INFO；
+            // 冇回覆時 null，如實缺席）；電量/充電走 Android 系統廣播。micFw（原廠叫
+            // 「MIC 固件」，其實係 ro.hardware.version）一齊帶埋——alpha2_10005 =
+            // Lynx 5mic／alpha2_10002 = 舊款。
             case "discover": {
                 String appVer = "?";
                 try {
@@ -774,6 +813,12 @@ public final class ApiDispatcher {
                     chestFw = chestQuery.queryFirmwareVersion(1500);
                 } catch (Exception e) {
                     chestFw = null;
+                }
+                String batteryFw;
+                try {
+                    batteryFw = chestQuery.queryBatteryVersion(1500);
+                } catch (Exception e) {
+                    batteryFw = null;
                 }
                 String chestUuid;
                 try {
@@ -787,7 +832,9 @@ public final class ApiDispatcher {
                         .append("\"version\":\"").append(MainActivity.jsonSafe(appVer)).append("\",")
                         .append("\"panel\":\"http://").append(MainActivity.jsonSafe(deviceStatus.getWifiIp())).append(":")
                         .append(HttpServer.PORT).append("/\"},");
-                sb.append("\"robot\":{\"chestFw\":").append(chestFw != null ? "\"" + MainActivity.jsonSafe(chestFw) + "\"" : "null").append(",")
+                sb.append("\"robot\":{\"micFw\":\"").append(MainActivity.jsonSafe(SysProps.hardwareVersion())).append("\",")
+                        .append("\"chestFw\":").append(chestFw != null ? "\"" + MainActivity.jsonSafe(chestFw) + "\"" : "null").append(",")
+                        .append("\"batteryFw\":").append(batteryFw != null ? "\"" + MainActivity.jsonSafe(batteryFw) + "\"" : "null").append(",")
                         .append("\"chestUuid\":").append(chestUuid != null ? "\"" + MainActivity.jsonSafe(chestUuid) + "\"" : "null").append(",")
                         .append("\"chestAvailable\":").append(directChestReady()).append(",")
                         .append("\"headerAvailable\":").append(directHeaderReady()).append("},");
@@ -907,7 +954,7 @@ public final class ApiDispatcher {
                 int[] arr = ApiValidator.requireAngles20(query);
                 int time = ApiValidator.optionalIntRange(query, "time", ApiValidator.SERVO_TIME_MIN_MS, ApiValidator.SERVO_TIME_MAX_MS, 500);
                 return motionGate.guardAll(() -> {
-                    // setAllServos internally already translates to cmd03 (cmd52 has an ACK but no action).
+                    // setAllServos 按版本：2-mic 官方 cmd52／5-mic cmd03。
                     // The move goes between two stream read cycles (alpha2-rl#217).
                     boolean sent = ServoReadStream.moveBetweenCycles(() ->
                             HardwareDirectManager.get(appContext).chest().setAllServos(arr, (short) time));

@@ -13,8 +13,9 @@ function switchTab(tabId) {
   document.querySelector(".tab-btn[data-tab=\"" + tabId + "\"]").classList.add("active");
 }
 
-// ---------------- Device info: battery / WiFi / Bluetooth ----------------
-// For the direct UUID display see requestUuid() in app-accel.js. For the chest firmware see refreshChestFw() below.
+// ---------------- Device info: battery / Bluetooth ----------------
+// UUID 直顯見 app-accel.js requestUuid()，胸板固件見下面 refreshChestFw()。
+// （WiFi 顯示已移除；wifi/status API 照喺度。）
 
 function refreshDeviceInfo() {
   return Alpha2Api.batteryStatus().then(function (battery) {
@@ -22,17 +23,83 @@ function refreshDeviceInfo() {
       ? (battery.level + "/" + battery.scale + " " + (battery.charging ? (uiLang === "en" ? "⚡Charging" : "⚡充電中") : "") + " (" + battery.status + ")")
       : (uiLang === "en" ? "Read failed" : "讀取失敗");
 
-    return Alpha2Api.wifiStatus();
-  }).then(function (wifi) {
-    document.getElementById("wifiOut").textContent = wifi.ok
-      ? (wifi.enabled ? ((wifi.ssid || (uiLang === "en" ? "(connected)" : "(已連接)")) + " — " + wifi.ip) : (uiLang === "en" ? "Off" : "已關閉"))
-      : (uiLang === "en" ? "Read failed" : "讀取失敗");
-
     return Alpha2Api.btStatus();
   }).then(function (bt) {
     document.getElementById("btOut").textContent = bt.ok
       ? (bt.available ? ((bt.name || (uiLang === "en" ? "(unnamed)" : "(未命名)")) + " — " + (bt.enabled ? (uiLang === "en" ? "On" : "已開啟") : (uiLang === "en" ? "Off" : "已關閉"))) : (uiLang === "en" ? "Not supported" : "不支援"))
       : (uiLang === "en" ? "Read failed" : "讀取失敗");
+
+    return refreshMicFw().then(function () {
+      return refreshBatteryFw();
+    });
+  });
+}
+
+// ---------------- Hardware variant (alpha2_10005 / alpha2_10002) ----------------
+// 10002 = 2-mic（Android 4.4.2）：冇 PIR、冇胸板固件升級卡。呢個 flag 亦俾
+// app-servo.js 嘅 PIR polling 用；未讀到版本前當 5-mic，讀到 10002 先收埋。
+window.alpha2Is2Mic = false;
+
+function applyHardwareUi(is2Mic) {
+  window.alpha2Is2Mic = !!is2Mic;
+  const pir = document.getElementById("pirCard");
+  if (pir) pir.style.display = is2Mic ? "none" : "";
+  const chest = document.getElementById("chestCard");
+  if (chest) chest.style.display = is2Mic ? "none" : "";
+  if (is2Mic) {
+    const body = document.getElementById("chestCardBody");
+    if (body) body.style.display = "none";
+    // Gamepad mapping 嘅 sensor 下拉：移除 PIR 選項（可能已經 build 咗）。
+    if (typeof GAMEPAD_SENSOR_FNS !== "undefined") {
+      const pi = GAMEPAD_SENSOR_FNS.indexOf("pir_toggle");
+      if (pi >= 0) GAMEPAD_SENSOR_FNS.splice(pi, 1);
+    }
+    document.querySelectorAll("select[id^='gpSensorSel_']").forEach(function (sel) {
+      for (let i = sel.options.length - 1; i >= 0; i--) {
+        if (sel.options[i].value === "pir_toggle") sel.remove(i);
+      }
+    });
+  }
+}
+
+// ---------------- MIC 固件直顯 ----------------
+// 原廠「系統信息」嘅 MIC固件欄位 = ro.hardware.version（alpha2_10005 = Lynx
+// 5mic、alpha2_10002 = 舊款）。純讀 property，即回；寫自己格 (micFwOut)。
+function refreshMicFw() {
+  const out = document.getElementById("micFwOut");
+  if (out) out.textContent = t("uuid_querying_hint");
+  return Alpha2Api.micVersion().then(function (json) {
+    if (out) out.textContent = (json && json.version) || "not found";
+    applyHardwareUi(!!(json && json.is2Mic));
+  }).catch(function (err) {
+    if (out) out.textContent = t("err_prefix", { msg: err.message });
+  });
+}
+
+// ---------------- 電池固件直顯 ----------------
+// 原廠「系統信息」嘅電池固件欄位：胸 cmd 57 [3] POWER_INFO（智能電池
+// UART 協議，V352 新命令），同官方 VersionCollector 同款問法。
+// 智能電池閒置會瞓：後端一問內部 poke 重試；前端 ok:false 就隔 2.5s
+// 再試，最多補問 2 次（瞓醒後多數一問即回）；三次都唔得先 not found。
+function refreshBatteryFw() {
+  const out = document.getElementById("batteryFwOut");
+  if (out) out.textContent = t("uuid_querying_hint");
+  function attempt(retriesLeft) {
+    return Alpha2Api.batteryVersion().then(function (json) {
+      if (json && json.ok) {
+        if (out) out.textContent = json.version || "not found";
+        return;
+      }
+      if (retriesLeft > 0) {
+        return new Promise(function (resolve) { setTimeout(resolve, 2500); }).then(function () {
+          return attempt(retriesLeft - 1);
+        });
+      }
+      if (out) out.textContent = "not found";
+    });
+  }
+  return attempt(2).catch(function (err) {
+    if (out) out.textContent = t("err_prefix", { msg: err.message });
   });
 }
 
@@ -45,7 +112,7 @@ function refreshChestFw() {
   return Alpha2Api.chestVersion().then(function (json) {
     if (out) out.textContent = (json && json.version) || "not found";
   }).catch(function (err) {
-    if (out) out.textContent = (uiLang === "en" ? "Error: " : "錯誤: ") + err.message;
+    if (out) out.textContent = t("err_prefix", { msg: err.message });
   });
 }
 

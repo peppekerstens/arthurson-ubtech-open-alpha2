@@ -35,10 +35,9 @@ Usage:
   python scripts/ubx_walk_humanize.py dump <in.ubx>
   python scripts/ubx_walk_humanize.py humanize <in.ubx> <out.ubx>
 
-Verification: after the rebuild, read the file back with the parser of this
-file (compare the length, the echo, the frame count, the total time). You can
-also compile the sdk UbxParser directly with javac and read it back (see the
-comment in scripts/verify-ubx.py).
+驗證：重建後用同檔 parser 回讀（長度/echo/幀數/總時長對比），
+另可直編 sdk-module/hardware-direct 嘅 UbxParser（Android SDK android.jar＋JDK8
+javac）回讀，並用 scripts/ubx_corpus_order.py 對照官方播序。
 """
 import struct
 import sys
@@ -62,7 +61,23 @@ LEAD_TICKS = 0  # opening lead-in (the default has none; the official original f
 # lesson: the v2 first tick pulled K0 directly from the standing pose in 50 ms
 # and the robot reboots in panic). The default 0 follows the official instant start.
 LEAD_TICKS = 0
-HOME_POSE = [120, 120, 120, 120, 120, 120, 120, 65, 145, 140,
+# 開場第一格 move tick 數（0＝唔用，跟 SUB_S）。原檔開場第一格 s=20（tb50＝1000ms）
+# 由現有姿態慢慢入起步 pose；急扯（例：5 tick＝250ms）會扯到胸板 reboot。
+# 只喺有 lead-in 嗰段（＝播放序第一段）生效，會延長總時長 (FIRST_MOVE_TICKS-SUB_S)。
+FIRST_MOVE_TICKS = 0
+# >1：合併子幀——每 m 格子幀併成 1 格大格（move=SUB_S*m tick），減少胸板命令
+# 密度。原因：官方 202 招 move 96% ≥500ms、最細 150ms；太密（例 100ms/格）胸板
+# 行唔到指定速度，真機手腳會「忽然快」。唔整除時自動揀最大可用因數
+# （例 10%4→2、152%4→4）。預設 1＝唔併（HTML 邏輯）。
+MERGE_SUB = 1
+# >1：再喺每個 d.a 內合併「已建成嘅格」（跨原格；MERGE_SUB 只合併單格內子位姿）。
+# 用途：加快（SPEEDUP）會縮短每格 move，真機唔穩；併格＝命令變疏，每格 move
+# 加長返（例：MERGE_SUB=4 + MERGE_FRAME=2 + SPEEDUP=1.5 → 每格 40t×13ms=520ms），
+# 總時長／軌跡不變（最後一格保留、時長相加）。唔整除時自動揀最大可用因數。
+MERGE_FRAME = 1
+# 手臂唔好一字：servo2/5 = 120 係手臂攤平一字（PC 展示姿）；205/35 = 手臂自然垂低。
+# 站定／收步／lead-in 一律垂低手（唔好再出現一字手）。
+HOME_POSE = [120, 205, 120, 120, 35, 120, 120, 65, 145, 140,
              120, 120, 175, 95, 100, 120, 120, 120, 120, 120]
 # Step count plus speed-up (parameterized for an explicit version only; the
 # default N_CYCLES=2 is the original loop count, SPEEDUP=1 is the original speed).
@@ -90,8 +105,15 @@ UNIFORM_RESAMPLE = 0
 END_BLEND = 0
 BLEND_ARMS = 1
 BLEND_LEGS = 1
+# START_BLEND：>0 時，步態頭 N 個循環由 STAND 漸入（smoothstep，同收步對稱），
+# 令「起腳」唔會突然扯起（真機回饋：起腳唔順）。預設 0＝跟原檔即時起腳。
+START_BLEND = 0
 OUTRO_HOME = 0
-STAND_POSE = [120, 120, 120, 120, 120, 120, 120, 65, 145, 140,
+# OUTRO_STAND：最尾一段（官方播放序最後嘅 servo d.a）壓成企定 STAND
+# （保留格數／時長；由上一段尾 pose 平滑埋位再定住）。專治「行完尾段又慢慢
+# 擘開雙手 205/35 停死」——前進 1508999860568 嘅收尾段就係噉。預設 0。
+OUTRO_STAND = 0
+STAND_POSE = [120, 205, 120, 120, 35, 120, 120, 65, 145, 140,
               120, 120, 175, 95, 100, 120, 120, 120, 120, 120]
 
 
@@ -150,11 +172,8 @@ def parse_ubx(path):
 
 
 def parse_blist_frames(d, bo):
-    """Return (da_list, timebases). Each item of da_list is
-    {ftab, a, b, chain_raw, blocks}. Only the type1 blocks are split; the other
-    types stay raw."""
-    if le(d, bo) != len(d[bo:bo + le(d, bo)]) and False:
-        pass
+    """回 (da_list, timebases)。da_list 每項 {ftab, a, b, chain_raw, blocks}，
+    blocks 只拆 type1，其餘 type 留 raw。"""
     nda = le(d, bo + 4)
     bp = bo + 8
     das = []
@@ -250,6 +269,334 @@ def frame_angles(frm):
 
 def angles_of_eblob_template(raw):
     return [raw[80 + gi * 8 + 8] for gi in range(20)]
+
+
+# ---------------------------------------------------------------------------
+# 官方播放流程引擎（Alpha2Services 1.1.7.3 反編譯語意；同 web/ubx-parse.js
+# buildOfficial 及 sdk UbxParser.computeOfficialPlan 逐格對齊，全語料 202 招
+# 驗證一致）。入口 (-1,0) 葉 → block（e==leaf.c）內置 f 表 gate（row[a==leaf.d].d：
+# 0/3 播、1 中斷、2 跳過、其餘死路）→ 按 block f 分派：
+#   f0 servo（timebase static 後蓋前）；f1 跳 track（g＝目標 id，當前鏈完）；
+#   f2 subtype2 Loop（(trk,block) 快取 i/g/h，i>=h 走 d==2 行否則 "Loop" 行）；
+#   f4 TTS（d==2 行）；c==-2：trk0＝全完，否則跨 track 續接（最後一條有
+#   block.g==當前 id 嘅 track，marker row[d==2].a）。
+# ---------------------------------------------------------------------------
+
+
+def lead_int(s):
+    """JS parseInt 近似：讀最前連續數字。"""
+    n = 0
+    seen = False
+    for ch in s:
+        if ch.isdigit():
+            n = n * 10 + int(ch)
+            seen = True
+        else:
+            break
+    return n if seen else 0
+
+
+def parse_row(ftab, pp):
+    """block 內置 f 表一行（pp 指住 echo）。class com.ubtechinc.util.d.e。"""
+    a = le(ftab, pp + 4)
+    b = ftab[pp + 8]
+    c = le(ftab, pp + 9)
+    dd = le(ftab, pp + 13)
+    f = le(ftab, pp + 17)
+    goff = pp + 21 + f
+    name = ""
+    for i in range(20):
+        o = goff + 1 + i * 2
+        if o + 2 > len(ftab):
+            break
+        v = struct.unpack_from("<H", ftab, o)[0]
+        if v:
+            name += chr(v)
+    return {"a": a, "b": b, "c": c, "d": dd, "f": f, "name": name.strip()}
+
+
+def parse_block_rows(ftab):
+    rows = []
+    if len(ftab) >= 8 and le(ftab, 0) == len(ftab):
+        cnt = le(ftab, 4)
+        pp = 8
+        for _ in range(cnt):
+            if pp + 4 > len(ftab):
+                break
+            l1 = le(ftab, pp)
+            pp += 4
+            if l1 <= 0:
+                continue
+            rows.append(parse_row(ftab, pp))
+            pp += l1
+    return rows
+
+
+def parse_loop_blob(blob):
+    """Loop block（f==2 subtype2）資料：照 com.ubtechinc.util.e.a.setRawData 原文。"""
+    if len(blob) < 12 or le(blob, 0) != len(blob) or le(blob, 4) != 2:
+        return None
+    ib = le(blob, 8)
+    i2 = 12
+    f = g = h = 0
+    if ib > 0 and i2 + ib <= len(blob):
+        f = lead_int(blob[i2:i2 + ib].decode("latin1"))
+        i2 += ib
+    if i2 + 4 <= len(blob) and le(blob, i2) > 0:
+        g = lead_int(blob[i2 + 4:i2 + 4 + ib].decode("latin1"))
+    i3 = i2 + 4 + ib
+    if i3 + 4 <= len(blob):
+        ib2 = le(blob, i3)
+        if ib2 > 0:
+            h = lead_int(blob[i3 + 4:i3 + 4 + ib2].decode("latin1"))
+    return {"f": f, "g": g, "h": h}
+
+
+def voice_music(b):
+    if len(b) <= 8:
+        return None
+    s = b[8:].decode("gbk", errors="ignore").strip()
+    if not s:
+        return None
+    k = max(s.rfind("\\"), s.rfind("/"))
+    base = (s[k + 1:] if k >= 0 else s).strip()
+    return base or None
+
+
+def parse_voice_windows(data):
+    """type4 視窗（同 parse_trackh 結構，幀 payload 係歌名）。"""
+    if le(data, 0) != len(data):
+        raise ValueError("voice block len check")
+    nblk = le(data, 4)
+    hp = 8
+    out = []
+    for _ in range(nblk):
+        bl1 = le(data, hp)
+        hp += 4
+        bo = hp
+        if le(data, bo) != bl1:
+            raise ValueError("vbblock echo")
+        nfrm = le(data, bo + 76)
+        fp = bo + 80
+        for _ in range(nfrm):
+            fl1 = le(data, fp)
+            fp += 4
+            fo = fp
+            if le(data, fo) != fl1:
+                raise ValueError("vsframe echo")
+            s = le(data, fo + 8)
+            e = le(data, fo + 12)
+            ffb = le(data, fo + 76)
+            epos = fo + 80
+            out.append({"s": s, "e": e, "music": voice_music(data[epos:epos + ffb])})
+            fp += fl1
+        hp += bl1
+    return out
+
+
+def track_detail(d, t):
+    """回 (leaves, blocks)。blocks 各含 e/f/g/h、內置 f 表 rows、tb、windows、
+    voice、sub、loop（f==2 subtype2）。"""
+    leaves = []
+    ad = t["aleaf"]
+    if len(ad) >= 8 and le(ad, 0) == len(ad):
+        cnt = le(ad, 4)
+        ap = 8
+        for _ in range(cnt):
+            l1 = le(ad, ap)
+            ap += 4
+            if l1 <= 0:
+                continue
+            leaves.append({"a": le(ad, ap + 4), "b": le(ad, ap + 8),
+                           "c": le(ad, ap + 12), "d": le(ad, ap + 16)})
+            ap += l1
+    blocks = []
+    bo = t["blist_off"]
+    bp = bo + 8
+    for _ in range(le(d, bo + 4)):
+        l1 = le(d, bp)
+        bp += 4
+        fp = bp
+        ftl = le(d, fp + 4)
+        base = fp + 8 + ftl
+        blk = {"e": le(d, base + 208), "f": le(d, base + 212),
+               "g": le(d, base + 216), "h": le(d, base + 220),
+               "rows": parse_block_rows(d[fp + 8:fp + 8 + ftl]),
+               "tb": 0, "windows": [], "voice": [], "sub": 0, "loop": None}
+        if blk["h"] > 0:
+            chainb = d[base + 224:base + 224 + blk["h"]]
+            if blk["f"] == 0:
+                for (ty, data) in parse_chain(chainb, blk["h"]):
+                    if ty == 0 and len(data) == 8:
+                        blk["tb"] = le(data, 0)  # 後蓋前
+                    elif ty == 1:
+                        for b2 in parse_trackh(data):
+                            blk["windows"].extend(b2["frames"])
+                    elif ty == 4:
+                        blk["voice"].extend(parse_voice_windows(data))
+            elif blk["f"] == 2:
+                blk["sub"] = le(d, base + 228)
+                if blk["sub"] == 2:
+                    blk["loop"] = parse_loop_blob(chainb)
+            elif blk["f"] == 4:
+                blk["sub"] = le(d, base + 228)
+        blocks.append(blk)
+        bp += l1
+    return leaves, blocks
+
+
+def official_plan(m):
+    """官方流程模擬 → (segs, voices, total_ms, logs)。
+    segs：播序 servo 段 [{track, idx, ticks, tb, frames}]；voices：[{t,bound,music}]；
+    total_ms＝servo 時間軸總長；logs＝流程註記（LOOP/JUMP/CROSS/SKIP…）。"""
+    d = m["raw"]
+    tracks = []
+    for t in m["tracks"]:
+        leaves, blocks = track_detail(d, t)
+        tracks.append({"id": t["id"], "leaves": leaves, "blocks": blocks})
+
+    def find_track(tid):
+        for tr in tracks:
+            if tr["id"] == tid:
+                return tr
+        return None
+
+    t0 = find_track(0)
+    segs = []
+    voices = []
+    logs = []
+    total = 0
+    vt = 0
+    T = 50
+    loop_cache = {}
+    queue = []
+    if t0:
+        for lf in t0["leaves"]:
+            if lf["a"] == -1 and lf["b"] == 0:
+                queue.append((t0, lf))
+    guard = 0
+    while queue and guard < 500:
+        guard += 1
+        track, leaf = queue.pop(0)
+        if leaf["c"] == -2:
+            if track["id"] == 0:
+                logs.append("STOP(-2 id0)")
+                break
+            nt = None
+            nb = None
+            for tr in tracks:
+                for blk in tr["blocks"]:
+                    if blk["g"] == track["id"]:
+                        nt, nb = tr, blk
+                        break
+            if nt is None:
+                logs.append("DEAD(-2 no next track)")
+                break
+            r2 = None
+            for row in nb["rows"]:
+                if row["d"] == 2:
+                    r2 = row
+                    break
+            av = r2["a"] if r2 else -1
+            queue = [(nt, lf2) for lf2 in nt["leaves"]
+                     if lf2["a"] == nb["e"] and lf2["b"] == av]
+            logs.append("CROSS→trk%d" % nt["id"])
+            continue
+        blk = None
+        idx = -1
+        for bi, b3 in enumerate(track["blocks"]):
+            if b3["e"] == leaf["c"]:
+                blk, idx = b3, bi
+                break
+        if blk is None:
+            logs.append("DEAD(no block e=%d)" % leaf["c"])
+            continue
+        row = None
+        for r in blk["rows"]:
+            if r["a"] == leaf["d"]:
+                row = r
+                break
+        iC = row["d"] if row else -1
+
+        def find_row_d2():
+            for x in blk["rows"]:
+                if x["d"] == 2:
+                    return x
+            return None
+
+        def push_next(oi):
+            for l3 in track["leaves"]:
+                if l3["a"] == blk["e"] and l3["b"] == oi:
+                    queue.append((track, l3))
+
+        if iC in (0, 3):
+            if blk["f"] == 0:
+                if blk["tb"]:
+                    T = blk["tb"]
+                ticks = 0
+                for fr in blk["windows"]:
+                    ticks += fr["s"] + fr["e"]
+                segs.append({"track": track["id"], "idx": idx, "ticks": ticks,
+                             "tb": T, "frames": blk["windows"]})
+                total += ticks * T
+                for vf in blk["voice"]:
+                    voices.append({"t": vt, "bound": vf["s"] * T,
+                                   "music": vf["music"]})
+                    vt += (vf["s"] + vf["e"]) * T
+                logs.append("PLAY trk%d e%d" % (track["id"], blk["e"]))
+                push_next(2)
+            elif blk["f"] == 1:
+                nt2 = find_track(blk["g"])
+                logs.append("JUMP(f1) trk%d→trk%d" % (track["id"], blk["g"]))
+                if nt2:
+                    for l4 in nt2["leaves"]:
+                        if l4["a"] == -1 and l4["b"] == 0:
+                            queue.append((nt2, l4))
+            elif blk["f"] == 2:
+                if blk["sub"] == 2 and blk["loop"]:
+                    key = (track["id"], blk["e"])
+                    st = loop_cache.get(key)
+                    if st is None:
+                        st = {"i": blk["loop"]["f"], "g": blk["loop"]["g"],
+                              "h": blk["loop"]["h"]}
+                        loop_cache[key] = st
+                    if st["i"] >= st["h"]:
+                        dr = find_row_d2()
+                        push_next(dr["a"] if dr else -1)
+                        logs.append("LOOPEND trk%d e%d" % (track["id"], blk["e"]))
+                    else:
+                        rl = None
+                        for x in blk["rows"]:
+                            if x["name"] == "Loop":
+                                rl = x
+                                break
+                        push_next(rl["a"] if rl else -1)
+                        st["i"] += st["g"]
+                        logs.append("LOOP trk%d e%d i=%d/%d"
+                                    % (track["id"], blk["e"], st["i"], st["h"]))
+                elif blk["sub"] == 1:
+                    rt = None
+                    for x in blk["rows"]:
+                        if x["name"] == "True":
+                            rt = x
+                            break
+                    push_next(rt["a"] if rt else -1)
+                    logs.append("COND(True) trk%d e%d" % (track["id"], blk["e"]))
+                else:
+                    logs.append("F2sub%d（唔支持）" % blk["sub"])
+            elif blk["f"] == 4:
+                d4 = find_row_d2()
+                push_next(d4["a"] if d4 else -1)
+                logs.append("TTS trk%d e%d" % (track["id"], blk["e"]))
+            else:
+                logs.append("F%d（無 dispatch）" % blk["f"])
+        elif iC == 1:
+            logs.append("GATE1（中斷分支）")
+        elif iC == 2:
+            logs.append("SKIP(iC2)")
+        else:
+            logs.append("DEAD-GATE iC=%d e=%d" % (iC, blk["e"]))
+    return segs, voices, total, logs
 
 
 def build_servo_frame(template_raw, s, e, angles):
@@ -433,14 +780,17 @@ def dump(path):
 def humanize(in_path, out_path):
     m = parse_ubx(in_path)
     d = m["raw"]
-    # First work out the first/last pose of each servo d.a in play order, for the ghost transition (a smooth step across tracks).
-    order = []  # (track_idx, da_idx)
-    parsed = {}  # (ti, di) -> da (the same object, the id is stable)
+    # 先算播放序上每個 servo d.a 的首/尾 pose，供 ghost 過渡（跨 track 跳步順滑）。
+    # 播放序用官方流程（leaf 鏈）計——parse 序≠播序嘅檔（例：前進）ghost 先唔會撈亂。
+    segs, voices, total, logs = official_plan(m)
+    ti_of = {t["id"]: i for i, t in enumerate(m["tracks"])}
+    order = list(dict.fromkeys((ti_of[sg["track"]], sg["idx"]) for sg in segs))
+    parsed = {}  # (ti, di) -> da（同一物件，id 穩定；包括唔會播嘅段照重建）
     for ti, t in enumerate(m["tracks"]):
         for di, da in enumerate(parse_blist_frames(d, t["blist_off"])):
             if da["fh"] > 0 and da["f"] == 0:
-                order.append((ti, di))
                 parsed[(ti, di)] = da
+    order = [k for k in order if k in parsed]
     lasts = {}
     for key in order:
         da = parsed[key]
@@ -455,9 +805,33 @@ def humanize(in_path, out_path):
         ghost_of[key] = prev_last  # the first is None (the lead-in starts from HOME)
         prev_last = lasts[key]
     pos_in_order = {key: i for i, key in enumerate(order)}
-    # The ghost uses the rebuilt tail pose (serial follow-up): when the blend changes the tail, the next segment must not reuse the old tail
-    # (otherwise track1 ends at HOME and track2 starts from the old W5, and the middle drops a chunk - caught by test).
+    outro_key = order[-1] if order else None
+    # ghost 用重建後尾 pose（串行跟進）：blend 改尾當時，下一段不可以再用原尾
+    # （否則 track1 收 HOME、track2 由舊 W5 起步，中間斷一截——實證捉到）。
     rebuilt_end = {}
+    # 按播放序 pre-rebuild（ghost 要跟播序串行；檔案序 ≠ 播序，例：前進嘅
+    # 收尾段喺檔案排前但播最後，唔可以早過 gait 重建）。
+    rebuilt = {}  # (ti, di) -> (new_type1, new_ticks)
+    for key in order:
+        ti_k, di_k = key
+        da_k = parse_blist_frames(d, m["tracks"][ti_k]["blist_off"])[di_k]
+        blks_k = parse_chain(da_k["chain"], da_k["fh"])
+        oi = pos_in_order[key]
+        if oi > 0 and order[oi - 1] in rebuilt_end:
+            ghost = rebuilt_end[order[oi - 1]]
+            lead = 0
+        else:
+            ghost = ghost_of.get(key)
+            lead = LEAD_TICKS if key == first_key else 0
+        for (ty_k, data_k) in blks_k:
+            if ty_k == 1:
+                nt1, nt2, last_pose = rebuild_type1(
+                    data_k, ghost, lead, m["tracks"][ti_k]["id"],
+                    stand_outro=bool(OUTRO_STAND and key == outro_key))
+                rebuilt[key] = (nt1, nt2)
+                if last_pose is not None:
+                    rebuilt_end[key] = last_pose
+                break
     new_tracks = []
     for ti, t in enumerate(m["tracks"]):
         das = parse_blist_frames(d, t["blist_off"])
@@ -477,19 +851,14 @@ def humanize(in_path, out_path):
                             orig_ticks += f0["s"] + f0["e"]
             new_type1 = None
             new_ticks = orig_ticks
-            for (ty, data) in blks:
-                if ty == 1:
-                    oi = pos_in_order.get((ti, di), -1)
-                    if oi > 0 and order[oi - 1] in rebuilt_end:
-                        ghost = rebuilt_end[order[oi - 1]]
-                        lead = 0
-                    else:
-                        ghost = ghost_of[(ti, di)]
-                        lead = LEAD_TICKS if (ti, di) == first_key else 0
-                    new_type1, new_ticks, last_pose = rebuild_type1(data, ghost, lead, t["id"])
-                    if last_pose is not None:
-                        rebuilt_end[(ti, di)] = last_pose
-                    break
+            if (ti, di) in rebuilt:
+                new_type1, new_ticks = rebuilt[(ti, di)]
+            else:
+                # 唔喺播放序（死段）：自我起步重建，保持檔案完整
+                for (ty, data) in blks:
+                    if ty == 1:
+                        new_type1, new_ticks, _ = rebuild_type1(data, None, 0, t["id"])
+                        break
             new_items = []
             for (ty, data) in blks:
                 if ty == 1:
@@ -538,7 +907,7 @@ def rebuild_da_verbatim(d, da):
     return d[fp - 4:fp + da["L1"]]  # outer + content
 
 
-def rebuild_type1(data, ghost_prev, lead_ticks=0, tid=None):
+def rebuild_type1(data, ghost_prev, lead_ticks=0, tid=None, stand_outro=False):
     blks = parse_trackh(data)
     # Collect the frame order of the whole d.a (the player play order is this order). Each frame is a transition from the previous pose to this frame.
     seq = []
@@ -553,6 +922,7 @@ def rebuild_type1(data, ghost_prev, lead_ticks=0, tid=None):
     cyc = None
     if n >= 6 and n % 6 == 0 and all(k == keys[i % 6] for i, k in enumerate(keys)):
         cyc = (keys[:6], ticks[:6])
+    fm = 0
     if cyc is not None:
         ck, ct = cyc
         ek = ck * N_CYCLES
@@ -584,9 +954,21 @@ def rebuild_type1(data, ghost_prev, lead_ticks=0, tid=None):
                     else:
                         new_poses[base + j] = [(1 - te) * a + te * b if k < 6 else a
                                                for k, (a, b) in enumerate(zip(row, STAND_POSE))]
-        # Split back into the original block count (the ticks divide evenly; the windows are recounted in the official format: end = start + ticks,
-        # the next frame starts at end + 1; the original file example is 0-190/191-381; the player ignores the windows,
-        # but the values must be right if alpha2services is the reference)
+        if START_BLEND:
+            # 起腳緩入：頭 N 個循環由縫位 pose（g＝上一段尾格）漸入，
+            # 速度由 0 起（smoothstep），之後先全幅步態——同收步對稱
+            cyc_per = len(new_poses) // N_CYCLES
+            assert cyc_per * N_CYCLES == len(new_poses), (len(new_poses), N_CYCLES)
+            n = min(START_BLEND, N_CYCLES) * cyc_per
+            ref = list(g)
+            for j in range(n):
+                t = (j + 1) / n
+                te = t * t * (3 - 2 * t)
+                row = new_poses[j]
+                new_poses[j] = [a + te * (b - a) for a, b in zip(ref, row)]
+        # 分回原 block 數（tick 均分；窗口按官方格式重計：end=start+ticks，
+        # 下一格 start=end+1，原檔例 0-190/191-381；player 忽略窗口，
+        # 但 alpha2services 為準就要啱）
         per = len(new_poses) // len(blks)
         groups = [new_poses[i * per:(i + 1) * per] for i in range(len(blks))]
         bt_total = sum(et)
@@ -598,6 +980,10 @@ def rebuild_type1(data, ghost_prev, lead_ticks=0, tid=None):
             ws += per_ticks + 1
         tmpl_frames = [b["frames"] for b in blks]
     else:
+        if stand_outro:
+            # 收尾段壓成企定：保留格數／時長，全部 key 換做 STAND，
+            # 由上一段（gait）尾 pose 平滑埋位；唔再擘開手。
+            keys = [list(STAND_POSE) for _ in keys]
         if OUTRO_HOME and tid == 2 and len(keys) == 1:
             # Single frame of the stop segment: press the arms back to HOME (the original O0 is open; it plays as a cross at the tail;
             # the legs are already standing, so the whole frame at HOME is a 1.25 s steady stand, the time is unchanged)
@@ -633,137 +1019,67 @@ def rebuild_type1(data, ghost_prev, lead_ticks=0, tid=None):
         tmpl_frames = [b["frames"] for b in blks]
         wins = [None] * len(blks)
         new_ticks = sum(ticks2)
-    new_contents = []
+        if lead_ticks > 0 and FIRST_MOVE_TICKS > SUB_S:
+            fm = FIRST_MOVE_TICKS
+            m_first = max(1, MERGE_SUB)
+            while m_first > 1 and (not groups[0] or len(groups[0]) % m_first):
+                m_first -= 1
+            new_ticks += fm - SUB_S * m_first
+    built = []  # (s, e, pose, blk_raw, tmpl_raw, win)
     for blk, poses, tfrms, win in zip(blks, groups, tmpl_frames, wins):
-        tmpl = tfrms[-1]["raw"]  # the last frame template of the blk (the eblob hash bytes are isomorphic)
-        fbytes = [build_servo_frame(tmpl, SUB_S, SUB_E, p) for p in poses]
-        new_contents.append(build_block(blk["raw"], fbytes, win))
+        tmpl = tfrms[-1]["raw"]  # 該 blk 尾幀模板（eblob 雜湊字節同構）
+        m = max(1, MERGE_SUB)
+        while m > 1 and len(poses) % m:
+            m -= 1
+        if m > 1:
+            for i in range(0, len(poses), m):
+                s = fm if (fm and blk is blks[0] and i == 0) else SUB_S * m
+                built.append((s, 0, poses[i + m - 1], blk["raw"], tmpl, win))
+        else:
+            for pi, p in enumerate(poses):
+                s = fm if (fm and blk is blks[0] and pi == 0) else SUB_S
+                built.append((s, 0 if s == fm else SUB_E, p, blk["raw"], tmpl, win))
+    k = max(1, MERGE_FRAME)
+    while k > 1 and len(built) % k:
+        k -= 1
+    if k > 1:
+        merged = []
+        for i in range(0, len(built), k):
+            grp = built[i:i + k]
+            merged.append((sum(g[0] for g in grp), grp[-1][1], grp[-1][2],
+                           grp[-1][3], grp[-1][4], grp[0][5]))
+        built = merged
+    new_contents = []
+    ws = blks[0]["start"] if blks else 0
+    for s, e, p, blk_raw, tmpl, _win in built:
+        win2 = (ws, ws + s + e)
+        ws += s + e + 1
+        new_contents.append(build_block(blk_raw, [build_servo_frame(tmpl, s, e, p)], win2))
     last_pose = new_poses[-1] if new_poses else None
     return build_trackh(new_contents), new_ticks, last_pose
 
 
 def chain(path):
-    """Proof of the simulated play order of the official model: walk the entry to the chain per track (the same rules as the Java computePlayOrder).
-    Print the ticks and the time of each segment plus the total time of the whole file. Use it to compare the original file against the changed file (the step count and time differences are plain at a glance)."""
+    """官方模型模擬播序：全局 leaf 鏈（同 Java computeOfficialPlan／web
+    buildOfficial 同規則），印每段 tick＋時長＋全檔總時長。
+    原檔 vs 改檔對比用（步數/時長差異一目了然）。"""
     m = parse_ubx(path)
-    d = m["raw"]
+    segs, voices, total, logs = official_plan(m)
     print("chain:", path)
-    grand_ms = 0
-    for t in m["tracks"]:
-        # Leaves (a,b,c,d)
-        leaves = []
-        ad = t["aleaf"]
-        if len(ad) >= 8 and le(ad, 0) == len(ad):
-            cnt = le(ad, 4)
-            ap = 8
-            for _ in range(cnt):
-                l1 = le(ad, ap)
-                ap += 4
-                if l1 <= 0:
-                    continue
-                leaves.append((le(ad, ap + 4), le(ad, ap + 8),
-                               le(ad, ap + 12), le(ad, ap + 16)))
-                ap += l1
-        # Key (a->d)
-        keyD = {}
-        ft = t["ftab"]
-        if len(ft) >= 8 and le(ft, 0) == len(ft):
-            cnt = le(ft, 4)
-            fp = 8
-            for _ in range(cnt):
-                l1 = le(ft, fp)
-                fp += 4
-                if l1 <= 0:
-                    continue
-                keyD[le(ft, fp + 4)] = le(ft, fp + 13)
-                fp += l1
-        # Segment table (blist order): (e, f, ticks, nframes, timeBase); the non-servo segments have ticks/n=0
-        alld = []
-        bo = t["blist_off"]
-        bp = bo + 8
-        for _ in range(le(d, bo + 4)):
-            l1 = le(d, bp)
-            bp += 4
-            fp = bp
-            ftl = le(d, fp + 4)
-            base = fp + 8 + ftl
-            fe = le(d, base + 208)
-            ff = le(d, base + 212)
-            fh = le(d, base + 220)
-            ticks = 0
-            nframes = 0
-            tb = 0
-            if fh > 0 and ff == 0:
-                ep = base + 224
-                for (ty, data) in parse_chain(d[ep:ep + fh], fh):
-                    if ty == 0 and len(data) == 8:
-                        tb = le(data, 0)
-                    if ty == 1:
-                        for blk in parse_trackh(data):
-                            for f in blk["frames"]:
-                                ticks += f["s"] + f["e"]
-                                nframes += 1
-            alld.append({"e": fe, "f": ff, "ticks": ticks,
-                         "n": nframes, "tb": tb})
-            bp += l1
-        print("  trk%d:" % t["id"])
-        total_ms = 0
-        shown = []
-        # Entry: the (a==-1, b==0) leaves; if there are none, fall back to the parse order (the servo segment list)
-        pending = [lf for lf in leaves if lf[0] == -1 and lf[1] == 0]
-        if not pending:
-            for i, s in enumerate([s for s in alld if s["f"] == 0]):
-                ms = s["ticks"] * (s["tb"] or 50)
-                total_ms += ms
-                shown.append("da%d(%dt/%dms/%df)" % (i, s["ticks"], ms, s["n"]))
-        else:
-            seen = set()
-            guard = 0
-            while pending and guard < 1024:
-                guard += 1
-                lf = pending.pop(0)
-                k = "%d,%d,%d,%d" % lf
-                if k in seen:
-                    continue
-                seen.add(k)
-                c = lf[2]
-                dd = lf[3]
-                if c == -2:
-                    break
-                if keyD:
-                    v7 = keyD.get(dd, -1)
-                    if v7 != 0 and v7 != 3:
-                        continue
-                dai = -1
-                for i, s in enumerate(alld):
-                    if s["e"] == c:
-                        dai = i
-                        break
-                if dai < 0:
-                    continue
-                ff = alld[dai]["f"]
-                if ff == 0:
-                    s = alld[dai]
-                    ms = s["ticks"] * (s["tb"] or 50)
-                    total_ms += ms
-                    shown.append("da%d(%dt/%dms/%df)" % (dai, s["ticks"], ms, s["n"]))
-                    outIdx = 2
-                elif ff == 1:
-                    outIdx = 0
-                elif ff == 4:
-                    outIdx = 2
-                elif ff == 2:
-                    outIdx = -1
-                else:
-                    continue
-                de = alld[dai]["e"]
-                for l2 in leaves:
-                    if l2[0] == de and l2[1] == outIdx:
-                        pending.append(l2)
-        print("    order: " + (" > ".join(shown) if shown else "( silent )"))
-        print("    track total: %dms" % total_ms)
-        grand_ms += total_ms
-    print("  FILE total: %dms" % grand_ms)
+    parts = []
+    nframes = 0
+    for sg in segs:
+        nframes += len(sg["frames"])
+        parts.append("trk%d[%d](%dt/%dms/%df)"
+                     % (sg["track"], sg["idx"], sg["ticks"],
+                        sg["ticks"] * sg["tb"], len(sg["frames"])))
+    print("    order: " + (" > ".join(parts) if parts else "( silent )"))
+    print("    FILE total: %dms (frames=%d, voice=%d)"
+          % (total, nframes, len(voices)))
+    jumps = sum(1 for x in logs if x.startswith(("JUMP", "CROSS", "LOOP", "COND")))
+    if jumps:
+        print("    flow: " + " | ".join(x for x in logs if x.startswith(
+            ("JUMP", "CROSS", "LOOP", "COND", "STOP", "TTS"))))
 
 
 def droptrack(in_path, out_path, keep_ids):

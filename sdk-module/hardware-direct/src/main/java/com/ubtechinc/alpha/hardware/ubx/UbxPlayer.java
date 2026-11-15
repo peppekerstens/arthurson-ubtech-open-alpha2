@@ -26,19 +26,23 @@ import java.util.List;
  * </pre>
  * v1 簡化：
  * <ul>
- *   <li>只播 a.d 鏈定時幀（servo 看 groupBytes&gt;0；d.f 關鍵幀表不發送）。</li>
- *   <li>幀序按官方鏈式次序（smali f/b.f＋f/c.a 實證：入口 (-1,0) 葉起，
- *       leaf.c 對 d/a.e 選段，v7 gate＋c==-2 終止，段完按出索引跟鏈；
- *       見 UbxParser.computePlayOrder）。撳唔出序先回退解析序。
- *       鏈終止（c==-2）即全動作完，後續 track 唔播；多 track 首尾相接；
- *       a.h/a.j 視窗偏移忽略。</li>
+ *   <li>只播 servo 幀（groupBytes&gt;0；d.f 關鍵幀表不發送）。</li>
+ *   <li>幀序＝官方 Alpha2Services 1.1.7.3 完整流程（見
+ *       {@link UbxParser#computeOfficialPlan}）：入口 (-1,0) 葉、block 內置 f 表
+ *       gate（row[a==leaf.d].d：0/3 播、1 中斷、2 跳過）、f==1 跳 track（g＝目標 id）、
+ *       f==2 subtype2 Loop 重播（(track,block) 快取 f/g/h）、f==4 TTS、
+ *       每段完成跟 (a==e,b==outIdx) 搵同 track 下一批葉；c==-2：track id==0 全完，
+ *       否則跨 track 續接（有 block.g==當前 id 嘅 track，由 marker row[d==2] 續）。
+ *       timebase＝static 後蓋前（即 per-block）。</li>
  *   <li>自然播完停喺尾格：唔加送任何修正幀，播乜就係乜（stop() 中斷同樣
  *       保持末位姿）。</li>
  *   <li>單調 deadline 調度，累計漂移消除；stop() 中斷雙線，舵機保持末位姿。</li>
- *   <li>變速（0.5/0.67/1/1.5/2，黏性）：舵機槽位與 move 時長同除以倍率；
+ *   <li>變速（0.5–2.0 倍，黏性）：舵機槽位與 move 時長同除以倍率；
  *       配樂 1x 走 MediaPlayer（即時起播），非 1x 走 decode+線性重採樣“磁帶式”
  *       變速（不變調，0.5x 低沉、2x 尖細，機身 API 22 無 PlaybackParams）。
- *       播緊途中改速由調用方停舊重播即時生效（player 內快照隔離進行中計劃）。</li>
+ *       播緊途中改速由調用方停舊重播即時生效（player 內快照隔離進行中計劃）。
+ *       非 1x 配樂若 bound 接近全曲會播到 decoder EOS（唔按時間腰斬），
+ *       舊 playback 線程有 generation guard，唔會停新一輪播放。</li>
  * </ul>
  * </p>
  */
@@ -49,6 +53,8 @@ public final class UbxPlayer {
 
     private Thread playThread;
     private Thread voiceThread;
+    /** 每次 play() 遞增；舊線程收尾只准清自己嘅資源，唔准停新一輪播放。 */
+    private volatile int playbackGen;
     private volatile boolean stopReq;
     private volatile boolean voiceStopReq;
     private volatile String currentName = "";
@@ -75,23 +81,18 @@ public final class UbxPlayer {
     /** 逐軸版位姿（未知嗰軸 null；servoAngleAllResponse 命令位姿榜用）。 */
     public Integer[] poseBoxed() { return poseTracker.snapshotBoxed(); }
 
-    /** 流播路徑用：標記當前歌名（供 status），與 startVoiceLocked 對等。 */
-    private synchronized void setVoiceSong(String s) { voiceSong = s != null ? s : ""; }
     /** 變速倍率（黏性，作用於下次播放；播緊途中改只影響下一次）。 */
     private volatile float speed = 1.0f;
 
-    private static final float[] SPEEDS = new float[]{0.5f, 0.67f, 1.0f, 1.5f, 2.0f};
+    private static final float MIN_SPEED = 0.5f;
+    private static final float MAX_SPEED = 2.0f;
 
-    /** 設變速（僅 0.5/0.67/1/1.5/2 合法）；播緊時由調用方重播即時生效，返回是否接受。 */
+    /** 設變速（0.5–2.0 倍合法）；播緊時由調用方重播即時生效，返回是否接受。 */
     public synchronized boolean setSpeed(float s) {
-        for (float v : SPEEDS) {
-            if (Math.abs(v - s) < 0.001f) {
-                speed = v;
-                Log.i(TAG, "speed set " + v + "x (next play)");
-                return true;
-            }
-        }
-        return false;
+        if (Float.isNaN(s) || s < MIN_SPEED || s > MAX_SPEED) return false;
+        speed = s;
+        Log.i(TAG, "speed set " + s + "x (next play)");
+        return true;
     }
 
     public float getSpeed() { return speed; }
@@ -181,16 +182,22 @@ public final class UbxPlayer {
         String base = name != null && name.endsWith(".ubx") ? name.substring(0, name.length() - 4) : name;
         if (ubx != null) {
             long voiceElapsed = 0;
-            for (UbxFile.UbxTrack t : ubx.tracks) {
-                int tickMs = resolveTickMs(ubx, t);
-                for (UbxFile.UbxServoFrame sf : orderedFrames(t)) {
+            // 官方（Alpha2Services 1.1.7.3）流程：leaf 鏈＋block 內置 gate 表＋LOOP／
+            // 跳 track／-2 跨 track 續接＋per-block timebase（見 UbxParser.computeOfficialPlan）。
+            List<UbxParser.UbxPlanNode> planNodes = UbxParser.computeOfficialPlan(ubx);
+            for (UbxParser.UbxPlanNode node : planNodes) {
+                int[] span = node.spanIdx < node.track.daSpans.size() ? node.track.daSpans.get(node.spanIdx) : null;
+                if (span == null) continue;
+                int tickMs = node.tickMs > 0 ? node.tickMs : resolveTickMs(ubx, node.track);
+                for (int fi = span[0]; fi < span[1] && fi < node.track.frames.size(); fi++) {
+                    UbxFile.UbxServoFrame sf = node.track.frames.get(fi);
                     if (sf.voice) {
                         if (ubxFile == null) continue;
-                        String music = sf.music != null ? sf.music : t.musicName;
+                        String music = sf.music != null ? sf.music : node.track.musicName;
                         File mf = resolveVoiceFile(ubxFile, base, music);
                         // 配樂自停上限不鉗 30000（那是胸協議 move 的鉗位；歌可長達數分鐘，
                         // 鉗了會提前腰斬——0.67x 下 69s bound 曾被誤殺成 30s）。
-                        long boundMs = scaleTime((long) sf.moveTimeHintMs, sp);
+                        long boundMs = scaleTime((long) sf.start * (long) tickMs, sp);
                         long slotMs = scaleTime((long) (sf.start + sf.end) * (long) tickMs, sp);
                         vsongs.add(new VSong(voiceElapsed, boundMs, mf,
                                 mf != null ? mf.getName() : (music != null ? music : "")));
@@ -198,16 +205,9 @@ public final class UbxPlayer {
                         continue;
                     }
                     if (sf.groupBytes <= 0) continue; // d.f 關鍵幀表葉：只作位姿參考不發送
-                    int moveMs = scaleTime(sf.moveTimeHintMs, sp);
+                    int moveMs = (int) scaleTime((long) sf.start * (long) tickMs, sp);
                     long slotMs = scaleTime((long) (sf.start + sf.end) * (long) tickMs, sp);
                     seq.add(new Slot(sf, slotMs, moveMs));
-                }
-                // 鏈終止（c==-2，smali f/c.a completed 分支）：全動作完，
-                // 後續 track 唔播——前進/後退收步段就係咁被 skip（真機片實證）。
-                if (t.chainTerminated) {
-                    Log.i(TAG, "play " + name + " chain terminated after track "
-                            + t.id + " (skipping later tracks)");
-                    break;
                 }
             }
         }
@@ -226,19 +226,20 @@ public final class UbxPlayer {
         currentName = name != null ? name : "";
         lastError = "";
         voiceSong = "";
+        final int gen = ++playbackGen;
         final List<Slot> plan = seq;
         final List<VSong> vplan = vsongs;
         final DirectChestController c = chest;
         if (!plan.isEmpty()) {
             playThread = new Thread(new Runnable() {
-                @Override public void run() { loop(plan, c); }
+                @Override public void run() { loop(plan, c, gen); }
             }, "ubx-play");
             playThread.start();
         }
         if (!vplan.isEmpty()) {
             final float vsp = sp; // 配樂同舵機用同一個快照：播音起線前改速唔好聲畫分裂
             voiceThread = new Thread(new Runnable() {
-                @Override public void run() { voiceLoop(vplan, vsp); }
+                @Override public void run() { voiceLoop(vplan, vsp, gen); }
             }, "ubx-voice");
             voiceThread.start();
         }
@@ -267,12 +268,12 @@ public final class UbxPlayer {
         return play(ubx, name, chest, null);
     }
 
-    private void loop(List<Slot> plan, DirectChestController chest) {
+    private void loop(List<Slot> plan, DirectChestController chest, int gen) {
         long monoStart = System.nanoTime() / 1000000L;
         long elapsed = 0;
         try {
             for (Slot s : plan) {
-                if (stopReq || Thread.currentThread().isInterrupted()) break;
+                if (gen != playbackGen || stopReq || Thread.currentThread().isInterrupted()) break;
                 int[] angles = new int[20];
                 for (int i = 0; i < 20; i++) angles[i] = s.sf.angles20[i] & 0xFF;
                 try {
@@ -301,11 +302,11 @@ public final class UbxPlayer {
         }
     }
 
-    private void voiceLoop(List<VSong> plan, float sp) {
+    private void voiceLoop(List<VSong> plan, float sp, int gen) {
         long monoStart = System.nanoTime() / 1000000L;
         try {
             for (int i = 0; i < plan.size(); i++) {
-                if (voiceStopReq || Thread.currentThread().isInterrupted()) break;
+                if (gen != playbackGen || voiceStopReq || Thread.currentThread().isInterrupted()) break;
                 VSong v = plan.get(i);
                 long wait = monoStart + v.startMs - System.nanoTime() / 1000000L;
                 if (wait > 0) {
@@ -315,27 +316,36 @@ public final class UbxPlayer {
                         break;
                     }
                 }
-                if (voiceStopReq || Thread.currentThread().isInterrupted()) break;
+                if (gen != playbackGen || voiceStopReq || Thread.currentThread().isInterrupted()) break;
                 long nextStart = (i + 1 < plan.size()) ? plan.get(i + 1).startMs : Long.MAX_VALUE;
                 long playUntil = Math.min(v.startMs + v.boundMs, nextStart); // 自停或被下首打斷
+                Log.i(TAG, "voice plan " + v.name + " start=" + v.startMs
+                        + " bound=" + v.boundMs + " speed=" + sp + " gen=" + gen);
                 if (v.file == null || !v.file.isFile()) {
                     Log.w(TAG, "voice missing: " + v.name);
                 } else if (sp == 1.0f) {
-                    startVoiceLocked(v);
+                    startVoiceLocked(v, gen);
                 } else {
                     VoiceStream vs = new VoiceStream();
-                    curStream = vs;
-                    setVoiceSong(v.name);
+                    synchronized (UbxPlayer.this) {
+                        if (gen != playbackGen) break;
+                        curStream = vs;
+                        voiceSong = v.name;
+                    }
                     Log.i(TAG, "voice stream " + v.name + " " + sp + "x");
                     try {
                         vs.play(v.file, sp, monoStart + playUntil, new VoiceStream.StopFlag() {
                             @Override public boolean isStopped() {
-                                return voiceStopReq || Thread.currentThread().isInterrupted();
+                                return gen != playbackGen || voiceStopReq
+                                        || Thread.currentThread().isInterrupted();
                             }
                         });
                     } finally {
-                        curStream = null;
-                        setVoiceSong("");
+                        // 只清自己嗰條 stream；舊線程收尾唔可以停新一輪播放。
+                        synchronized (UbxPlayer.this) {
+                            if (curStream == vs) curStream = null;
+                            if (gen == playbackGen) voiceSong = "";
+                        }
                     }
                     continue; // 流播內已處理自停/打斷，直接下首
                 }
@@ -347,17 +357,18 @@ public final class UbxPlayer {
                         break;
                     }
                 }
-                stopVoiceLocked();
+                stopVoiceLocked(gen);
             }
         } finally {
-            stopVoiceLocked();
+            stopVoiceLocked(gen);
             Log.i(TAG, "voice end " + currentName);
         }
     }
 
     /** 起一首（打斷上一首；prepare 同步，無 looper 要求，與 o$a 一致）。 */
-    private synchronized void startVoiceLocked(VSong v) {
-        stopVoiceLocked();
+    private synchronized void startVoiceLocked(VSong v, int gen) {
+        if (gen != playbackGen) return;
+        stopVoiceLocked(gen);
         voiceSong = "";
         if (v.file == null || !v.file.isFile()) {
             Log.w(TAG, "voice missing: " + v.name);
@@ -400,7 +411,8 @@ public final class UbxPlayer {
         }
     }
 
-    private synchronized void stopVoiceLocked() {
+    private synchronized void stopVoiceLocked(int gen) {
+        if (gen != playbackGen) return;
         VoiceStream vs = curStream;
         curStream = null;
         if (vs != null) vs.abort();
@@ -431,17 +443,167 @@ public final class UbxPlayer {
         }
     }
 
+    // ---- 按住連行（GaitWalker；放入 play 線程，所以 stop()／isPlaying() 搶佔語義照舊）----
+
+    private volatile GaitWalker walker;
+    /** 最近一次 startWalk 嘅方向名（WALK_FWD／WALK_BACK）。 */
+    private volatile String walkName = WALK_FWD;
+
+    /** 行緊（或最近一次）路嘅方向：{@link #WALK_FWD}／{@link #WALK_BACK}。 */
+    public String walkName() {
+        return walkName;
+    }
+
+    /**
+     * 開始按住連行。已有普通播放／行緊路 → false（lastError 有原因）；
+     * 例外：上一次行路已放手、正喺收步，就截停佢再起（連撳唔使等收步完）。
+     *
+     * @param leaseMs 0＝無租約（本機 key-up 可靠）；&gt;0＝超時未 {@link #beatWalk()} 即自動放手
+     */
+    public boolean startWalk(GaitProgram prog, DirectChestController chest, float speed, long leaseMs) {
+        return startWalk(prog, chest, speed, leaseMs, WALK_FWD);
+    }
+
+    /** 行路名：{@link #WALK_FWD}（向前行）／{@link #WALK_BACK}（向後行）；同時係 currentName。 */
+    public static final String WALK_FWD = "walk:fwd";
+    public static final String WALK_BACK = "walk:back";
+
+    /**
+     * 同 {@link #startWalk(GaitProgram, DirectChestController, float, long)}，但可指定行路名
+     * （方向）。名只係標籤（狀態／日誌用）；實際步態由傳入嘅 {@code prog} 決定。
+     */
+    public boolean startWalk(GaitProgram prog, DirectChestController chest, float speed, long leaseMs,
+            String name) {
+        GaitWalker old = walker;
+        if (old != null && old.isFinishing() && playThread != null && playThread.isAlive()) {
+            stop(); // 唔可以喺 synchronized 內 stop()（join 會同收尾線程互等）
+        }
+        return startWalkLocked(prog, chest, speed, leaseMs,
+                WALK_BACK.equals(name) ? WALK_BACK : WALK_FWD);
+    }
+
+    private synchronized boolean startWalkLocked(GaitProgram prog, final DirectChestController chest,
+            float speed, long leaseMs, String name) {
+        if ((playThread != null && playThread.isAlive())
+                || (voiceThread != null && voiceThread.isAlive())) {
+            lastError = "already playing " + currentName;
+            return false;
+        }
+        if (prog == null || chest == null || !chest.isAvailable()) {
+            lastError = "chest not available";
+            return false;
+        }
+        stopReq = false;
+        voiceStopReq = false;
+        framesSent = 0;
+        framesTotal = 0;
+        currentName = name;
+        walkName = name;
+        lastError = "";
+        voiceSong = "";
+        final int gen = ++playbackGen;
+        final GaitWalker w = new GaitWalker(prog, new GaitWalker.Sender() {
+            @Override public boolean send(int[] angles, int timeMs) {
+                try {
+                    if (chest.playAllServos(angles, (short) timeMs)) {
+                        poseTracker.update(angles); // 命令位姿追踪（成功发送才记）
+                        framesSent++;
+                        return true;
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "walk send failed: " + e.getMessage());
+                }
+                return false;
+            }
+        }, poseTracker.snapshot(), speed, leaseMs);
+        w.setMinUpdateMs(GaitWalker.WALK_MIN_UPDATE_MS);   // 步態更新唔快過 300ms（實機穩定性）
+        w.setMoveOverlap(GaitWalker.WALK_MOVE_OVERLAP);
+        walker = w;
+        playThread = new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    w.run();
+                } finally {
+                    Log.i(TAG, "walk end reason=" + w.endReason() + " cycles=" + w.cycles()
+                            + " gen=" + gen);
+                }
+            }
+        }, "ubx-walk");
+        playThread.start();
+        Log.i(TAG, "walk start speed=" + speed + "x lease=" + leaseMs + "ms");
+        return true;
+    }
+
+    /** 行緊路？（含收步中；收步完線程結束即 false）。 */
+    public boolean isWalking() {
+        GaitWalker w = walker;
+        Thread t = playThread;
+        return w != null && t != null && t.isAlive();
+    }
+
+    /** 行路已放手／收步中（此時再撳會截停後重起）。 */
+    public boolean isWalkFinishing() {
+        GaitWalker w = walker;
+        return w != null && w.isFinishing();
+    }
+
+    /** 放手：優雅收步回企定（線程自己結束）。冇行緊即 no-op。 */
+    public void releaseWalk() {
+        GaitWalker w = walker;
+        if (w != null) w.release();
+    }
+
+    /** 行路變速（即時、逐格平滑）。 */
+    public void setWalkSpeed(float s) {
+        GaitWalker w = walker;
+        if (w != null) w.setSpeed(s);
+    }
+
+    /** 租約續期。 */
+    public void beatWalk() {
+        GaitWalker w = walker;
+        if (w != null) w.beat();
+    }
+
+    public void setWalkLeaseMs(long ms) {
+        GaitWalker w = walker;
+        if (w != null) w.setLeaseMs(ms);
+    }
+
+    /** 行路狀態 JSON 片段（無行路時 walking=false）。 */
+    public String walkStatusJson() {
+        GaitWalker w = walker;
+        boolean walking = isWalking();
+        String phase = "idle";
+        if (walking && w != null) {
+            switch (w.phase()) {
+                case GaitWalker.PHASE_LEAD_IN: phase = "lead_in"; break;
+                case GaitWalker.PHASE_WALKING: phase = "walking"; break;
+                case GaitWalker.PHASE_STANDING: phase = "standing"; break;
+                default: phase = "idle"; break;
+            }
+        }
+        return "\"walking\":" + walking
+                + ",\"dir\":\"" + (WALK_BACK.equals(walkName) ? "back" : "fwd") + "\""
+                + ",\"phase\":\"" + phase + "\""
+                + ",\"speed\":" + (walking && w != null ? w.speed() : 0f)
+                + ",\"cycles\":" + (walking && w != null ? w.cycles() : 0)
+                + ",\"endReason\":\"" + (w != null && !walking ? esc(w.endReason()) : "") + "\"";
+    }
+
     /** 停止播放（中斷雙線，停歌，舵機保持末位姿）。 */
     public void stop() {
         final Thread pt;
         final Thread vt;
+        final int gen;
         synchronized (this) {
+            gen = playbackGen;
             stopReq = true;
             voiceStopReq = true;
             // 先 abort 流（AudioTrack.write 阻塞時 interrupt 叫不醒，須 track.stop 鬆綁），再 join。
             if (playThread != null) playThread.interrupt();
             if (voiceThread != null) voiceThread.interrupt();
-            stopVoiceLocked();
+            stopVoiceLocked(gen);
             pt = playThread;
             vt = voiceThread;
         }
@@ -450,23 +612,25 @@ public final class UbxPlayer {
         synchronized (this) {
             if (playThread == pt) playThread = null;
             if (voiceThread == vt) voiceThread = null;
-            stopVoiceLocked();
+            stopVoiceLocked(gen);
         }
     }
 
     /** 只停配樂（本地音樂等搶聲場景），舵機繼續。join 同樣唔可以喺鎖內（見 stop）。 */
     public void stopVoice() {
         final Thread vt;
+        final int gen;
         synchronized (this) {
+            gen = playbackGen;
             voiceStopReq = true;
             if (voiceThread != null) voiceThread.interrupt();
-            stopVoiceLocked();
+            stopVoiceLocked(gen);
             vt = voiceThread;
         }
         joinQuietly(vt);
         synchronized (this) {
             if (voiceThread == vt) voiceThread = null;
-            stopVoiceLocked();
+            stopVoiceLocked(gen);
         }
     }
 

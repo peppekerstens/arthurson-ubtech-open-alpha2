@@ -92,6 +92,7 @@ function setTtsEngine(engine) {
   loadAndroidTtsEngines();
   loadAndroidTtsLanguages();
   loadTtsFollowVosk();
+  loadTtsProsody();
 }
 
 /** Pick the Android TTS engine (the system TTS that the speech/tts engine=android branch actually speaks with)
@@ -401,8 +402,8 @@ function ttsFollowSyncRows(on) {
 
 function speakTts() {
   const text = document.getElementById("ttsText").value.trim();
-  if (!text) { showError(uiLang === "en" ? "Voice" : "語音", t("speech_test_enter_text_alert")); return; }
-  // Always Android TTS. Manual mode carries lang/voice; auto-follow mode sends neither (the backend resolves it from the current Vosk model).
+  if (!text) { showError(t("speech_ctx"), t("speech_test_enter_text_alert")); return; }
+  // 恆行 Android TTS。手動先帶 lang/voice；自動跟隨開就唔帶（後端跟當前 Vosk 解）。
   const params = { text: text, engine: "android" };
   if (!currentTtsFollowVosk) {
     // Empty string = keep the engine's current language (see the backend speech/tts android branch comment).
@@ -429,5 +430,62 @@ function speakTts() {
 
 function stopTts() {
   return Alpha2Api.speechStop();
+}
+
+// ---------------- TTS 音高／語速預設值（speech/tts_prosody/get|set）----------------
+// 1.0＝正常，範圍 0.5–2.0。拖動只更新讀數，放手（change）先寫入後端；
+// 後端存 SharedPreferences，speech/tts 同對話 TTS 無帶值時都用呢個預設。
+
+function ttsProsodyFmt(v) {
+  const n = Number(v);
+  return isFinite(n) ? n.toFixed(2) : "-";
+}
+
+function ttsProsodyRender(res) {
+  const pitch = document.getElementById("ttsPitchSlider");
+  const rate = document.getElementById("ttsRateSlider");
+  if (!pitch || !rate || !res) return;
+  if (res.pitch != null) pitch.value = String(res.pitch);
+  if (res.rate != null) rate.value = String(res.rate);
+  onTtsProsodyInput();
+}
+
+function onTtsProsodyInput() {
+  const pitch = document.getElementById("ttsPitchSlider");
+  const rate = document.getElementById("ttsRateSlider");
+  const pv = document.getElementById("ttsPitchVal");
+  const rv = document.getElementById("ttsRateVal");
+  if (pitch && pv) pv.textContent = ttsProsodyFmt(pitch.value);
+  if (rate && rv) rv.textContent = ttsProsodyFmt(rate.value);
+}
+
+function loadTtsProsody() {
+  return Alpha2Api.speechTtsProsodyGet().then(function (res) {
+    if (res && res.ok) ttsProsodyRender(res);
+    return res;
+  }).catch(function () {});
+}
+
+function setTtsProsody() {
+  const pitch = document.getElementById("ttsPitchSlider");
+  const rate = document.getElementById("ttsRateSlider");
+  if (!pitch || !rate) return Promise.resolve();
+  return Alpha2Api.speechTtsProsodySet({ pitch: pitch.value, rate: rate.value }).then(function (res) {
+    // 以後端回傳為準（會夾返有效範圍），失敗就讀返舊值還原。
+    if (res && res.ok) ttsProsodyRender(res); else loadTtsProsody();
+    return res;
+  }).catch(function (e) {
+    loadTtsProsody();
+    showError("語音", String(e && e.message || e));
+  });
+}
+
+function resetTtsProsody() {
+  const pitch = document.getElementById("ttsPitchSlider");
+  const rate = document.getElementById("ttsRateSlider");
+  if (pitch) pitch.value = "1";
+  if (rate) rate.value = "1";
+  onTtsProsodyInput();
+  return setTtsProsody();
 }
 

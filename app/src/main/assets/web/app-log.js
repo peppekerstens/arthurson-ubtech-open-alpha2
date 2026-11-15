@@ -23,9 +23,15 @@ function connectWs() { // An old tab (open during install) reloads for new JS wh
   };
   ws.onclose = function () {
     appendLog({ type: "connection", time: nowTimeStr(), data: "Disconnected, reconnecting in 3s…" });
+    // 機械人死機／reboot：停 IK 動畫，唔好重連後自動做返舊動作。
+    try { if (typeof ikOnLinkDown === "function") ikOnLinkDown(); } catch (ign) {}
     setTimeout(connectWs, 3000);
   };
-  ws.onerror = function () { ws.close(); };
+  ws.onerror = function () {
+    // 有啲死機情況 TCP 未即刻斷，onclose 可能唔會即時嚟；onerror 先停 IK。
+    try { if (typeof ikOnLinkDown === "function") ikOnLinkDown(); } catch (ign) {}
+    ws.close();
+  };
   ws.onmessage = function (evt) {
     try {
       const msg = JSON.parse(evt.data);
@@ -116,7 +122,7 @@ function appendLog(msg) {
     const el = document.getElementById("uuidOut");
     // When the backend read fails (timeout / empty), it publishes {"uuid":null}. For uuid:null show the read failure. Only a present uuid enters the clean + display flow.
     if (!msg.data.uuid) {
-      if (el) el.textContent = uiLang === "en" ? "❌ Read failed (no reply from chest cmd55, check logcat)" : "❌ 讀取失敗 (chest cmd55 無回覆, 見 logcat)";
+      if (el) el.textContent = t("chest_cmd55_fail");
       return;
     }
     // The SN field may carry \0 padding - strip control characters before display.

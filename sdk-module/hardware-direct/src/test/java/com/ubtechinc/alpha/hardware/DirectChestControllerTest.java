@@ -80,11 +80,10 @@ public class DirectChestControllerTest {
 
         // cmd 0x40: enter=true is refused without the opt-in, in each overload
         r = new Rig();
-        eq(false, r.chest.setPowerSave(true), "powerSave.enter.old1");
         eq(false, r.chest.setPowerSave(true, true), "powerSave.enter.old2");
         eq(false, r.chest.setPowerSave(true, false, false), "powerSave.enter");
         eq(0, r.sent(), "powerSave.enter.nothingSent");
-        eq(true, r.chest.setPowerSave(false), "powerSave.leave");
+        eq(true, r.chest.setPowerSave(false, false), "powerSave.leave");
         eq(true, r.chest.setPowerSave(false, true), "powerSave.leave2");
         eq(true, r.hasCmd(0x40), "powerSave.leave.sent");
         r = new Rig();

@@ -39,19 +39,94 @@ var GAMEPAD_KB_GROUPS = [
     "f7", "f8", "f9", "f10", "f11", "f12"] }
 ];
 
-// Action kinds (servo: the axis and direction dropdowns build servo<N>±. music: pick a function
-// (with volume +/-). ring: pick a ringtone (system default phone ring + ringtone names). led: pick part +
-// effect + colour. camera: pick photo/track. action: picked from the action dropdown.)
-var GAMEPAD_KINDS = ["none", "stop", "servo", "music", "radio", "ring", "led", "camera", "sensor", "voice", "action"];
+// 動作種類（servo 軸＋方向另有下拉拼出 servo<N>±；music 揀功能（含音量＋-）；
+// ring 揀鈴聲（系統預設電話鈴＋鈴聲名）；led 揀部位＋效果＋色；camera 揀影相／追蹤；
+// ik 揀蹲下／一字馬／大笑／踢腿／姿勢＋方向（撳住連走）；action 由動作下拉選）。
+var GAMEPAD_MAX_PER_KEY = 6;
+var GAMEPAD_KINDS = ["none", "stop", "servo", "ik", "walk", "music", "radio", "ring", "led", "camera", "sensor", "voice", "action"];
 var GAMEPAD_KIND_KEYS = { none: "gamepad_kind_none", stop: "gamepad_kind_stop",
-  servo: "gamepad_kind_servo", music: "gamepad_kind_music", radio: "gamepad_kind_radio",
+  servo: "gamepad_kind_servo", ik: "gamepad_kind_ik", walk: "gamepad_kind_walk",
+  music: "gamepad_kind_music", radio: "gamepad_kind_radio",
   ring: "gamepad_kind_ring",
   led: "gamepad_kind_led", camera: "gamepad_kind_camera", sensor: "gamepad_kind_sensor",
   voice: "gamepad_kind_voice", action: "gamepad_kind_action" };
+
+// IK 動作（值＝ik:<kind>±；同 servo jog 一樣撳住連走，每步 10%）。
+// 同後端 GamepadCenter.isIkAction／IkPose 對齊，次序同 Web IK 卡 slider（蹲仰、蹲劈、踢腿、側弓步、半蹲、屈臂前伸、前後）。
+// 二合一（-100…+100，0＝企姿）：ik:squatlean+ 向 +100（蹲下）、ik:squatlean- 向 -100（大笑）；
+// ik:squatsplit+ 向 +100（左右一字馬）、ik:squatsplit- 向 -100（蹲式）；
+// ik:fb+ 向 +100（右前）、ik:fb- 向 -100（左前）。
+// ik:kick／sirius／hulu／hamlet 亦係 -100…+100，0＝企姿（側弓步／屈臂前伸方向已同 slider 對調）。
+// 舊 ik:squat±／ik:laugh±／ik:ysquat±／ik:lr±／ik:fsplit±／ik:fsplit2± 由後端 loadMapping 自動遷移；
+// 跪姿前傾（ik:kneel±）已移除。
+var GAMEPAD_IK_FNS = ["ik:squatlean+", "ik:squatlean-", "ik:squatsplit+", "ik:squatsplit-",
+                      "ik:kick+", "ik:kick-", "ik:sirius+", "ik:sirius-",
+                      "ik:hulu+", "ik:hulu-", "ik:hamlet+", "ik:hamlet-",
+                      "ik:fb+", "ik:fb-"];
+var GAMEPAD_IK_RE = "squatlean|squatsplit|squat|ysquat|lr|fb|fsplit2?|laugh|kick|sirius|hulu|hamlet";
+
+function gamepadIkLabel(v) {
+  var m = new RegExp("^ik:(" + GAMEPAD_IK_RE + ")([+-])$").exec(v || "");
+  if (!m) return v || "";
+  var kind = m[1];
+  if (kind === "fb") {
+    return t("ik_name_fb") + (m[2] === "+"
+      ? " + (" + t("ik_dir_right") + ")"
+      : " − (" + t("ik_dir_left") + ")");
+  }
+  // 蹲仰／蹲劈二合一：同 fb 一樣標明 +／− 向邊個動作
+  if (kind === "squatlean" || kind === "squatsplit") {
+    var pos = kind === "squatlean" ? "squat" : "lr";
+    var neg = kind === "squatlean" ? "laugh" : "ysquat";
+    return t("ik_name_" + kind) + (m[2] === "+"
+      ? " + (" + t("ik_name_" + pos) + ")"
+      : " − (" + t("ik_name_" + neg) + ")");
+  }
+  return t("ik_name_" + kind) + (m[2] === "+" ? " +" : " −");
+}
 var GAMEPAD_VOICE_FIXED = [["xiaozhi_toggle", "gamepad_voice_xiaozhi"],
   ["vosk", "gamepad_voice_vosk"]];
 
-// Camera (aligned with backend isCameraAction). Tracking is a toggle: face_toggle/color_toggle.
+// Multi-action helpers: one key holds up to GAMEPAD_MAX_PER_KEY actions,
+// stored newline-separated (same as backend GamepadCenter).
+function gamepadSplitMulti(v) {
+  if (v == null) return ["none"];
+  var parts = String(v).split(/\r\n|\r|\n/);
+  var out = [];
+  for (var i = 0; i < parts.length; i++) {
+    var s = parts[i].replace(/^\s+|\s+$/g, "");
+    if (s) out.push(s);
+  }
+  if (!out.length) return ["none"];
+  return out;
+}
+function gamepadJoinMulti(list) {
+  var out = [];
+  for (var i = 0; i < list.length; i++) {
+    var s = list[i] == null ? "" : String(list[i]).replace(/^\s+|\s+$/g, "");
+    if (s) out.push(s);
+  }
+  return out.join("\n");
+}
+function gamepadSubId(base, side, k, idx) {
+  return base + "_" + side + "_" + k + "__" + idx;
+}
+function gamepadParseSubKeyId(id, prefix) {
+  var rest = id.substring(prefix.length);
+  var sep = rest.lastIndexOf("__");
+  if (sep < 0) return { key: rest, idx: 0 };
+  var idx = parseInt(rest.substring(sep + 2), 10);
+  if (!isFinite(idx)) idx = 0;
+  return { key: rest.substring(0, sep), idx: idx };
+}
+
+// 行路（同後端 isWalkAction 對齊）：fwd／back＝按住向前行／向後行（放手企停；前後同按即收步）；
+// fast／slow＝行路時加速／減速（搖桿向按偏轉量，掣＝全速；下限 1x）；fwd／back 掛搖桿向時偏轉量即速度（1x→2x）。
+var GAMEPAD_WALK_FNS = ["walk:fwd", "walk:back", "walk:fast", "walk:slow"];
+var GAMEPAD_WALK_FN_KEYS = { "walk:fwd": "gamepad_walk_fwd", "walk:back": "gamepad_walk_back",
+  "walk:fast": "gamepad_walk_fast", "walk:slow": "gamepad_walk_slow" };
+
+// 相機（同後端 isCameraAction 對齊；追蹤係 toggle：face_toggle／color_toggle）。
 var GAMEPAD_CAMERA_FNS = ["camera_photo", "face_toggle", "color_toggle", "video_toggle"];
 
 // Sensor toggles (aligned with backend isSensorAction). All single-key switches.
@@ -74,12 +149,7 @@ var GAMEPAD_LED_PRESET_KEYS = { long: "gamepad_led_long", flash: "gamepad_led_fl
   random: "gamepad_led_random" };
 var GAMEPAD_DUAL_KEYS = { 3: "gamepad_dual_bg", 4: "gamepad_dual_rg", 5: "gamepad_dual_rb" };
 
-// Head/eye LED: part + effect + colour (aligned with backend isLedAction. Eye has no breathe. Colours: 1 red, 2 green, 3 blue, 4 yellow, 5 purple, 6 cyan, 7 white).
-var GAMEPAD_LED_PARTS = ["head", "eye"];
-var GAMEPAD_LED_PRESETS = {
-  head: ["long", "flash", "breathe", "chase", "dual", "stop"],
-  eye: ["long", "flash", "chase", "dual", "stop"]
-};
+// LED 色（色 1紅2綠3藍4黃5紫6青7白）。
 var GAMEPAD_LED_COLOR_KEYS = [["1", "color_name_red"], ["2", "color_name_green"],
   ["3", "color_name_blue"], ["4", "color_name_yellow"], ["5", "color_name_purple"],
   ["6", "color_name_cyan"], ["7", "color_name_white"]];
@@ -118,10 +188,10 @@ function gamepadLoadRadioFavs(force) {
   });
 }
 
-// Build the radio dropdown (switch + favourites. The favourite list arrives later and fills in).
-function gamepadBuildRadioSelect(side, k, parsed) {
+// 建電台下拉（開關＋收藏；收藏單後到即補）。
+function gamepadBuildRadioSelect(side, k, idx, parsed) {
   var sel = document.createElement("select");
-  sel.id = "gpRadioSel_" + side + "_" + k;
+  sel.id = gamepadSubId("gpRadioSel", side, k, idx);
   sel.style.maxWidth = "220px";
   sel.style.display = parsed.kind === "radio" ? "inline" : "none";
   gamepadFillRadioSelect(sel, parsed.radioFn);
@@ -406,8 +476,10 @@ function gamepadLastText(d) {
   if (!d || typeof d !== "object" || !d.key) return "-";
   var k = d.key;
   var arrow = (d.pressed === false) ? " ↑" : " ↓";
+  var act = d.action || "-";
+  try { act = String(act).split(/\r\n|\r|\n/).join(" + "); } catch (e) {}
   var s = (k === "unmapped" && d.code != null ? (k + "(" + d.code + ")") : k)
-    + arrow + " → " + (d.action || "-") + " [" + (d.source || "-") + "]"
+    + arrow + " → " + act + " [" + (d.source || "-") + "]"
     + (d.taken === true ? " ✓" : (d.taken === false ? " " + t("gamepad_taken_no") : ""));
   return s;
 }
@@ -420,21 +492,81 @@ function gamepadSetLastText(s) {
   });
 }
 
-// ---------------- WS realtime: live last-key refresh ----------------
-// When app-log.js appendLog() gets gamepad_key/gamepad_bt/gamepad_axis, it forwards them here.
+// ---------------- WS 實時：最後按鍵即時刷 ----------------
+// 快撳閃兩下去重：本地撳落即樂觀著燈、放手即熄，WS 回聲（down／up）遲到就會
+// 著多鑊熄多鑊——睇落似撳咗兩下。自己兩張圖／campad 發出嘅回聲（source panel／
+// campad）要同本地狀態對：放咗手嘅 down 回聲唔再著（1 秒內舊回聲先吞，
+// 免殺咗第二部機／第二隻手指真係撳緊）；撳緊嗰陣嘅 up 回聲唔熄（等自己放手先熄）。
+// 實體（robot）／脚本回聲無本地樂觀燈，照舊全收。
+// 文字（最後按鍵）唔受影響，照刷。
+var GAMEPAD_ECHO_STALE_MS = 1000;
+var __gpDiagLastUpAt = {};
+
+function gamepadLocalHeld(logical) {
+  if (!logical) return false;
+  try {
+    if ((__gpDiagHold["pad:" + logical] || 0) > 0) return true;
+    if ((__gpDiagHold["kb:" + logical] || 0) > 0) return true;
+  } catch (e) {}
+  try {
+    if (__cameraPadDown[logical]) return true;
+  } catch (e2) {}
+  return false;
+}
+
+function gamepadNoteLocalUp(side, key) {
+  try {
+    __gpDiagLastUpAt[(side === "kb" ? "kb" : "pad") + ":" + key] = Date.now();
+  } catch (e) {}
+}
+
+function gamepadEchoStaleDown(logical) {
+  var lastUp = 0;
+  try {
+    lastUp = Math.max(__gpDiagLastUpAt["pad:" + logical] || 0,
+      __gpDiagLastUpAt["kb:" + logical] || 0);
+  } catch (e) {}
+  if (!lastUp) return false;
+  try {
+    return (Date.now() - lastUp) < GAMEPAD_ECHO_STALE_MS;
+  } catch (e2) {
+    return false;
+  }
+}
+
+// app-log.js appendLog() 收到 gamepad_key／gamepad_bt／gamepad_axis 即轉入呢度。
 function onGamepadKeyEvent(type, data) {
   if (!data || typeof data !== "object") return;
   if (type === "gamepad_key") {
-    // The two pictures + the mapping row light up together (colour follows the mapping: the WS event carries action).
+    var src = "";
+    try { src = String(data.source || ""); } catch (e0) {}
+    var selfSrc = (src === "panel" || src === "campad");
+    var isDown = data.pressed !== false;
+    if (selfSrc && isDown && !gamepadLocalHeld(data.key) && gamepadEchoStaleDown(data.key)) {
+      // 自己頭先快撳快放嘅遲到 down 回聲：燈唔好再著（文字照刷，等用家睇到撳過）。
+      gamepadSetLastText(gamepadLastText(data));
+      return;
+    }
+    if (selfSrc && !isDown && gamepadLocalHeld(data.key)) {
+      // 自己／另一隻手指仲撳緊，遲到／別人嘅 up 回聲唔好熄燈。
+      return;
+    }
+    // 兩張圖＋映射行跟亮滅（色跟有無映射：WS 事件帶 action）。
     gamepadLightLogical(data.key, data.pressed !== false, data.action);
     // Release does not refresh the text (the backend last does not record releases either. This is a second guard so the display never flickers to ↑✗).
     if (data.pressed === false) return;
     gamepadSetLastText(gamepadLastText(data));
   } else if (type === "gamepad_axis") {
-    // A-side joystick moves go through here.
+    // 物理柄回聲先郁點。自己注入嘅回聲（source=panel／campad）一律唔跟：
+    // 放手送嘅 0 可能撞後端 150ms 節流被 drop，跟住舊偏轉值回聲遲到會將
+    // 已回中嘅菇推返出去留喺度——「搖桿間中唔識自己回中」就係呢個，
+    // 本機 dx/dy 先係真相（同 cameraPadMirrorAxis 同一道理）。
+    var axSrc = "";
+    try { axSrc = String(data.source || ""); } catch (eAx) {}
+    try { cameraPadMirrorAxis(data); } catch (e1) {}
+    if (axSrc === "panel" || axSrc === "campad") return;
     gamepadMoveNubs(Number(data.lx || 0), Number(data.ly || 0),
       Number(data.rx || 0), Number(data.ry || 0));
-    try { cameraPadMirrorAxis(data); } catch (e) {}
   } else if (type === "gamepad_state") {
     // After a mapping toggle the robot pushes the new state, so the control follows at once (no need to reload the page).
     gamepadApplyToggleState(data);
@@ -518,8 +650,8 @@ function gamepadPair(address) {
 
 // ---------------- Management: mapping table ----------------
 
-// Action-list cache (live action/list data first; fall back to the embedded 202 catalog).
-// Grouping comes from action_classification.json (static, fetched from the same directory).
+// 動作清單緩存（機身 action/list 活數據優先，唔得先用內嵌 203 catalog）。
+// 分組經 action_classification.json（靜態，同目錄 fetch）。
 var __gpActionsCache = null;
 var __gpActionCatCache = null;
 // id → action object (used to re-label action names in place on language switch; recorded while filling dropdowns).
@@ -571,14 +703,29 @@ function gamepadActionGroupOf(id) {
   return "其他";
 }
 
-// Value parse: none/stop return directly; music_*/vol_* map to the music kind;
-// ring_phone/ring_stop/ring_random/ring:[phone:|notification:]<title> map to the ring kind; head:/eye: map to the led kind;
-// servo<N>± splits the axis; action:<id> splits the id.
+// 舊 mapping 併入二合一（同 GamepadCenter.loadMapping 一致）：
+// fsplit+（左前）→ fb-、fsplit- → fb+、fsplit2+（右前）→ fb+、fsplit2- → fb-；
+// squat± → squatlean±、laugh± → squatlean∓；lr± → squatsplit±、ysquat± → squatsplit∓。
+function gamepadCanonicalIkFn(kind, dir) {
+  var inv = dir === "+" ? "-" : "+";
+  if (kind === "fsplit") return "ik:fb" + inv;
+  if (kind === "fsplit2") return "ik:fb" + dir;
+  if (kind === "squat") return "ik:squatlean" + dir;
+  if (kind === "laugh") return "ik:squatlean" + inv;
+  if (kind === "lr") return "ik:squatsplit" + dir;
+  if (kind === "ysquat") return "ik:squatsplit" + inv;
+  return "ik:" + kind + dir;
+}
+
+// 值拆解：none/stop 直回；music_*/vol_* 歸 music 種；
+// ring_phone/ring_stop/ring_random/ring:[phone:|notification:]<title> 歸 ring 種；head:/eye: 歸 led 種；
+// servo<N>± 拆轴向；ik:<kind>± 拆 IK 動作／方向；action:<id> 拆 id。
 function gamepadParseValue(v) {
   var out = { kind: "none", servoId: 20, servoDir: "+", musicFn: "music_play",
     ringSel: "ring_phone", ledPart: "head", ledPreset: "flash", ledColor: "1",
     ledSpeed: "500", cameraFn: "camera_photo", sensorFn: "sonar_toggle",
-    voiceFn: "xiaozhi_toggle", radioFn: "radio_toggle", eqPreset: "normal", actionId: "" };
+    voiceFn: "xiaozhi_toggle", radioFn: "radio_toggle", eqPreset: "normal", actionId: "",
+    ikFn: "ik:squatlean+", walkFn: "walk:fwd" };
   if (!v) return out;
   if (v === "none" || v === "stop") {
     out.kind = v;
@@ -637,6 +784,17 @@ function gamepadParseValue(v) {
     out.servoDir = m[2];
     return out;
   }
+  m = v.match(new RegExp("^ik:(" + GAMEPAD_IK_RE + ")([+-])$"));
+  if (m) {
+    out.kind = "ik";
+    out.ikFn = gamepadCanonicalIkFn(m[1], m[2]);
+    return out;
+  }
+  if (v === "walk:fwd" || v === "walk:back" || v === "walk:fast" || v === "walk:slow") {
+    out.kind = "walk";
+    out.walkFn = v;
+    return out;
+  }
   if (v.indexOf("action:") === 0) {
     out.kind = "action";
     out.actionId = v.substring(7);
@@ -645,13 +803,13 @@ function gamepadParseValue(v) {
   return out;
 }
 
-// Build the servo single dropdown (#1+/#1-/#2+...#22-, 44 entries. The id prefixes the side's group name, so same-named keys in the two zones never clash).
-function gamepadBuildServoControls(side, k, parsed) {
+// 建舵機單一下拉（#1+／#1-／#2+…#22- 共 44 格；id 按邊分名前綴，兩區同名鍵唔撞）。
+function gamepadBuildServoControls(side, k, idx, parsed) {
   var wrap = document.createElement("span");
-  wrap.id = "gpServoWrap_" + side + "_" + k;
+  wrap.id = gamepadSubId("gpServoWrap", side, k, idx);
   wrap.style.display = parsed.kind === "servo" ? "inline" : "none";
   var sel = document.createElement("select");
-  sel.id = "gpServo_" + side + "_" + k;
+  sel.id = gamepadSubId("gpServo", side, k, idx);
   var cur = "servo" + parsed.servoId + parsed.servoDir;
   for (var i = 1; i <= 22; i++) {
     ["+", "-"].forEach(function (d) {
@@ -666,7 +824,26 @@ function gamepadBuildServoControls(side, k, parsed) {
   return wrap;
 }
 
-// Action class lookup (same rule as the action tab: use the action's own type; before the cache arrives, use the classification sub as a stopgap).
+// 建 IK 動作下拉（蹲下／蹲式／左右／前後二合一／大笑／踢腿／姿勢 × +/-；
+// 撳住連走，同 servo jog 一樣）。帶符號動作：+ 向 +100、− 向 -100，預設 0＝企姿。
+function gamepadBuildIkControls(side, k, idx, parsed) {
+  var wrap = document.createElement("span");
+  wrap.id = gamepadSubId("gpIkWrap", side, k, idx);
+  wrap.style.display = parsed.kind === "ik" ? "inline" : "none";
+  var sel = document.createElement("select");
+  sel.id = gamepadSubId("gpIkSel", side, k, idx);
+  GAMEPAD_IK_FNS.forEach(function (f) {
+    var o = document.createElement("option");
+    o.value = f;
+    o.textContent = gamepadIkLabel(f);
+    if (f === parsed.ikFn) o.selected = true;
+    sel.appendChild(o);
+  });
+  wrap.appendChild(sel);
+  return wrap;
+}
+
+// 動作所屬大類（同 action tab 同一規則：按動作本身 type 分；緩存未到先用分類表 sub 頂住）。
 function gamepadActionKindOf(id) {
   var acts = __gpActionsCache || [];
   for (var i = 0; i < acts.length; i++) {
@@ -678,14 +855,13 @@ function gamepadActionKindOf(id) {
   return GAMEPAD_ACTION_SUB2KIND[sub] || "others";
 }
 
-// Build the 202-action cascading dropdown (class first, then actions inside it. Before data arrives, show the hint only; fill after load).
-function gamepadBuildActionSelect(side, k, parsed) {
-  var pfx = side + "_";
+// 建 203 動作級聯下拉（先大類、再入面動作；數據未到先得提示，load 完補）。
+function gamepadBuildActionSelect(side, k, idx, parsed) {
   var wrap = document.createElement("span");
-  wrap.id = "gpActionWrap_" + pfx + k;
+  wrap.id = gamepadSubId("gpActionWrap", side, k, idx);
   wrap.style.display = parsed.kind === "action" ? "inline" : "none";
   var kindSel = document.createElement("select");
-  kindSel.id = "gpActionKind_" + pfx + k;
+  kindSel.id = gamepadSubId("gpActionKind", side, k, idx);
   GAMEPAD_ACTION_KINDS5.forEach(function (g) {
     var ko = document.createElement("option");
     ko.value = g;
@@ -693,25 +869,25 @@ function gamepadBuildActionSelect(side, k, parsed) {
     kindSel.appendChild(ko);
   });
   var sel = document.createElement("select");
-  sel.id = "gpActionSel_" + pfx + k;
+  sel.id = gamepadSubId("gpActionSel", side, k, idx);
   sel.style.maxWidth = "220px";
   wrap.appendChild(kindSel);
   wrap.appendChild(sel);
-  kindSel.onchange = (function (s, kk) {
+  kindSel.onchange = (function (s, kk, ii) {
     return function () {
-      gamepadFillActionRow(s, kk, this.value, "");
+      gamepadFillActionRow(s, kk, ii, this.value, "");
     };
-  })(side, k);
+  })(side, k, idx);
   gamepadFillActionSelectEl(kindSel, sel, null, parsed.actionId);
   return wrap;
 }
 
-// Fill one row's action dropdown (empty cat: derive the class from the current value. A curId missing from the class gets a (?) entry).
-function gamepadFillActionRow(side, k, cat, curId) {
-  var pfx = side + "_";
+// 填某行個動作下拉（cat 空即按現值自動判定大類；curId 唔喺類入面即補 (?) 粒）。
+function gamepadFillActionRow(side, k, idx, cat, curId) {
+  if (idx == null) idx = 0;
   gamepadFillActionSelectEl(
-    document.getElementById("gpActionKind_" + pfx + k),
-    document.getElementById("gpActionSel_" + pfx + k), cat, curId);
+    document.getElementById(gamepadSubId("gpActionKind", side, k, idx)),
+    document.getElementById(gamepadSubId("gpActionSel", side, k, idx)), cat, curId);
 }
 
 // Element version (not in the DOM yet during build, so no getElementById).
@@ -789,13 +965,13 @@ function gamepadLoadRingTitles(type) {
   });
 }
 
-// Build the two ringtone dropdowns (system default phone ring + ring stop + random + phone/notification tables; the name list arrives later and fills in).
-function gamepadBuildRingSelect(side, k, parsed) {
+// 建鈴聲兩下拉（系統預設電話鈴＋鈴聲停＋隨機＋電話／通知表；名單後到即補）。
+function gamepadBuildRingSelect(side, k, idx, parsed) {
   var wrap = document.createElement("span");
-  wrap.id = "gpRingWrap_" + side + "_" + k;
+  wrap.id = gamepadSubId("gpRingWrap", side, k, idx);
   wrap.style.display = parsed.kind === "ring" ? "inline" : "none";
   var typeSel = document.createElement("select");
-  typeSel.id = "gpRingType_" + side + "_" + k;
+  typeSel.id = gamepadSubId("gpRingType", side, k, idx);
   [["phone", "gamepad_ring_type_phone"], ["notification", "gamepad_ring_type_notification"]].forEach(function (p) {
     var to = document.createElement("option");
     to.value = p[0];
@@ -804,7 +980,7 @@ function gamepadBuildRingSelect(side, k, parsed) {
     typeSel.appendChild(to);
   });
   var sel = document.createElement("select");
-  sel.id = "gpRingSel_" + side + "_" + k;
+  sel.id = gamepadSubId("gpRingSel", side, k, idx);
   sel.style.maxWidth = "200px";
   var fixed = [["ring_phone", "gamepad_ring_phone"], ["ring_stop", "gamepad_ring_stop"], ["ring_random", "gamepad_ring_random"]];
   fixed.forEach(function (f) {
@@ -816,10 +992,9 @@ function gamepadBuildRingSelect(side, k, parsed) {
   });
   wrap.appendChild(typeSel);
   wrap.appendChild(sel);
-  typeSel.onchange = (function (s, kk) {
+  typeSel.onchange = (function (s, kk, ii) {
     return function () {
-      var pfx2 = s + "_";
-      var sel2 = document.getElementById("gpRingSel_" + pfx2 + kk);
+      var sel2 = document.getElementById(gamepadSubId("gpRingSel", s, kk, ii));
       var curText = "";
       if (sel2 && sel2.selectedIndex >= 0) curText = sel2.options[sel2.selectedIndex].text;
       gamepadFillRingSelect(sel2, this.value, "");
@@ -833,7 +1008,7 @@ function gamepadBuildRingSelect(side, k, parsed) {
         }
       }
     };
-  })(side, k);
+  })(side, k, idx);
   gamepadFillRingSelect(sel, gamepadRingTypeOf(parsed.ringSel), parsed.ringSel);
   return wrap;
 }
@@ -908,12 +1083,12 @@ function gamepadFillLedColors(colorSel, dual, curVal) {
   });
 }
 
-function gamepadBuildLedControls(side, k, parsed) {
+function gamepadBuildLedControls(side, k, idx, parsed) {
   var wrap = document.createElement("span");
-  wrap.id = "gpLedWrap_" + side + "_" + k;
+  wrap.id = gamepadSubId("gpLedWrap", side, k, idx);
   wrap.style.display = parsed.kind === "led" ? "inline" : "none";
   var part = document.createElement("select");
-  part.id = "gpLedPart_" + side + "_" + k;
+  part.id = gamepadSubId("gpLedPart", side, k, idx);
   [["head", "gamepad_led_head"], ["eye", "gamepad_led_eye"], ["mouth", "gamepad_led_mouth"]].forEach(function (p) {
     var o = document.createElement("option");
     o.value = p[0];
@@ -922,13 +1097,13 @@ function gamepadBuildLedControls(side, k, parsed) {
     part.appendChild(o);
   });
   var preset = document.createElement("select");
-  preset.id = "gpLedPreset_" + side + "_" + k;
+  preset.id = gamepadSubId("gpLedPreset", side, k, idx);
   var color = document.createElement("select");
-  color.id = "gpLedColor_" + side + "_" + k;
+  color.id = gamepadSubId("gpLedColor", side, k, idx);
   gamepadFillLedColors(color, false, parsed.ledColor);
   // Mouth speed (used only with breathing, 100-1000 ms. The backend validates it too).
   var speed = document.createElement("input");
-  speed.id = "gpLedSpeed_" + side + "_" + k;
+  speed.id = gamepadSubId("gpLedSpeed", side, k, idx);
   speed.type = "number";
   speed.min = "100";
   speed.max = "1000";
@@ -1026,10 +1201,12 @@ function gamepadRenderMapping(mapping) {
       if (!grid) return;
       var sels = grid.querySelectorAll("select[id^='gpActionSel_" + side + "_']");
       for (var i = 0; i < sels.length; i++) {
-        var k = sels[i].id.substring(("gpActionSel_" + side + "_").length);
-        var cur = gamepadParseValue((side === "kb" ? gamepadCachedSide("kb") : gamepadCachedSide("pad"))[k] || "none");
-        // Fill when a real-data fill has not happened yet (do not count options: missing entries also inflate the count).
-        if (!sels[i].dataset.actionFilled) gamepadFillActionRow(side, k, null, cur.actionId);
+        var parsed = gamepadParseSubKeyId(sels[i].id, "gpActionSel_" + side + "_");
+        var k = parsed.key;
+        var stored = (side === "kb" ? gamepadCachedSide("kb") : gamepadCachedSide("pad"))[k] || "none";
+        var parts = gamepadSplitMulti(stored);
+        var cur = gamepadParseValue(parts[parsed.idx] || "none");
+        if (!sels[i].dataset.actionFilled) gamepadFillActionRow(side, k, parsed.idx, null, cur.actionId);
       }
     });
   });
@@ -1039,8 +1216,11 @@ function gamepadRenderMapping(mapping) {
       if (!grid2) return;
       var rsels = grid2.querySelectorAll("select[id^='gpRingSel_" + side + "_']");
       for (var j = 0; j < rsels.length; j++) {
-        var k2 = rsels[j].id.substring(("gpRingSel_" + side + "_").length);
-        var cur2 = gamepadParseValue((side === "kb" ? gamepadCachedSide("kb") : gamepadCachedSide("pad"))[k2] || "none");
+        var parsed2 = gamepadParseSubKeyId(rsels[j].id, "gpRingSel_" + side + "_");
+        var k2 = parsed2.key;
+        var stored2 = (side === "kb" ? gamepadCachedSide("kb") : gamepadCachedSide("pad"))[k2] || "none";
+        var parts2 = gamepadSplitMulti(stored2);
+        var cur2 = gamepadParseValue(parts2[parsed2.idx] || "none");
         var rt = gamepadRingTypeOf(cur2.ringSel);
         // Skip when the table matches and a real-data fill happened; refill when the table mismatches or no data fill happened yet.
         if (rsels[j].dataset.ringType !== rt || !rsels[j].dataset.ringFilled) {
@@ -1056,8 +1236,11 @@ function gamepadRenderMapping(mapping) {
       if (!grid3) return;
       var psels = grid3.querySelectorAll("select[id^='gpVoskPackSel_" + side + "_']");
       for (var k3 = 0; k3 < psels.length; k3++) {
-        var k4 = psels[k3].id.substring(("gpVoskPackSel_" + side + "_").length);
-        var cur3 = gamepadParseValue((side === "kb" ? gamepadCachedSide("kb") : gamepadCachedSide("pad"))[k4] || "none");
+        var parsed4 = gamepadParseSubKeyId(psels[k3].id, "gpVoskPackSel_" + side + "_");
+        var k4 = parsed4.key;
+        var stored3 = (side === "kb" ? gamepadCachedSide("kb") : gamepadCachedSide("pad"))[k4] || "none";
+        var parts3 = gamepadSplitMulti(stored3);
+        var cur3 = gamepadParseValue(parts3[parsed4.idx] || "none");
         if (!psels[k3].dataset.voiceFilled) gamepadFillVoskPacks(psels[k3], cur3.voiceFn);
       }
     });
@@ -1069,8 +1252,11 @@ function gamepadRenderMapping(mapping) {
       if (!grid4) return;
       var fsels = grid4.querySelectorAll("select[id^='gpRadioSel_" + side + "_']");
       for (var k5 = 0; k5 < fsels.length; k5++) {
-        var k6 = fsels[k5].id.substring(("gpRadioSel_" + side + "_").length);
-        var cur4 = gamepadParseValue((side === "kb" ? gamepadCachedSide("kb") : gamepadCachedSide("pad"))[k6] || "none");
+        var parsed6 = gamepadParseSubKeyId(fsels[k5].id, "gpRadioSel_" + side + "_");
+        var k6 = parsed6.key;
+        var stored4 = (side === "kb" ? gamepadCachedSide("kb") : gamepadCachedSide("pad"))[k6] || "none";
+        var parts4 = gamepadSplitMulti(stored4);
+        var cur4 = gamepadParseValue(parts4[parsed6.idx] || "none");
         if (!fsels[k5].dataset.radioFilled) gamepadFillRadioSelect(fsels[k5], cur4.radioFn);
       }
     });
@@ -1100,7 +1286,8 @@ function gamepadApplyUiLanguage() {
       gamepadRelabelSelect(sels[si]);
     }
   }
-  try { cameraPadRelabel(); } catch (e) {}
+  // 全屏掣兩態唔同 key（data-i18n 已除），轉語言呢度重標。
+  try { gamepadSyncFsBtns(); } catch (e) {}
 }
 
 function gamepadRelabelSelect(sel) {
@@ -1108,6 +1295,12 @@ function gamepadRelabelSelect(sel) {
   var id = sel.id;
   var map = null;
   if (id.indexOf("gpSel_") === 0) map = GAMEPAD_KIND_KEYS;
+  else if (id.indexOf("gpIkSel_") === 0) {
+    for (var iki = 0; iki < sel.options.length; iki++) {
+      sel.options[iki].text = gamepadIkLabel(sel.options[iki].value);
+    }
+    return;
+  }
   else if (id.indexOf("gpMusicSel_") === 0) map = GAMEPAD_MUSIC_FN_KEYS;
   else if (id.indexOf("gpRadioSel_") === 0) map = GAMEPAD_RADIO_FN_KEYS;
   else if (id.indexOf("gpEqSel_") === 0) {
@@ -1128,6 +1321,7 @@ function gamepadRelabelSelect(sel) {
   else if (id.indexOf("gpLedPreset_") === 0) map = GAMEPAD_LED_PRESET_KEYS;
   else if (id.indexOf("gpCameraSel_") === 0) map = GAMEPAD_CAM_FN_KEYS;
   else if (id.indexOf("gpSensorSel_") === 0) map = GAMEPAD_SENSOR_FN_KEYS;
+  else if (id.indexOf("gpWalkSel_") === 0) map = GAMEPAD_WALK_FN_KEYS;
   else if (id.indexOf("gpActionKind_") === 0) map = GAMEPAD_ACTION_KIND_KEYS;
   if (id.indexOf("gpVoiceSel_") === 0) {
     // The "小智"/Vosk group names follow the language.
@@ -1196,6 +1390,276 @@ function gamepadRelabelSelect(sel) {
   // Ignore gpServo_ (#N±).
 }
 
+function gamepadSyncMappingRowBtns(side, k) {
+  var cont = document.getElementById("gpSubs_" + side + "_" + k);
+  if (!cont) return;
+  var rows = cont.querySelectorAll("[data-subrow]");
+  var n = rows.length;
+  for (var i = 0; i < rows.length; i++) {
+    var x = rows[i].querySelector("[data-rmbtn]");
+    if (x) x.style.display = "inline";
+    var badge = rows[i].querySelector("[data-idxbadge]");
+    if (badge) badge.textContent = n > 1 ? ("#" + (i + 1)) : "";
+  }
+  var add = cont.querySelector("[data-addbtn='" + side + ":" + k + "']");
+  if (add) {
+    add.disabled = n >= GAMEPAD_MAX_PER_KEY;
+    add.title = n >= GAMEPAD_MAX_PER_KEY ? ("max " + GAMEPAD_MAX_PER_KEY) : "+";
+  }
+}
+
+function gamepadClearSubRowToNone(side, k, idx) {
+  var kindEl = document.getElementById(gamepadSubId("gpSel", side, k, idx));
+  if (!kindEl) return;
+  kindEl.value = "none";
+  try {
+    if (typeof kindEl.onchange === "function") kindEl.onchange();
+  } catch (e) {}
+}
+
+function gamepadRemoveMappingRow(side, k, idx) {
+  var cont = document.getElementById("gpSubs_" + side + "_" + k);
+  if (!cont) return;
+  var rows = cont.querySelectorAll("[data-subrow]");
+  if (rows.length <= 1) {
+    var only = rows.length ? parseInt(rows[0].getAttribute("data-idx"), 10) : idx;
+    if (!isFinite(only)) only = 0;
+    gamepadClearSubRowToNone(side, k, only);
+    return;
+  }
+  var pos = -1;
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].getAttribute("data-idx")) === String(idx)) { pos = i; break; }
+  }
+  if (pos < 0) return;
+  var wasFirst = (pos === 0);
+  cont.removeChild(rows[pos]);
+  if (wasFirst) {
+    var first = cont.querySelector("[data-subrow]");
+    if (first) {
+      var sp = first.querySelector("[data-spacer]");
+      if (sp) {
+        var label = document.createElement("span");
+        label.style.minWidth = "90px";
+        label.style.fontWeight = "bold";
+        label.textContent = gamepadKeyLabel(k);
+        label.setAttribute("data-label", "1");
+        first.replaceChild(label, sp);
+      }
+      if (!first.querySelector("[data-addbtn]")) {
+        var addBtn = document.createElement("button");
+        addBtn.className = "secondary";
+        addBtn.textContent = "+";
+        addBtn.setAttribute("data-addbtn", side + ":" + k);
+        addBtn.onclick = (function (s, kk) {
+          return function () { gamepadAddMappingRow(s, kk); };
+        })(side, k);
+        var ph = first.querySelector("[data-addph]");
+        if (ph) first.replaceChild(addBtn, ph);
+        else {
+          var ref = first.querySelector("[data-idxbadge]");
+          if (ref) first.insertBefore(addBtn, ref);
+          else first.insertBefore(addBtn, first.firstChild ? first.firstChild.nextSibling : null);
+        }
+      }
+    }
+  }
+  gamepadSyncMappingRowBtns(side, k);
+}
+
+function gamepadAddMappingRow(side, k) {
+  var cont = document.getElementById("gpSubs_" + side + "_" + k);
+  if (!cont) return;
+  var rows = cont.querySelectorAll("[data-subrow]");
+  if (rows.length >= GAMEPAD_MAX_PER_KEY) return;
+  var maxIdx = -1;
+  for (var i = 0; i < rows.length; i++) {
+    var ii = parseInt(rows[i].getAttribute("data-idx"), 10);
+    if (isFinite(ii) && ii > maxIdx) maxIdx = ii;
+  }
+  var next = maxIdx + 1;
+  var parsed = gamepadParseValue("none");
+  cont.appendChild(gamepadBuildMappingSubRow(side, k, next, parsed, false));
+  gamepadSyncMappingRowBtns(side, k);
+}
+
+function gamepadBuildMappingSubRow(side, k, idx, parsed, isFirst) {
+  if (isFirst == null) isFirst = (idx === 0);
+  var sub = document.createElement("div");
+  sub.className = "row gp-subrow";
+  sub.style.alignItems = "center";
+  sub.setAttribute("data-subrow", "1");
+  sub.setAttribute("data-idx", String(idx));
+  var lead;
+  if (isFirst) {
+    lead = document.createElement("span");
+    lead.style.minWidth = "90px";
+    lead.style.fontWeight = "bold";
+    lead.textContent = gamepadKeyLabel(k);
+    lead.setAttribute("data-label", "1");
+  } else {
+    lead = document.createElement("span");
+    lead.style.minWidth = "90px";
+    lead.setAttribute("data-spacer", "1");
+  }
+  var badge = document.createElement("span");
+  badge.setAttribute("data-idxbadge", "1");
+  badge.style.minWidth = "28px";
+  badge.style.opacity = "0.6";
+  badge.textContent = "";
+  var kind = document.createElement("select");
+  kind.id = gamepadSubId("gpSel", side, k, idx);
+  GAMEPAD_KINDS.forEach(function (c) {
+    var opt = document.createElement("option");
+    opt.value = c;
+    opt.textContent = t(GAMEPAD_KIND_KEYS[c] || c);
+    if (c === parsed.kind) opt.selected = true;
+    kind.appendChild(opt);
+  });
+  kind.onchange = (function (s, kk, ii) {
+    return function () {
+      var v = document.getElementById(gamepadSubId("gpSel", s, kk, ii)).value;
+      var sw = document.getElementById(gamepadSubId("gpServoWrap", s, kk, ii));
+      var iw = document.getElementById(gamepadSubId("gpIkWrap", s, kk, ii));
+      var aw = document.getElementById(gamepadSubId("gpActionWrap", s, kk, ii));
+      var mu = document.getElementById(gamepadSubId("gpMusicSel", s, kk, ii));
+      var ra = document.getElementById(gamepadSubId("gpRadioSel", s, kk, ii));
+      var rg = document.getElementById(gamepadSubId("gpRingWrap", s, kk, ii));
+      var lw = document.getElementById(gamepadSubId("gpLedWrap", s, kk, ii));
+      var cm = document.getElementById(gamepadSubId("gpCameraSel", s, kk, ii));
+      var sn = document.getElementById(gamepadSubId("gpSensorSel", s, kk, ii));
+      var vc = document.getElementById(gamepadSubId("gpVoiceWrap", s, kk, ii));
+      var wk = document.getElementById(gamepadSubId("gpWalkSel", s, kk, ii));
+      if (wk) wk.style.display = v === "walk" ? "inline" : "none";
+      if (sw) sw.style.display = v === "servo" ? "inline" : "none";
+      if (iw) iw.style.display = v === "ik" ? "inline" : "none";
+      if (aw) aw.style.display = v === "action" ? "inline" : "none";
+      if (mu) mu.style.display = v === "music" ? "inline" : "none";
+      if (true) gamepadSyncMusicEq(s, kk, ii);
+      if (ra) ra.style.display = v === "radio" ? "inline" : "none";
+      if (rg) rg.style.display = v === "ring" ? "inline" : "none";
+      if (lw) lw.style.display = v === "led" ? "inline" : "none";
+      if (cm) cm.style.display = v === "camera" ? "inline" : "none";
+      if (sn) sn.style.display = v === "sensor" ? "inline" : "none";
+      if (vc) vc.style.display = v === "voice" ? "inline" : "none";
+    };
+  })(side, k, idx);
+  var servoWrap = gamepadBuildServoControls(side, k, idx, parsed);
+  var ikWrap = gamepadBuildIkControls(side, k, idx, parsed);
+  var musicSel = document.createElement("select");
+  musicSel.id = gamepadSubId("gpMusicSel", side, k, idx);
+  musicSel.style.display = parsed.kind === "music" ? "inline" : "none";
+  GAMEPAD_MUSIC_FNS.forEach(function (f) {
+    var o = document.createElement("option");
+    o.value = f;
+    o.textContent = t(GAMEPAD_MUSIC_FN_KEYS[f] || f);
+    if (f === parsed.musicFn) o.selected = true;
+    musicSel.appendChild(o);
+  });
+  var eqEntry2 = document.createElement("option");
+  eqEntry2.value = "eq:";
+  eqEntry2.textContent = t("gamepad_mfn_eq");
+  if (parsed.musicFn === "eq:") eqEntry2.selected = true;
+  musicSel.appendChild(eqEntry2);
+  musicSel.onchange = (function (s, kk, ii) {
+    return function () {
+      gamepadSyncMusicEq(s, kk, ii);
+    };
+  })(side, k, idx);
+  var eqSel = document.createElement("select");
+  eqSel.id = gamepadSubId("gpEqSel", side, k, idx);
+  eqSel.style.display = (parsed.kind === "music" && parsed.musicFn === "eq:") ? "inline" : "none";
+  ["normal", "classical", "dance", "rock", "jazz", "pop", "bass", "treble", "custom"].forEach(function (p) {
+    var oe = document.createElement("option");
+    oe.value = "eq:" + p;
+    oe.textContent = t("music_eq_preset_" + p);
+    if (p === parsed.eqPreset) oe.selected = true;
+    eqSel.appendChild(oe);
+  });
+  var actionWrap = gamepadBuildActionSelect(side, k, idx, parsed);
+  var ringWrap = gamepadBuildRingSelect(side, k, idx, parsed);
+  var ledWrap = gamepadBuildLedControls(side, k, idx, parsed);
+  var cameraSel = document.createElement("select");
+  cameraSel.id = gamepadSubId("gpCameraSel", side, k, idx);
+  cameraSel.style.display = parsed.kind === "camera" ? "inline" : "none";
+  [["camera_photo", "gamepad_cam_photo"], ["face_toggle", "gamepad_cam_face"],
+   ["color_toggle", "gamepad_cam_color"], ["video_toggle", "gamepad_cam_video"]].forEach(function (f) {
+    var o2 = document.createElement("option");
+    o2.value = f[0];
+    o2.textContent = t(f[1]);
+    if (f[0] === parsed.cameraFn) o2.selected = true;
+    cameraSel.appendChild(o2);
+  });
+  var walkSel = document.createElement("select");
+  walkSel.id = gamepadSubId("gpWalkSel", side, k, idx);
+  walkSel.style.display = parsed.kind === "walk" ? "inline" : "none";
+  GAMEPAD_WALK_FNS.forEach(function (f) {
+    var o3 = document.createElement("option");
+    o3.value = f;
+    o3.textContent = t(GAMEPAD_WALK_FN_KEYS[f]);
+    if (f === parsed.walkFn) o3.selected = true;
+    walkSel.appendChild(o3);
+  });
+  var sensorSel = document.createElement("select");
+  sensorSel.id = gamepadSubId("gpSensorSel", side, k, idx);
+  sensorSel.style.display = parsed.kind === "sensor" ? "inline" : "none";
+  GAMEPAD_SENSOR_FNS.forEach(function (f2) {
+    // alpha2_10002 冇 PIR：gamepad sensor 下拉都唔顯示 pir_toggle。
+    if (window.alpha2Is2Mic && f2 === "pir_toggle") return;
+    var o3 = document.createElement("option");
+    o3.value = f2;
+    o3.textContent = t(GAMEPAD_SENSOR_FN_KEYS[f2] || f2);
+    if (f2 === parsed.sensorFn) o3.selected = true;
+    sensorSel.appendChild(o3);
+  });
+  var voiceWrap = gamepadBuildVoiceSelect(side, k, idx, parsed);
+  var radioSel = gamepadBuildRadioSelect(side, k, idx, parsed);
+  var rm = document.createElement("button");
+  rm.className = "secondary";
+  rm.setAttribute("data-rmbtn", "1");
+  rm.textContent = "x";
+  rm.title = "x";
+  rm.onclick = (function (s, kk, ii) {
+    return function () { gamepadRemoveMappingRow(s, kk, ii); };
+  })(side, k, idx);
+  sub.appendChild(lead);
+  if (isFirst) {
+    var addBtn = document.createElement("button");
+    addBtn.className = "secondary";
+    addBtn.textContent = "+";
+    addBtn.setAttribute("data-addbtn", side + ":" + k);
+    addBtn.onclick = (function (s, kk) {
+      return function () { gamepadAddMappingRow(s, kk); };
+    })(side, k);
+    sub.appendChild(addBtn);
+  } else {
+    var addPh = document.createElement("button");
+    addPh.className = "secondary";
+    addPh.textContent = "+";
+    addPh.setAttribute("data-addph", "1");
+    addPh.disabled = true;
+    addPh.tabIndex = -1;
+    addPh.style.visibility = "hidden";
+    sub.appendChild(addPh);
+  }
+  sub.appendChild(badge);
+  sub.appendChild(kind);
+  sub.appendChild(servoWrap);
+  sub.appendChild(ikWrap);
+  sub.appendChild(musicSel);
+  sub.appendChild(eqSel);
+  sub.appendChild(radioSel);
+  sub.appendChild(ringWrap);
+  sub.appendChild(ledWrap);
+  sub.appendChild(cameraSel);
+  sub.appendChild(walkSel);
+  sub.appendChild(sensorSel);
+  sub.appendChild(voiceWrap);
+  sub.appendChild(actionWrap);
+  sub.appendChild(rm);
+  return sub;
+}
+
 function gamepadRenderSideGrid(side, groups, map) {
   var wrap = document.getElementById(side === "kb" ? "gamepadMappingKbGrid" : "gamepadMappingPadGrid");
   if (!wrap) return;
@@ -1207,123 +1671,22 @@ function gamepadRenderSideGrid(side, groups, map) {
     h.textContent = t("gamepad_group_" + grp.title);
     wrap.appendChild(h);
     grp.keys.forEach(function (k) {
-      var parsed = gamepadParseValue(map[k] || "none");
+      var stored = (map && map[k]) || "none";
+      var multiParts = gamepadSplitMulti(stored);
+      if (multiParts.length > GAMEPAD_MAX_PER_KEY) multiParts = multiParts.slice(0, GAMEPAD_MAX_PER_KEY);
       var row = document.createElement("div");
-      row.className = "row";
-      row.style.alignItems = "center";
+      row.className = "gp-keyrow";
       row.setAttribute("data-maprow", k);
       row.setAttribute("data-mapside", side);
-      var label = document.createElement("span");
-      label.style.minWidth = "90px";
-      label.style.fontWeight = "bold";
-      label.textContent = gamepadKeyLabel(k);
-      var pfx = side + "_";
-      var kind = document.createElement("select");
-      kind.id = "gpSel_" + pfx + k;
-      GAMEPAD_KINDS.forEach(function (c) {
-        var opt = document.createElement("option");
-        opt.value = c;
-        opt.textContent = t(GAMEPAD_KIND_KEYS[c] || c);
-        if (c === parsed.kind) opt.selected = true;
-        kind.appendChild(opt);
-      });
-      kind.onchange = (function (kk) {
-        return function () {
-          var v = document.getElementById("gpSel_" + pfx + kk).value;
-          var sw = document.getElementById("gpServoWrap_" + pfx + kk);
-          var aw = document.getElementById("gpActionWrap_" + pfx + kk);
-          var mu = document.getElementById("gpMusicSel_" + pfx + kk);
-          var eq = document.getElementById("gpEqSel_" + pfx + kk);
-          var ra = document.getElementById("gpRadioSel_" + pfx + kk);
-          var rg = document.getElementById("gpRingWrap_" + pfx + kk);
-          var lw = document.getElementById("gpLedWrap_" + pfx + kk);
-          var cm = document.getElementById("gpCameraSel_" + pfx + kk);
-          var sn = document.getElementById("gpSensorSel_" + pfx + kk);
-          var vc = document.getElementById("gpVoiceWrap_" + pfx + kk);
-          if (sw) sw.style.display = v === "servo" ? "inline" : "none";
-          if (aw) aw.style.display = v === "action" ? "inline" : "none";
-          if (mu) mu.style.display = v === "music" ? "inline" : "none";
-          if (eq) gamepadSyncMusicEq(side, kk);
-          if (ra) ra.style.display = v === "radio" ? "inline" : "none";
-          if (rg) rg.style.display = v === "ring" ? "inline" : "none";
-          if (lw) lw.style.display = v === "led" ? "inline" : "none";
-          if (cm) cm.style.display = v === "camera" ? "inline" : "none";
-          if (sn) sn.style.display = v === "sensor" ? "inline" : "none";
-          if (vc) vc.style.display = v === "voice" ? "inline" : "none";
-        };
-      })(k);
-      var servoWrap = gamepadBuildServoControls(side, k, parsed);
-      var musicSel = document.createElement("select");
-      musicSel.id = "gpMusicSel_" + pfx + k;
-      musicSel.style.display = parsed.kind === "music" ? "inline" : "none";
-      GAMEPAD_MUSIC_FNS.forEach(function (f) {
-        var o = document.createElement("option");
-        o.value = f;
-        o.textContent = t(GAMEPAD_MUSIC_FN_KEYS[f] || f);
-        if (f === parsed.musicFn) o.selected = true;
-        musicSel.appendChild(o);
-      });
-      // Equaliser entry (shown only after the neighbouring eq dropdown is picked; stored value eq:<preset>).
-      var eqEntry = document.createElement("option");
-      eqEntry.value = "eq:";
-      eqEntry.textContent = t("gamepad_mfn_eq");
-      if (parsed.musicFn === "eq:") eqEntry.selected = true;
-      musicSel.appendChild(eqEntry);
-      musicSel.onchange = (function (s, kk) {
-        return function () {
-          gamepadSyncMusicEq(s, kk);
-        };
-      })(side, k);
-      // EQ presets (same names as the music page; stored value eq:<preset>).
-      var eqSel = document.createElement("select");
-      eqSel.id = "gpEqSel_" + pfx + k;
-      eqSel.style.display = (parsed.kind === "music" && parsed.musicFn === "eq:") ? "inline" : "none";
-      ["normal", "classical", "dance", "rock", "jazz", "pop", "bass", "treble", "custom"].forEach(function (p) {
-        var oe = document.createElement("option");
-        oe.value = "eq:" + p;
-        oe.textContent = t("music_eq_preset_" + p);
-        if (p === parsed.eqPreset) oe.selected = true;
-        eqSel.appendChild(oe);
-      });
-      var actionWrap = gamepadBuildActionSelect(side, k, parsed);
-      var ringWrap = gamepadBuildRingSelect(side, k, parsed);
-      var ledWrap = gamepadBuildLedControls(side, k, parsed);
-      var cameraSel = document.createElement("select");
-      cameraSel.id = "gpCameraSel_" + pfx + k;
-      cameraSel.style.display = parsed.kind === "camera" ? "inline" : "none";
-      [["camera_photo", "gamepad_cam_photo"], ["face_toggle", "gamepad_cam_face"],
-       ["color_toggle", "gamepad_cam_color"], ["video_toggle", "gamepad_cam_video"]].forEach(function (f) {
-        var o = document.createElement("option");
-        o.value = f[0];
-        o.textContent = t(f[1]);
-        if (f[0] === parsed.cameraFn) o.selected = true;
-        cameraSel.appendChild(o);
-      });
-      var sensorSel = document.createElement("select");
-      sensorSel.id = "gpSensorSel_" + pfx + k;
-      sensorSel.style.display = parsed.kind === "sensor" ? "inline" : "none";
-      GAMEPAD_SENSOR_FNS.forEach(function (f) {
-        var o = document.createElement("option");
-        o.value = f;
-        o.textContent = t(GAMEPAD_SENSOR_FN_KEYS[f] || f);
-        if (f === parsed.sensorFn) o.selected = true;
-        sensorSel.appendChild(o);
-      });
-      var voiceSel = gamepadBuildVoiceSelect(side, k, parsed);
-      row.appendChild(label);
-      row.appendChild(kind);
-      row.appendChild(servoWrap);
-      row.appendChild(musicSel);
-      row.appendChild(eqSel);
-      var radioSel = gamepadBuildRadioSelect(side, k, parsed);
-      row.appendChild(radioSel);
-      row.appendChild(ringWrap);
-      row.appendChild(ledWrap);
-      row.appendChild(cameraSel);
-      row.appendChild(sensorSel);
-      row.appendChild(voiceSel);
-      row.appendChild(actionWrap);
+      var subs = document.createElement("div");
+      subs.id = "gpSubs_" + side + "_" + k;
+      row.appendChild(subs);
       wrap.appendChild(row);
+      for (var mi = 0; mi < multiParts.length; mi++) {
+        var parsed = gamepadParseValue(multiParts[mi]);
+        subs.appendChild(gamepadBuildMappingSubRow(side, k, mi, parsed, mi === 0));
+      }
+      gamepadSyncMappingRowBtns(side, k);
     });
   });
 }
@@ -1352,13 +1715,13 @@ function gamepadVoskPackName(m) {
   return (uiLang === "en" ? (m.langEn || m.lang) : (m.lang || m.langEn)) || m.id;
 }
 
-// Build the two voice dropdowns ("小智"/Vosk group + that group's language packs; the pack list arrives later and fills in; old vosk_toggle values map to the Vosk group).
-function gamepadBuildVoiceSelect(side, k, parsed) {
+// 建語音兩下拉（小智／Vosk 組＋該組語言包；包單後到即補；vosk_toggle 舊值歸 Vosk 組）。
+function gamepadBuildVoiceSelect(side, k, idx, parsed) {
   var wrap = document.createElement("span");
-  wrap.id = "gpVoiceWrap_" + side + "_" + k;
+  wrap.id = gamepadSubId("gpVoiceWrap", side, k, idx);
   wrap.style.display = parsed.kind === "voice" ? "inline" : "none";
   var sel = document.createElement("select");
-  sel.id = "gpVoiceSel_" + side + "_" + k;
+  sel.id = gamepadSubId("gpVoiceSel", side, k, idx);
   var isVosk = parsed.voiceFn !== "xiaozhi_toggle";
   GAMEPAD_VOICE_FIXED.forEach(function (f) {
     var o = document.createElement("option");
@@ -1368,37 +1731,37 @@ function gamepadBuildVoiceSelect(side, k, parsed) {
     sel.appendChild(o);
   });
   var pack = document.createElement("select");
-  pack.id = "gpVoskPackSel_" + side + "_" + k;
+  pack.id = gamepadSubId("gpVoskPackSel", side, k, idx);
   pack.style.maxWidth = "220px";
   wrap.appendChild(sel);
   wrap.appendChild(pack);
-  sel.onchange = (function (s, kk) {
+  sel.onchange = (function (s, kk, ii) {
     return function () {
-      gamepadSyncVoicePack(s, kk);
+      gamepadSyncVoicePack(s, kk, ii);
     };
-  })(side, k);
+  })(side, k, idx);
   gamepadFillVoskPacks(pack, isVosk ? parsed.voiceFn : "");
   // Not in the DOM yet during build, so set it directly (after entering the DOM, group changes go through the onchange + sync above).
   pack.style.display = isVosk ? "inline" : "none";
   return wrap;
 }
 
-// Only the Vosk group shows the pack list (the "小智" group keeps it collapsed).
-function gamepadSyncVoicePack(side, k) {
-  var pfx = side + "_";
-  var sel = document.getElementById("gpVoiceSel_" + pfx + k);
-  var pack = document.getElementById("gpVoskPackSel_" + pfx + k);
+// Vosk 組先出包單（小智組收起）。
+function gamepadSyncVoicePack(side, k, idx) {
+  if (idx == null) idx = 0;
+  var sel = document.getElementById(gamepadSubId("gpVoiceSel", side, k, idx));
+  var pack = document.getElementById(gamepadSubId("gpVoskPackSel", side, k, idx));
   if (!pack) return;
   var isVosk = !sel || sel.value !== "xiaozhi_toggle";
   pack.style.display = isVosk ? "inline" : "none";
 }
 
-// Equaliser dropdown: appears only when the music kind selects the equaliser entry; every other value hides it.
-function gamepadSyncMusicEq(side, k) {
-  var pfx = side + "_";
-  var kd = document.getElementById("gpSel_" + pfx + k);
-  var mu = document.getElementById("gpMusicSel_" + pfx + k);
-  var eq = document.getElementById("gpEqSel_" + pfx + k);
+// 等化器下拉：music 種揀咗等化器入口先出，其他值一律收起。
+function gamepadSyncMusicEq(side, k, idx) {
+  if (idx == null) idx = 0;
+  var kd = document.getElementById(gamepadSubId("gpSel", side, k, idx));
+  var mu = document.getElementById(gamepadSubId("gpMusicSel", side, k, idx));
+  var eq = document.getElementById(gamepadSubId("gpEqSel", side, k, idx));
   if (!eq) return;
   var showKind = !kd || kd.value === "music";
   eq.style.display = (showKind && mu && mu.value === "eq:") ? "inline" : "none";
@@ -1445,57 +1808,65 @@ function gamepadFillVoskPacks(sel, cur) {
   sel.dataset.voiceFilled = packs.length ? "1" : "";
 }
 
-// Read one row's current value (same assembly as the old per-row save; action not picked returns null and the whole row is skipped).
-function gamepadReadRowValue(side, k) {
-  var pfx = side + "_";
-  var kindEl = document.getElementById("gpSel_" + pfx + k);
+// 讀某子行現時值（同舊逐行存同一拼法；action 未揀回 null 即該子行跳過）。
+function gamepadReadSubRowValue(side, k, idx) {
+  if (idx == null) idx = 0;
+  var kindEl = document.getElementById(gamepadSubId("gpSel", side, k, idx));
   if (!kindEl) return null;
   var kind = kindEl.value;
   if (kind === "servo") {
-    var sv = document.getElementById("gpServo_" + pfx + k);
+    var sv = document.getElementById(gamepadSubId("gpServo", side, k, idx));
     return (sv && sv.value) ? sv.value : "servo20+";
   }
+  if (kind === "ik") {
+    var ik = document.getElementById(gamepadSubId("gpIkSel", side, k, idx));
+    return (ik && ik.value) ? ik.value : "ik:squatlean+";
+  }
   if (kind === "music") {
-    var mu = document.getElementById("gpMusicSel_" + pfx + k);
+    var mu = document.getElementById(gamepadSubId("gpMusicSel", side, k, idx));
     var muv = (mu && mu.value) ? mu.value : "music_play";
     // Equaliser entry: take the value from the neighbouring eq dropdown.
     if (muv === "eq:") {
-      var eq = document.getElementById("gpEqSel_" + pfx + k);
+      var eq = document.getElementById(gamepadSubId("gpEqSel", side, k, idx));
       return (eq && eq.value) ? eq.value : "eq:normal";
     }
     return muv;
   }
   if (kind === "radio") {
-    var rd = document.getElementById("gpRadioSel_" + pfx + k);
-    // Empty list when even the favourites miss it: return null and skip the row instead of storing a wrong value.
+    var rd = document.getElementById(gamepadSubId("gpRadioSel", side, k, idx));
+    // 收藏都無即空單：回 null 成行跳過，唔亂存。
     return (rd && rd.value) ? rd.value : null;
   }
+  if (kind === "walk") {
+    var wsel = document.getElementById(gamepadSubId("gpWalkSel", side, k, idx));
+    return (wsel && wsel.value) ? wsel.value : "walk:fwd";
+  }
   if (kind === "camera") {
-    var cm = document.getElementById("gpCameraSel_" + pfx + k);
+    var cm = document.getElementById(gamepadSubId("gpCameraSel", side, k, idx));
     return (cm && cm.value) ? cm.value : "camera_photo";
   }
   if (kind === "sensor") {
-    var sn = document.getElementById("gpSensorSel_" + pfx + k);
+    var sn = document.getElementById(gamepadSubId("gpSensorSel", side, k, idx));
     return (sn && sn.value) ? sn.value : "sonar_toggle";
   }
   if (kind === "voice") {
-    var vc = document.getElementById("gpVoiceSel_" + pfx + k);
+    var vc = document.getElementById(gamepadSubId("gpVoiceSel", side, k, idx));
     var vcv = (vc && vc.value) ? vc.value : "xiaozhi_toggle";
     if (vcv !== "vosk") return vcv;
-    var pk = document.getElementById("gpVoskPackSel_" + pfx + k);
+    var pk = document.getElementById(gamepadSubId("gpVoskPackSel", side, k, idx));
     var pkv = (pk && pk.value) ? pk.value.trim() : "";
     return pkv || "vosk_toggle";
   }
   if (kind === "ring") {
-    var rg = document.getElementById("gpRingSel_" + pfx + k);
+    var rg = document.getElementById(gamepadSubId("gpRingSel", side, k, idx));
     var rv = rg ? (rg.value || "").trim() : "";
     return rv || null;
   }
   if (kind === "led") {
-    var lp = document.getElementById("gpLedPart_" + pfx + k);
-    var pr = document.getElementById("gpLedPreset_" + pfx + k);
-    var co = document.getElementById("gpLedColor_" + pfx + k);
-    var sp = document.getElementById("gpLedSpeed_" + pfx + k);
+    var lp = document.getElementById(gamepadSubId("gpLedPart", side, k, idx));
+    var pr = document.getElementById(gamepadSubId("gpLedPreset", side, k, idx));
+    var co = document.getElementById(gamepadSubId("gpLedColor", side, k, idx));
+    var sp = document.getElementById(gamepadSubId("gpLedSpeed", side, k, idx));
     var part = lp ? lp.value : "head";
     var preset = pr ? pr.value : "flash";
     if (part === "mouth") {
@@ -1511,14 +1882,41 @@ function gamepadReadRowValue(side, k) {
     return part + ":" + preset + ":" + color;
   }
   if (kind === "action") {
-    var as = document.getElementById("gpActionSel_" + pfx + k);
+    var as = document.getElementById(gamepadSubId("gpActionSel", side, k, idx));
     var id = as ? (as.value || "").trim() : "";
     return id ? ("action:" + id) : null;
   }
   return kind;
 }
 
-// Save a whole zone at once: send only rows that differ from the cache, with one button (replaces per-row saves).
+// 讀某鍵全量值（一鍵多功能：全部子行換行接起；子行 null 即跳過；
+// 全跳過回 null 唔存；全 none 回單個 none）。
+function gamepadReadKeyValue(side, k) {
+  var cont = document.getElementById("gpSubs_" + side + "_" + k);
+  var vals = [];
+  if (cont) {
+    var rows = cont.querySelectorAll("[data-subrow]");
+    for (var i = 0; i < rows.length; i++) {
+      var ii = parseInt(rows[i].getAttribute("data-idx"), 10);
+      if (!isFinite(ii)) ii = i;
+      var v = gamepadReadSubRowValue(side, k, ii);
+      if (v !== null) vals.push(v);
+    }
+  } else {
+    var single = gamepadReadSubRowValue(side, k, 0);
+    if (single === null) return null;
+    vals.push(single);
+  }
+  if (!vals.length) return null;
+  var allNone = true;
+  for (var j = 0; j < vals.length; j++) {
+    if (vals[j] !== "none") { allNone = false; break; }
+  }
+  if (allNone) return "none";
+  return gamepadJoinMulti(vals);
+}
+
+// 成區一次過存：只送同緩存唔同的行，一個掣搞掂（取代逐行存）。
 function gamepadSaveAll(side) {
   side = side || "pad";
   var groups = side === "kb" ? GAMEPAD_KB_GROUPS : GAMEPAD_PAD_GROUPS;
@@ -1526,8 +1924,11 @@ function gamepadSaveAll(side) {
   var jobs = [];
   groups.forEach(function (grp) {
     grp.keys.forEach(function (k) {
-      var v = gamepadReadRowValue(side, k);
-      if (v === null || v === cache[k]) return;
+      var v = gamepadReadKeyValue(side, k);
+      var cached = cache[k] || "none";
+      var normV = v == null ? null : gamepadJoinMulti(gamepadSplitMulti(v));
+      var normC = gamepadJoinMulti(gamepadSplitMulti(cached));
+      if (v === null || normV === normC) return;
       jobs.push({ key: k, action: v });
     });
   });
@@ -1605,7 +2006,9 @@ var GAMEPAD_KB_NAV = [
   [["prt", "print", ""], ["scr", "scroll", ""], ["paus", "pause", ""]],
   [["ins", "ins", ""], ["home", "home", ""], ["pgup", "pgup", ""]],
   [["del", "del", ""], ["end", "end", ""], ["pgdn", "pgdn", ""]],
-  [["◀", "left", ""], ["▲", "up", ""], ["▼", "down", ""], ["▶", "right", ""]]
+  // 箭嘴同上面一樣 3 鍵闊（上下兩行標準十字排法），唔好 4 粒逼埋細一截。
+  [null, ["▲", "up", ""], null],
+  [["◀", "left", ""], ["▼", "down", ""], ["▶", "right", ""]]
 ];
 // Media row (7 keys: play/stop + volume, above the navigation/number zones, full width).
 var GAMEPAD_KB_MEDIA = [
@@ -1680,9 +2083,8 @@ function gamepadKeyLabel(k) {
 function gamepadLightLogical(logical, on, action) {
   if (!logical) return;
   var lit = !!on;
-  var mapped = lit && action && action !== "none";
+  var mapped = lit && action && gamepadSplitMulti(action).some(function (p) { return p !== "none"; });
   var css = mapped ? "lit" : "lit-free";
-  var cssRow = mapped ? "gprow-lit" : "gprow-free";
   var g = document.getElementById("gpcap-" + logical);
   if (g) {
     g.classList.remove("lit");
@@ -1703,39 +2105,496 @@ function gamepadLightLogical(logical, on, action) {
   for (var j = 0; j < rows.length; j++) {
     var side = rows[j].getAttribute("data-mapside");
     var cur = (side === "kb" ? gamepadCachedSide("kb") : gamepadCachedSide("pad"))[logical];
-    var rowCls = (lit && cur && cur !== "none") ? "gprow-lit" : "gprow-free";
+    var curMapped = cur && gamepadSplitMulti(cur).some(function (p) { return p !== "none"; });
+    var rowCls = (lit && curMapped) ? "gprow-lit" : "gprow-free";
     rows[j].classList.remove("gprow-lit");
     rows[j].classList.remove("gprow-free");
     if (lit) rows[j].classList.add(rowCls);
   }
 }
 
-// Joystick position (a 26px nub inside a 64px ring, centre at 19px, full deflection ±14px).
-function gamepadMoveNubs(lx, ly, rx, ry) {
-  var ln = document.getElementById("gpnub-l");
-  var rn = document.getElementById("gpnub-r");
-  if (ln) {
-    ln.style.left = (19 + Math.max(-1, Math.min(1, lx || 0)) * 14) + "px";
-    ln.style.top = (19 + Math.max(-1, Math.min(1, ly || 0)) * 14) + "px";
+// 搖桿點位（預設 nub 26px 置 64px 圈，中心 19px，滿偏 ±14px；
+// 全屏放大咗圈照跟實際尺寸計，唔寫死）。
+function gamepadMoveNubOne(nubId, v) {
+  var nub = document.getElementById(nubId);
+  if (!nub || !nub.parentNode) return;
+  var stickW = 0, nubW = 0;
+  try {
+    stickW = nub.parentNode.clientWidth || 0;
+    nubW = nub.offsetWidth || 0;
+  } catch (e) {}
+  if (!stickW || !nubW) {
+    nub.style.left = (19 + Math.max(-1, Math.min(1, v.x || 0)) * 14) + "px";
+    nub.style.top = (19 + Math.max(-1, Math.min(1, v.y || 0)) * 14) + "px";
+    return;
   }
-  if (rn) {
-    rn.style.left = (19 + Math.max(-1, Math.min(1, rx || 0)) * 14) + "px";
-    rn.style.top = (19 + Math.max(-1, Math.min(1, ry || 0)) * 14) + "px";
+  var center = (stickW - nubW) / 2;
+  var range = Math.max(0, center - 2);
+  nub.style.left = (center + Math.max(-1, Math.min(1, v.x || 0)) * range) + "px";
+  nub.style.top = (center + Math.max(-1, Math.min(1, v.y || 0)) * range) + "px";
+}
+function gamepadMoveNubs(lx, ly, rx, ry) {
+  gamepadMoveNubOne("gpnub-l", { x: lx || 0, y: ly || 0 });
+  gamepadMoveNubOne("gpnub-r", { x: rx || 0, y: ry || 0 });
+}
+
+// ---------------- 示意圖即撳即用：圖上掣可直接撳 ----------------
+// 手柄圖 (gpcap-*) → side pad；鍵盤圖 (data-kb) → side kb。
+// 經 gamepad/key down/up 注入，同物理掣同一條 executeAction（servo jog 撳住連走、
+// 放手停；taken:false 照亮＋最後按鍵寫✗，同物理一致，見 gamepadLastText）。
+// WS gamepad_key 回聲會再亮一次，呢度先樂觀亮一次等手感即時（色按該邊緩存現值）。
+// 雙搖桿拖曳經 gamepad/axis（同真柄同一條 applyAxis：配咗向行映射，未配右桿 legacy 轉頭）。
+// 多點觸控：pointerId→鍵／桿，同鍵兩指撳要兩指齊放先 up。
+// 防黐掣（唔留 servo 一直走／搖桿唔回中／撳極唔郁）：
+// 1) up／cancel／lostcapture／出窗 move+out 見 buttons=0（sweep）／
+//    blur／visibilitychange／pagehide／全屏退出，一律放晒；
+// 2) 收掣 up／回中 0 正常一次搞掂（WS 得返應有句數，唔有多餘；HTTP 有回應即係
+//    後端已處理，唔使估），得失敗先補（最多兩次），補嗰陣有新撳／新拖即收手；
+// 3) 計數唔盲信：每次向 live pointer 表對數（Holders），殘留下次撳自動歸位；
+//    同一 pid 未 up 又 down 必係殘留，清舊當新，唔會食咗下撳。
+var __gpDiagBound = false;
+var __gpDiagPtr = {};
+var __gpDiagHold = {};
+// 每次 pointerdown 遞增；down／up 都帶同一個 seq，後端就算 up 先過 down
+// 都認得返同一撳（唔會漏停連走行到 100%）。base 用時間戳，避免 reload 後
+// seq 由 0 再數同上一頁嘅舊 seq 撞（撞咗會誤判 up 已到，長撳唔連走）。
+var __gpDiagSeq = (Date.now ? Date.now() : 1) * 1000;
+var __gpDiagStickL = { dx: 0, dy: 0, held: false, ptr: null };
+var __gpDiagStickR = { dx: 0, dy: 0, held: false, ptr: null };
+var __gpDiagAxisSentAt = 0;
+var __gpDiagAxisTimer = null;
+
+function gamepadDiagCachedAction(side, key) {
+  try {
+    var m = (side === "kb" ? gamepadCachedSide("kb") : gamepadCachedSide("pad"))[key];
+    return m != null ? m : "none";
+  } catch (e) {
+    return "none";
   }
 }
 
+// 該鍵而家有幾隻 live pointer 撳緊（唔計 excludePid；pid 數字／字串混用，唔好用 ===）。
+// hold 計數唔盲信，一律向呢張 live 表對數——漏過 up 搞殘計數，下次撳即自愈，
+// 之後 tap 唔會再變靜音掣。
+function gamepadDiagHolders(hk, excludePid) {
+  var c = 0;
+  for (var pid in __gpDiagPtr) {
+    try {
+      var h = __gpDiagPtr[pid];
+      if (h && pid != excludePid && ((h.side + ":" + h.key) === hk)) c++;
+    } catch (e) {}
+  }
+  return c;
+}
 
-// ---------------- Camera-page gamepad view (pad keys + dual joysticks, canvas inside the viewport) ----------------
-// Key definitions follow the gamepad settings (mapping snapshot __cameraPadMap; button faces show only key names, no action text).
-// Buttons: a press sends gamepad/key down, a release sends up (same executeAction + toggle semantics as physical buttons;
-// servo jog runs while held and stops on release; taken:false flashes red and the status row shows ✗).
-// Joysticks: dragging deflects, and gamepad/axis injects lx/ly/rx/ry (same applyAxis as a real pad: a mapped direction
-// emits its channel + continuous run; an unmapped right stick falls back to legacy head turns 19/20). During deflection a 200 ms repeat keeps legacy steps moving;
-// releasing to centre sends 0 and stops. The readout bar below shows live deflection.
-// Layout follows X360: joysticks bottom left/right (auto-centre on release); D-pad mid-left (one plus shape, joystick-style,
-// so the finger slides an arm without lifting); ABXY mid-right (A bottom, B right, four separate keys); start-select bottom middle;
-// L1L2 top left, R1R2 top right. Multi-touch (pointerId → button/stick/D-pad) allows two-handed use.
-// Feature keys are either/or: the two switches are exclusive, at most one side on at a time (see cameraFeatureToggle).
+// 收掣 up 規矩：正常一次搞掂——撳一下 WS 得返 down＋up 兩句，唔有多餘第 3 句。
+// 原理：HTTP 有回應即係後端已 stop＋publish（回應喺處理之後先寫），成功就唔使估。
+// 得第一發失敗（ok:false／掟 exception，後端未處理）先補，最多兩次；
+// 補嗰陣有新撳住即收手（舊 up 遲到有後端反轉閘兜，唔斬斷人哋）。
+function gamepadDiagSendUp(side, key, hk, seq) {
+  var tries = 0;
+  function sendOnce() {
+    var p = null;
+    try {
+      var q = { side: side, key: key, action: "up", source: "panel" };
+      if (seq != null) q.seq = seq;
+      p = Alpha2Api.gamepadKey(q);
+    } catch (e) {
+      scheduleRetry();
+      return;
+    }
+    try { p.catch(function () {}); } catch (e0) {}
+    try {
+      p.then(function (json) {
+        if (!json || !json.ok) scheduleRetry();
+      }, function () { scheduleRetry(); });
+    } catch (e2) {}
+  }
+  function scheduleRetry() {
+    tries++;
+    if (tries > 2) return;
+    try {
+      setTimeout(function () {
+        try {
+          if (gamepadDiagHolders(hk, null) > 0) return;
+          if ((__gpDiagHold[hk] || 0) > 0) return;
+          sendOnce();
+        } catch (e3) {}
+      }, tries === 1 ? 300 : 700);
+    } catch (e4) {}
+  }
+  sendOnce();
+}
+
+function gamepadDiagPress(side, key, down, pid, seq) {
+  if (!key) return;
+  side = (side === "kb") ? "kb" : "pad";
+  var hk = side + ":" + key;
+  if (down) {
+    // 調用方（PadDown／KbDown）先記 ptr 後叫入嚟，所以 own pid 已在表：
+    // 仲有其他手指撳緊同一粒＝真・多指同撳，先靜音（計數跟表行，防殘留污染）。
+    var others = (pid == null) ? 0 : gamepadDiagHolders(hk, pid);
+    __gpDiagHold[hk] = others + 1;
+    if (others > 0) return;
+    try { gamepadLightLogical(key, true, gamepadDiagCachedAction(side, key)); } catch (e) {}
+    try {
+      var q = { side: side, key: key, action: "down", source: "panel" };
+      if (seq != null) q.seq = seq;
+      Alpha2Api.gamepadKey(q).catch(function () {
+        __gpDiagHold[hk] = 0;
+        try { gamepadLightLogical(key, false); } catch (e2) {}
+      });
+    } catch (e) {}
+  } else {
+    // 調用方（OnUp）先刪 ptr 後叫入嚟；releaseAll 傳埋 pid 入嚟一視同仁。
+    var holders = gamepadDiagHolders(hk, pid);
+    __gpDiagHold[hk] = holders;
+    if (holders > 0) return;
+    try { gamepadLightLogical(key, false); } catch (e) {}
+    gamepadNoteLocalUp(side, key);
+    gamepadDiagSendUp(side, key, hk, seq);
+  }
+}
+
+// hold 計數直清（唔經 pointerId：防 ptr 唔齊／全屏退出嗰陣漏 up，唔留 servo 一直走）。
+function gamepadDiagFlushHolds() {
+  for (var hk in __gpDiagHold) {
+    if ((__gpDiagHold[hk] || 0) <= 0) continue;
+    __gpDiagHold[hk] = 0;
+    var i = hk.indexOf(":");
+    var side = i < 0 ? "pad" : hk.substring(0, i);
+    var key = i < 0 ? hk : hk.substring(i + 1);
+    if (!key) continue;
+    try { gamepadLightLogical(key, false); } catch (e) {}
+    gamepadNoteLocalUp(side, key);
+    gamepadDiagSendUp(side, key, hk);
+  }
+}
+
+// 回中零位包規矩：同 up 一樣，正常一次搞掂，得失敗先補（最多兩次），
+// 有新拖曳即收手。取代之前次次補多句嘅做法。
+function gamepadDiagSendZero() {
+  var tries = 0;
+  function sendOnce() {
+    var now = 0;
+    try { now = Date.now(); } catch (e0) {}
+    __gpDiagAxisSentAt = now;
+    var p = null;
+    try {
+      p = Alpha2Api.gamepadAxis({ lx: 0, ly: 0, rx: 0, ry: 0, source: "panel" });
+    } catch (e) {
+      scheduleRetry();
+      return;
+    }
+    try { p.catch(function () {}); } catch (e1) {}
+    try {
+      p.then(function (json) {
+        if (!json || !json.ok) scheduleRetry();
+      }, function () { scheduleRetry(); });
+    } catch (e2) {}
+  }
+  function scheduleRetry() {
+    tries++;
+    if (tries > 2) return;
+    try {
+      setTimeout(function () {
+        try {
+          if (__gpDiagStickL.held || __gpDiagStickR.held) return;
+          sendOnce();
+        } catch (e3) {}
+      }, tries === 1 ? 250 : 700);
+    } catch (e4) {}
+  }
+  sendOnce();
+}
+
+// 放開一支桿：回中＋即送 0（唔經節流）。回 true＝真係放咗。
+function gamepadDiagStickRelease(st) {
+  if (!st || !st.held) return false;
+  st.dx = 0; st.dy = 0; st.held = false; st.ptr = null;
+  gamepadDiagSendZero();
+  try { gamepadMoveNubs(__gpDiagStickL.dx, __gpDiagStickL.dy, __gpDiagStickR.dx, __gpDiagStickR.dy); } catch (x) {}
+  return true;
+}
+
+function gamepadDiagReleaseAll() {
+  for (var pid in __gpDiagPtr) {
+    try {
+      var h = __gpDiagPtr[pid];
+      if (h) gamepadDiagPress(h.side, h.key, false, pid, h.seq);
+    } catch (e) {}
+  }
+  __gpDiagPtr = {};
+  try { gamepadDiagFlushHolds(); } catch (e) {}
+  __gpDiagHold = {};
+  try { gamepadDiagStickRelease(__gpDiagStickL); } catch (e) {}
+  try { gamepadDiagStickRelease(__gpDiagStickR); } catch (e) {}
+}
+
+function gamepadDiagClosest(el, sel) {
+  var cur = el;
+  while (cur) {
+    try {
+      if (cur.matches && cur.matches(sel)) return cur;
+      if (sel.charAt(0) === "." && cur.classList && cur.classList.contains(sel.substring(1))) return cur;
+      if (sel.charAt(0) === "#" && cur.id === sel.substring(1)) return cur;
+    } catch (e) {}
+    // [id^="gpcap-"]／[data-kb] 兩種屬性選擇器手動認（舊 WebView matches 未必全支援）。
+    try {
+      if (sel === '[id^="gpcap-"]' && cur.id && cur.id.indexOf("gpcap-") === 0) return cur;
+      if (sel === "[data-kb]" && cur.getAttribute && cur.getAttribute("data-kb")) return cur;
+      if (sel === ".gp-stick" && cur.classList && cur.classList.contains("gp-stick")) return cur;
+    } catch (e2) {}
+    cur = cur.parentNode;
+    if (cur && cur.nodeType !== 1) return null;
+  }
+  return null;
+}
+
+function gamepadDiagStickOfEl(stickEl) {
+  if (!stickEl) return null;
+  try {
+    if (stickEl.querySelector && stickEl.querySelector("#gpnub-l")) return { st: __gpDiagStickL, id: "L" };
+    if (stickEl.querySelector && stickEl.querySelector("#gpnub-r")) return { st: __gpDiagStickR, id: "R" };
+  } catch (e) {}
+  return null;
+}
+
+function gamepadDiagStickSet(st, stickEl, clientX, clientY) {
+  var r = null;
+  try { r = stickEl.getBoundingClientRect(); } catch (e) { return; }
+  if (!r || !r.width) return;
+  var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  var R = r.width / 2;
+  var dx = (clientX - cx) / R, dy = (clientY - cy) / R;
+  var len = Math.sqrt(dx * dx + dy * dy);
+  if (len > 1) { dx /= len; dy /= len; }
+  st.dx = Math.round(dx * 100) / 100;
+  st.dy = Math.round(dy * 100) / 100;
+  st.held = true;
+  try { gamepadMoveNubs(__gpDiagStickL.dx, __gpDiagStickL.dy, __gpDiagStickR.dx, __gpDiagStickR.dy); } catch (e) {}
+  gamepadDiagAxisSend(false);
+  gamepadDiagAxisRepeat();
+}
+
+function gamepadDiagAxisSend(force) {
+  var now = Date.now();
+  if (!force && now - __gpDiagAxisSentAt < 80) return;
+  __gpDiagAxisSentAt = now;
+  try {
+    Alpha2Api.gamepadAxis({ lx: __gpDiagStickL.dx, ly: __gpDiagStickL.dy,
+      rx: __gpDiagStickR.dx, ry: __gpDiagStickR.dy, source: "panel" }).catch(function () {});
+  } catch (e) {}
+}
+
+function gamepadDiagAxisRepeat() {
+  if (__gpDiagAxisTimer) return;
+  __gpDiagAxisTimer = setInterval(function () {
+    var moving = __gpDiagStickL.held || __gpDiagStickR.held;
+    if (!moving) {
+      clearInterval(__gpDiagAxisTimer);
+      __gpDiagAxisTimer = null;
+      return;
+    }
+    gamepadDiagAxisSend(false);
+  }, 200);
+}
+
+function gamepadDiagPadDown(e) {
+  if (e && e.button != null && e.button !== 0) return;
+  var t = e ? (e.target || e.srcElement) : null;
+  if (!t) return;
+  // 搖桿優先（範圍大）。
+  var stickEl = gamepadDiagClosest(t, ".gp-stick");
+  if (stickEl) {
+    var hit = gamepadDiagStickOfEl(stickEl);
+    if (hit && !hit.st.held) {
+      hit.st.ptr = (e.pointerId != null) ? e.pointerId : "mouse";
+      try { if (stickEl.setPointerCapture && e.pointerId != null) stickEl.setPointerCapture(e.pointerId); } catch (x) {}
+      gamepadDiagStickSet(hit.st, stickEl, e.clientX, e.clientY);
+      try { e.preventDefault(); } catch (x) {}
+    }
+    return;
+  }
+  var btn = gamepadDiagClosest(t, '[id^="gpcap-"]');
+  if (btn && btn.id && btn.id.indexOf("gpcap-") === 0) {
+    var key = btn.id.substring(6).toLowerCase();
+    if (!key) return;
+    var pid = (e.pointerId != null) ? e.pointerId : "mouse";
+    // 同一 pointer 未 up 又 down（之前甩咗 up 殘留）：舊嗰筆當放咗先清，
+    // 再當新撳——單一 contact 唔可能合法撳兩次，有殘留必係漏。
+    var stale = __gpDiagPtr[pid];
+    if (stale) {
+      try { delete __gpDiagPtr[pid]; gamepadDiagPress(stale.side, stale.key, false, pid, stale.seq); } catch (x0) {}
+    }
+    var seq = ++__gpDiagSeq;
+    __gpDiagPtr[pid] = { side: "pad", key: key, seq: seq };
+    try { if (btn.setPointerCapture && e.pointerId != null) btn.setPointerCapture(e.pointerId); } catch (x) {}
+    gamepadDiagPress("pad", key, true, pid, seq);
+    try { e.preventDefault(); } catch (x) {}
+  }
+}
+
+function gamepadDiagKbDown(e) {
+  if (e && e.button != null && e.button !== 0) return;
+  var t = e ? (e.target || e.srcElement) : null;
+  if (!t) return;
+  var k = gamepadDiagClosest(t, "[data-kb]");
+  if (!k) return;
+  var key = null;
+  try { key = k.getAttribute("data-kb"); } catch (x) {}
+  if (!key) return;
+  var pid = (e.pointerId != null) ? e.pointerId : "mouse";
+  var staleKb = __gpDiagPtr[pid];
+  if (staleKb) {
+    try { delete __gpDiagPtr[pid]; gamepadDiagPress(staleKb.side, staleKb.key, false, pid, staleKb.seq); } catch (x0) {}
+  }
+  var seq = ++__gpDiagSeq;
+  __gpDiagPtr[pid] = { side: "kb", key: key, seq: seq };
+  try { if (k.setPointerCapture && e.pointerId != null) k.setPointerCapture(e.pointerId); } catch (x) {}
+  gamepadDiagPress("kb", key, true, pid, seq);
+  try { e.preventDefault(); } catch (x) {}
+}
+
+function gamepadDiagOnMove(e) {
+  // 先掃蕩：buttons 已經係 0 即之前甩咗 up，呢下補返（滑鼠出窗放手專用）。
+  try { gamepadDiagSweep(e); } catch (x0) {}
+  var pid = (e && e.pointerId != null) ? e.pointerId : "mouse";
+  // 搖桿拖曳跟手指。
+  if (__gpDiagStickL.held && __gpDiagStickL.ptr === pid) {
+    var pad = document.getElementById("gpPadDiagram");
+    var sticks = pad ? pad.querySelectorAll(".gp-stick") : null;
+    var lEl = null;
+    if (sticks && sticks.length) {
+      for (var i = 0; i < sticks.length; i++) {
+        try {
+          if (sticks[i].querySelector && sticks[i].querySelector("#gpnub-l")) { lEl = sticks[i]; break; }
+        } catch (x) {}
+      }
+    }
+    if (lEl) {
+      gamepadDiagStickSet(__gpDiagStickL, lEl, e.clientX, e.clientY);
+      try { e.preventDefault(); } catch (x) {}
+    }
+    return;
+  }
+  if (__gpDiagStickR.held && __gpDiagStickR.ptr === pid) {
+    var pad2 = document.getElementById("gpPadDiagram");
+    var sticks2 = pad2 ? pad2.querySelectorAll(".gp-stick") : null;
+    var rEl = null;
+    if (sticks2 && sticks2.length) {
+      for (var j = 0; j < sticks2.length; j++) {
+        try {
+          if (sticks2[j].querySelector && sticks2[j].querySelector("#gpnub-r")) { rEl = sticks2[j]; break; }
+        } catch (x) {}
+      }
+    }
+    if (rEl) {
+      gamepadDiagStickSet(__gpDiagStickR, rEl, e.clientX, e.clientY);
+      try { e.preventDefault(); } catch (x) {}
+    }
+  }
+}
+
+function gamepadDiagOnUp(e) {
+  var pid = (e && e.pointerId != null) ? e.pointerId : "mouse";
+  // 搖桿放手：係自己嗰支先回中（多指各玩各，唔好郁錯支）。
+  if (__gpDiagStickL.held && __gpDiagStickL.ptr === pid) gamepadDiagStickRelease(__gpDiagStickL);
+  if (__gpDiagStickR.held && __gpDiagStickR.ptr === pid) gamepadDiagStickRelease(__gpDiagStickR);
+  var h = __gpDiagPtr[pid];
+  if (h) {
+    delete __gpDiagPtr[pid];
+    gamepadDiagPress(h.side, h.key, false, pid, h.seq);
+  }
+}
+
+// 補 up 掃蕩：滑鼠拖出窗放手／個別瀏覽器吞事件嗰陣，up 會成個唔見。
+// move／out 嗰陣見到撳住嗰隻 pointer 已經無掣（buttons===0）即當放咗手。
+// 掂緊（touch buttons===1／滑鼠拖緊 buttons===1）唔會誤殺。
+function gamepadDiagSweep(e) {
+  if (!e) return;
+  var pid = (e.pointerId != null) ? e.pointerId : "mouse";
+  var b = (e.buttons != null) ? e.buttons : 1;
+  if (b !== 0) return;
+  if (__gpDiagPtr[pid]) { try { gamepadDiagOnUp(e); } catch (x) {} return; }
+  if ((__gpDiagStickL.held && __gpDiagStickL.ptr === pid) ||
+      (__gpDiagStickR.held && __gpDiagStickR.ptr === pid)) {
+    try { gamepadDiagOnUp(e); } catch (x) {}
+  }
+}
+
+function gamepadDiagTouchHits(clientX, clientY) {
+  try {
+    var el = document.elementFromPoint ? document.elementFromPoint(clientX, clientY) : null;
+    if (!el) return false;
+    if (gamepadDiagClosest(el, ".gp-stick")) return true;
+    if (gamepadDiagClosest(el, '[id^="gpcap-"]')) return true;
+    if (gamepadDiagClosest(el, "[data-kb]")) return true;
+  } catch (e) {}
+  return false;
+}
+
+function gamepadBindDiagrams() {
+  if (__gpDiagBound) return;
+  var pad = document.getElementById("gpPadDiagram");
+  var kb = document.getElementById("kbBoardDiagram");
+  if (!pad || !kb) return;
+  __gpDiagBound = true;
+  try { gamepadFsEnsureExitBtns(); } catch (e) {}
+  try {
+    pad.addEventListener("pointerdown", gamepadDiagPadDown);
+    kb.addEventListener("pointerdown", gamepadDiagKbDown);
+    window.addEventListener("pointermove", gamepadDiagOnMove);
+    window.addEventListener("pointerup", gamepadDiagOnUp);
+    window.addEventListener("pointercancel", gamepadDiagOnUp);
+    try { window.addEventListener("lostpointercapture", gamepadDiagOnUp); } catch (x) {}
+    // 出窗／掣間遊走嗰陣 buttons 歸 0 即補 up（connect 漏事件專用，見 gamepadDiagSweep）。
+    try { document.addEventListener("pointerout", gamepadDiagSweep); } catch (x2) {}
+    window.addEventListener("blur", function () { try { gamepadDiagReleaseAll(); } catch (e) {} });
+    // 鎖屏／切頁／來電：手機好多時淨係出 visibility，唔出 blur，兩邊一齊捉。
+    try {
+      document.addEventListener("visibilitychange", function () {
+        try {
+          if (document.hidden || document.visibilityState === "hidden") gamepadDiagReleaseAll();
+        } catch (e2) {}
+      });
+    } catch (x3) {}
+    try {
+      window.addEventListener("pagehide", function () { try { gamepadDiagReleaseAll(); } catch (e4) {} });
+    } catch (x5) {}
+    pad.addEventListener("contextmenu", function (e) { try { e.preventDefault(); } catch (x) {} });
+    kb.addEventListener("contextmenu", function (e) { try { e.preventDefault(); } catch (x) {} });
+    // 長按消震：舊 WebView 長按震動＋callout，touchstart 非被動再攔一次——只攔食中掣／桿嘅觸點。
+    pad.addEventListener("touchstart", function (e) {
+      try {
+        var t = e.touches && e.touches[0];
+        if (t && gamepadDiagTouchHits(t.clientX, t.clientY)) e.preventDefault();
+      } catch (x) {}
+    }, { passive: false });
+    kb.addEventListener("touchstart", function (e) {
+      try {
+        var t2 = e.touches && e.touches[0];
+        if (t2 && gamepadDiagTouchHits(t2.clientX, t2.clientY)) e.preventDefault();
+      } catch (x) {}
+    }, { passive: false });
+  } catch (e) {}
+}
+
+
+// ---------------- 相機頁手柄視圖（pad 鍵＋雙搖桿，viewport 內 canvas 圖形） ----------------
+// 鍵定義跟手柄設定（映射快照 __cameraPadMap；掣面只出鍵名，唔出動作字）。
+// 掣：撳落經 gamepad/key down／放手 up（同物理掣同一條 executeAction＋toggle 語義；
+// servo jog 撳住後端連走、放手停；taken:false 閃紅＋狀態行寫✗）。
+// 搖桿：拖曳偏轉，經 gamepad/axis 注入 lx/ly/rx/ry（同真柄同一條 applyAxis：配咗向
+// 行映射出沿＋連走，未配右桿 legacy 轉頭 19/20）；偏轉中 200ms 連發保 legacy 步進，
+// 放手回中即送 0 停；下面讀數條即時見偏轉量。
+// 版面跟 X360：搖桿左右下（放手自動回中）／十字掣左中（一體 plus 搖桿式，
+// 唔使離掣碌臂轉向）／ABXY 右中 A 下 B 右／start-select 中下／
+// L1L2 左上 R1R2 右上；多點觸控（pointerId→掣／桿／十字）可兩手齊用。
+// 同功能鍵 2選1：兩邊開關互斥，同一時間最多一邊著（見 cameraFeatureToggle）。
+// 防黐掣同面板圖同級：up 即送＋300ms 補（殘留成套收）、搖桿 0 即送＋250ms 補、
+// move／pointerout 見 buttons=0 補 up、blur／visibility／pagehide／閂視圖放晒、
+// 撳住狀態向 live pointer 表對數（殘留下次撳自愈，唔變死掣）。
 var cameraPadViewOn = false;
 var __cameraPadMap = {};
 var __cameraPadShapes = [];
@@ -1743,6 +2602,7 @@ var __cameraPadDown = {};
 var __cameraPadLit = {};
 var __cameraPadNo = {};
 var __cameraPadPtr = {};
+var __cameraPadSeq = {};
 var __cameraPadBound = false;
 // Joystick state (dx/dy −1..1, right+/down+; held = a finger on it. Local deflection sends axis; a physical pad mirrors via WS echo).
 var __campadStickL = { dx: 0, dy: 0, held: false };
@@ -1782,20 +2642,134 @@ function cameraPadToggleView() {
   }
 }
 
+// 該鍵有幾隻 live pointer 撳緊（掣 {key}／十字 {dpad,dir} 都計；pid 數字／字串混用，唔好用 ===）。
+// campad 用 boolean 記撳住（唔係計數），殘留（漏 up）唔會自己好——靠呢個表對數自愈。
+function campadLiveHoldersKey(k, excludePid) {
+  var c = 0;
+  for (var pid in __cameraPadPtr) {
+    try {
+      var h = __cameraPadPtr[pid];
+      if (!h || pid == excludePid) continue;
+      if (h.key && h.key === k) c++;
+      else if (h.dpad && h.dir === k) c++;
+    } catch (e) {}
+  }
+  return c;
+}
+
+// campad 版收掣 up：規矩同面板一樣——正常一次搞掂，得失敗先補（最多兩次）。
+function campadSendUp(k, seq) {
+  if (!k) return;
+  var tries = 0;
+  function sendOnce() {
+    var p = null;
+    try {
+      var q = { side: "pad", key: k, action: "up", source: "campad" };
+      if (seq != null) q.seq = seq;
+      p = Alpha2Api.gamepadKey(q);
+    } catch (e) {
+      scheduleRetry();
+      return;
+    }
+    try { p.catch(function () {}); } catch (e0) {}
+    try {
+      p.then(function (json) {
+        if (!json || !json.ok) scheduleRetry();
+      }, function () { scheduleRetry(); });
+    } catch (e2) {}
+  }
+  function scheduleRetry() {
+    tries++;
+    if (tries > 2) return;
+    try {
+      setTimeout(function () {
+        try {
+          if (campadLiveHoldersKey(k, null) > 0) return;
+          if (__cameraPadDown[k]) return;
+          sendOnce();
+        } catch (e3) {}
+      }, tries === 1 ? 300 : 700);
+    } catch (e4) {}
+  }
+  sendOnce();
+}
+
+// 同一 pointer 未 up 又 down（之前甩咗 up 殘留）：舊嗰筆當放咗先清再當新撳。
+function campadFlushStalePtr(pid) {
+  var old = null;
+  try { old = (pid != null) ? __cameraPadPtr[pid] : null; } catch (e) {}
+  if (!old) return;
+  try { delete __cameraPadPtr[pid]; } catch (e2) {}
+  try {
+    if (old.stick) {
+      campadStickRelease(old.stick.st);
+    } else if (old.dpad) {
+      if (old.dir) cameraPadPress(old.dir, false, pid);
+    } else if (old.key) {
+      cameraPadPress(old.key, false, pid);
+    }
+  } catch (e3) {}
+}
+
+// 放開一支桿：回中＋即送 0（唔經節流）。回 true＝真係放咗。
+function campadStickRelease(st) {
+  if (!st || !st.held) return false;
+  st.dx = 0; st.dy = 0; st.held = false;
+  campadSendZero();
+  cameraPadDraw();
+  return true;
+}
+
+// campad 版回中零位包：正常一次搞掂，得失敗先補（最多兩次），有新拖曳即收手。
+function campadSendZero() {
+  var tries = 0;
+  function sendOnce() {
+    var now = 0;
+    try { now = Date.now(); } catch (e0) {}
+    __campadAxisSentAt = now;
+    var p = null;
+    try {
+      p = Alpha2Api.gamepadAxis({ lx: 0, ly: 0, rx: 0, ry: 0, source: "campad" });
+    } catch (e) {
+      scheduleRetry();
+      return;
+    }
+    try { p.catch(function () {}); } catch (e1) {}
+    try {
+      p.then(function (json) {
+        if (!json || !json.ok) scheduleRetry();
+      }, function () { scheduleRetry(); });
+    } catch (e2) {}
+  }
+  function scheduleRetry() {
+    tries++;
+    if (tries > 2) return;
+    try {
+      setTimeout(function () {
+        try {
+          if (__campadStickL.held || __campadStickR.held) return;
+          sendOnce();
+        } catch (e3) {}
+      }, tries === 1 ? 250 : 700);
+    } catch (e4) {}
+  }
+  sendOnce();
+}
+
 function cameraPadReleaseAll() {
   for (var k in __cameraPadDown) {
     if (__cameraPadDown[k]) {
       __cameraPadDown[k] = false;
       __cameraPadLit[k] = false;
-      try {
-        Alpha2Api.gamepadKey({ side: "pad", key: k, action: "up", source: "campad" }).catch(function () {});
-      } catch (e) {}
+      try { delete __cameraPadSeq[k]; } catch (e0) {}
+      gamepadNoteLocalUp("pad", k);
+      try { campadSendUp(k); } catch (e) {}
     }
   }
   __cameraPadPtr = {};
   campadStickReset(__campadStickL);
   campadStickReset(__campadStickR);
-  campadAxisSend(true);
+  campadSendZero();
   cameraPadDraw();
 }
 
@@ -1810,6 +2784,8 @@ function cameraPadBind() {
   cv.addEventListener("pointercancel", cameraPadOnUp);
   cv.addEventListener("pointerleave", cameraPadOnUp);
   cv.addEventListener("lostpointercapture", cameraPadOnUp);
+  // 出窗遊走補 up（connect 漏事件專用，見 campadSweepDown）。
+  try { document.addEventListener("pointerout", campadSweepDown); } catch (x0) {}
   cv.addEventListener("contextmenu", function (e) { try { e.preventDefault(); } catch (x) {} });
   // Long-press vibration guard: on old WebViews/some mobile browsers, pointerdown preventDefault cannot stop long-press vibration +
   // callout, so non-passive touchstart/touchmove block it again. Only touches that hit a button/stick/D-pad arm get blocked;
@@ -1827,11 +2803,25 @@ function cameraPadBind() {
     window.addEventListener("resize", function () {
       if (cameraPadViewOn) cameraPadDraw();
     });
-    // Window focus loss (call/notification/app switch) releases everything: the finger may never send its up event, and a
-    // servo would then run to the 40-step ceiling.
+    // 視窗失焦（來電／通知／切 app）即放晒：唔係手指唔喺度，up 事件永遠唔到，
+    // servo 會走到 40 格封頂。手機好多時淨出 visibility 唔出 blur，兩邊一齊捉。
     window.addEventListener("blur", function () {
       if (cameraPadViewOn) { try { cameraPadReleaseAll(); } catch (e2) {} }
     });
+    try {
+      document.addEventListener("visibilitychange", function () {
+        try {
+          if ((document.hidden || document.visibilityState === "hidden") && cameraPadViewOn) {
+            cameraPadReleaseAll();
+          }
+        } catch (e3) {}
+      });
+    } catch (x3) {}
+    try {
+      window.addEventListener("pagehide", function () {
+        if (cameraPadViewOn) { try { cameraPadReleaseAll(); } catch (e4) {} }
+      });
+    } catch (x5) {}
   } catch (e) {}
 }
 
@@ -1848,7 +2838,9 @@ function cameraPadOnDown(e) {
   // Only a hit button counts: preventDefault only on a hit; blank areas pass through, because dblclick fullscreen depends on it
   // (preventDefault kills the synthesized click, so blocking everything earlier meant double-tap never reached the viewport).
   var consumed = false;
-  // Joystick zones take priority (big area, buttons never overlap it; see the layout audit).
+  // 同一 pointer 未 up 又 down（之前甩咗 up 殘留）：舊嗰筆當放咗先清再當新撳。
+  try { campadFlushStalePtr(e.pointerId); } catch (x0) {}
+  // 搖桿區優先（範圍大，掣唔會疊佢，見版面 audit）。
   var st = cameraPadStickAt(p.x, p.y);
   if (st) {
     // A second finger on the same stick is not accepted: its early release would cut the live grab and orphan the moving finger. Ignoring it costs at most no reaction.
@@ -1861,13 +2853,13 @@ function cameraPadOnDown(e) {
     var dir = campadDpadDir(p.x, p.y);
     if (dir) {
       try { if (e.pointerId != null) __cameraPadPtr[e.pointerId] = { dpad: true, dir: dir }; } catch (x) {}
-      cameraPadPress(dir, true);
+      cameraPadPress(dir, true, e.pointerId);
       consumed = true;
     } else {
       var k = cameraPadHit(p.x, p.y);
       if (k) {
         try { if (e.pointerId != null) __cameraPadPtr[e.pointerId] = { key: k }; } catch (x) {}
-        cameraPadPress(k, true);
+        cameraPadPress(k, true, e.pointerId);
         consumed = true;
       }
     }
@@ -1885,6 +2877,8 @@ function cameraPadOnDown(e) {
 
 function cameraPadOnMove(e) {
   if (!cameraPadViewOn) return;
+  // 先掃蕩：buttons 已經係 0 即之前甩咗 up，呢下補返。
+  try { campadSweep(e); } catch (x0) {}
   var hold = null;
   try { hold = (e && e.pointerId != null) ? __cameraPadPtr[e.pointerId] : null; } catch (x) {}
   if (!hold || (!hold.stick && !hold.dpad)) return;
@@ -1898,9 +2892,9 @@ function cameraPadOnMove(e) {
   // Joystick-style D-pad: the finger slides from arm to arm without lifting (old arm gets up, new arm gets down).
   var nd = campadDpadDir(p.x, p.y);
   if (nd !== hold.dir) {
-    if (hold.dir) cameraPadPress(hold.dir, false);
+    if (hold.dir) cameraPadPress(hold.dir, false, e.pointerId);
     hold.dir = nd;
-    if (nd) cameraPadPress(nd, true);
+    if (nd) cameraPadPress(nd, true, e.pointerId);
   }
 }
 
@@ -1917,15 +2911,13 @@ function cameraPadOnUp(e) {
     }
   } catch (x) {}
   if (!hold) return;
-  // Stick release: centre + send 0 immediately (forced past the throttle) + redraw at once. Skipping the redraw would leave the nub drawn
-  // off-centre, which is exactly "it never centres itself".
+  // 搖桿放手：回中＋即送 0（force 過節流）＋排補發＋即重畫（唔畫菇視覺留喺偏位，
+  // 就係「唔識自己回中」）。
   if (hold.stick) {
-    campadStickReset(hold.stick.st);
-    campadAxisSend(true);
-    cameraPadDraw();
+    campadStickRelease(hold.stick.st);
   }
-  else if (hold.dpad) { if (hold.dir) cameraPadPress(hold.dir, false); }
-  else if (hold.key) cameraPadPress(hold.key, false);
+  else if (hold.dpad) { if (hold.dir) cameraPadPress(hold.dir, false, e.pointerId); }
+  else if (hold.key) cameraPadPress(hold.key, false, e.pointerId);
 }
 
 // ---- Joysticks ----
@@ -1991,13 +2983,13 @@ function campadAxisSend(force) {
   } catch (e) {}
 }
 
-// Physical-pad echo mirror (only a stick with no finger on it follows; self-injected echoes carry the same value, and the changed gate blocks the redraw).
-// Exception: never follow echoes with source=campad. The release 0 may hit the backend's 150 ms throttle and get
-// dropped, and a late echo of the old deflection would push the centred nub back out and leave it there (the intermittent no-centre bug).
-// Local dx/dy is the truth; physical pads (source robot etc.) do follow.
+// 物理柄回聲鏡像（無撳緊嗰支先跟；自己注入嘅回聲值一樣，changed 閘擋重畫）。
+// 例外：source=campad／panel 嘅回聲一律唔跟——放手送嘅 0 可能撞後端 150ms 節流被
+// drop，跟住舊偏轉值回聲遲到會將已回中嘅菇推返出去留喺度（就係間中唔回中）。
+// 本機 dx/dy 先係真相；物理柄（source robot 等）照跟。
 function cameraPadMirrorAxis(d) {
   if (!cameraPadViewOn || !d) return;
-  try { if (d.source === "campad") return; } catch (e) {}
+  try { if (d.source === "campad" || d.source === "panel") return; } catch (e) {}
   var changed = false;
   var pairs = [["lx", __campadStickL], ["ly", __campadStickL], ["rx", __campadStickR], ["ry", __campadStickR]];
   for (var i = 0; i < pairs.length; i++) {
@@ -2012,7 +3004,23 @@ function cameraPadMirrorAxis(d) {
   if (changed) cameraPadDraw();
 }
 
-// Hit test for the touchstart vibration guard (a button/stick/D-pad arm, any one of them counts as a hit).
+// touchstart 消震用命中測試（掣／桿／十字臂中任一即食中）。
+// 補 up 掃蕩（document 層 pointerout）：撳住嗰隻 pointer 已經無掣（buttons===0）
+// 即當放咗手。淨睇 campad 自己張表，唔會郁到面板圖嗰邊。
+function campadSweep(e) {
+  if (!e) return;
+  var pid = null;
+  try { pid = (e.pointerId != null) ? e.pointerId : null; } catch (x) {}
+  if (pid == null) return;
+  var b = 1;
+  try { b = (e.buttons != null) ? e.buttons : 1; } catch (x2) {}
+  if (b !== 0) return;
+  var tracked = false;
+  try { tracked = !!__cameraPadPtr[pid]; } catch (x3) {}
+  if (tracked) { try { cameraPadOnUp(e); } catch (x4) {} }
+}
+function campadSweepDown(e) { try { campadSweep(e); } catch (x) {} }
+
 function campadTouchHits(cx, cy) {
   try {
     var cv = document.getElementById("cameraPadCanvas");
@@ -2253,12 +3261,15 @@ function drawCampadReadout(ctx, W, H) {
   }
   for (var k in __cameraPadDown) {
     if (!__cameraPadDown[k]) continue;
-    var m = (__cameraPadMap[k] || "").match(/^servo(\d{1,2})([+-])$/);
-    if (!m) continue;
-    var id = parseInt(m[1], 10);
-    var cal = null;
-    try { cal = SERVO_CALIBRATION[id]; } catch (e) {}
-    parts.push("#" + id + (cal ? " [" + cal.min + "-" + cal.max + "]" : ""));
+    var multi = gamepadSplitMulti(__cameraPadMap[k] || "none");
+    for (var mi2 = 0; mi2 < multi.length; mi2++) {
+      var m = (multi[mi2] || "").match(/^servo(\d{1,2})([+-])$/);
+      if (!m) continue;
+      var id = parseInt(m[1], 10);
+      var cal = null;
+      try { cal = SERVO_CALIBRATION[id]; } catch (e) {}
+      parts.push("#" + id + (cal ? " [" + cal.min + "-" + cal.max + "]" : ""));
+    }
   }
   if (!parts.length) return;
   var txt = parts.join("   ");
@@ -2302,13 +3313,21 @@ function cameraPadRefresh() {
   });
 }
 
-function cameraPadPress(k, isDown) {
+function cameraPadPress(k, isDown, pid) {
+  if (!k) return;
   if (isDown) {
-    if (__cameraPadDown[k]) return;
+    if (__cameraPadDown[k]) {
+      // 真・多指同撳先靜音；唔係即係之前漏 up 殘留，清咗當新撳（唔會食咗下撳變死掣）。
+      if (campadLiveHoldersKey(k, pid) > 0) return;
+      __cameraPadDown[k] = false;
+      __cameraPadLit[k] = false;
+    }
     __cameraPadDown[k] = true;
     __cameraPadLit[k] = true;
+    var seq = ++__gpDiagSeq;
+    __cameraPadSeq[k] = seq;
     cameraPadDraw();
-    Alpha2Api.gamepadKey({ side: "pad", key: k, action: "down", source: "campad" }).then(function (json) {
+    Alpha2Api.gamepadKey({ side: "pad", key: k, action: "down", source: "campad", seq: seq }).then(function (json) {
       if (json && json.taken === false) {
         __cameraPadNo[k] = Date.now();
         cameraPadDraw();
@@ -2317,23 +3336,259 @@ function cameraPadPress(k, isDown) {
         setTimeout(function () { cameraPadDraw(); }, 750);
       }
     }).catch(function () {
-      __cameraPadDown[k] = false;
-      __cameraPadLit[k] = false;
-      cameraPadDraw();
+      // down 失敗先至熄；仲有其他手指撳緊就唔好郁（跟 live 表）。
+      try {
+        if (campadLiveHoldersKey(k, pid) === 0) {
+          __cameraPadDown[k] = false;
+          __cameraPadLit[k] = false;
+          cameraPadDraw();
+        }
+      } catch (e2) {}
     });
   } else {
     if (!__cameraPadDown[k]) return;
+    // 仲有其他手指撳緊同一粒就唔好郁，齊放先真係 up。
+    if (campadLiveHoldersKey(k, pid) > 0) return;
     __cameraPadDown[k] = false;
     __cameraPadLit[k] = false;
+    var seq = __cameraPadSeq[k];
+    try { delete __cameraPadSeq[k]; } catch (e0) {}
     cameraPadDraw();
-    Alpha2Api.gamepadKey({ side: "pad", key: k, action: "up", source: "campad" }).catch(function () {});
+    gamepadNoteLocalUp("pad", k);
+    campadSendUp(k, seq);
   }
 }
 
-// ---------------- Init (called from app-log.js init) ----------------
+// ---------------- 兩張圖全屏（淨手柄／鍵盤圖，唔包其他） ----------------
+// 全屏對象係張圖本身（gpPadDiagram／kbBoardDiagram）：掣綁喺原元素，
+// 全屏唔 clone，撳掣／拖桿照行 gamepad/key／axis；圖貼滿上下左右（見 style.css）。
+// 瀏覽器 Esc 自動退出；圖內右上角另有 ✕ 掣（手機無 Esc 照出到，見 gamepadFsEnsureExitBtns）。
+// Native Fullscreen API 有即用，無（舊 WebView／iOS）即跌落 CSS fallback
+// （.gp-fs-fallback：fixed 蓋版，同樣貼滿放大）。
+// 出入全屏一律放晒撳住嘅掣＋回中搖桿（唔留 servo 一直走）。
+function gamepadFsEl(side) {
+  return document.getElementById(side === "kb" ? "kbBoardDiagram" : "gpPadDiagram");
+}
+
+function gamepadFsNativeEl() {
+  try {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function gamepadIsFullscreen(side) {
+  var el = gamepadFsEl(side);
+  if (!el) return false;
+  if (gamepadFsNativeEl() === el) return true;
+  try {
+    if (el.classList && el.classList.contains("gp-fs-fallback")) return true;
+  } catch (e) {}
+  return false;
+}
+
+function gamepadAnyFullscreen() {
+  if (gamepadFsNativeEl()) return true;
+  try {
+    if (document.querySelector && document.querySelector(".gp-fs-fallback")) return true;
+  } catch (e) {}
+  return false;
+}
+
+function gamepadSyncFsBtns() {
+  var pairs = [["pad", "gamepadPadFsBtn"], ["kb", "gamepadKbFsBtn"]];
+  for (var i = 0; i < pairs.length; i++) {
+    var btn = document.getElementById(pairs[i][1]);
+    if (!btn) continue;
+    var on = gamepadIsFullscreen(pairs[i][0]);
+    var key = on ? "gamepad_exit_fullscreen_btn" : "gamepad_fullscreen_btn";
+    try { btn.textContent = t(key); } catch (e) {
+      btn.textContent = on ? "✕ 退出全屏" : "⛶ 全屏";
+    }
+    // data-i18n 唔跟全屏態（兩態唔同 key），轉語言嗰陣唔好俾 applyUiLanguage 寫返轉頭。
+    try { btn.removeAttribute("data-i18n"); } catch (e2) {}
+  }
+}
+
+function gamepadFsFallback(el) {
+  if (!el) return;
+  try { el.classList.add("gp-fs-fallback"); } catch (e) {}
+  try { document.body.classList.add("gp-fs-open"); } catch (e) {}
+  gamepadSyncFsBtns();
+}
+
+function gamepadExitFullscreen() {
+  var fs = gamepadFsNativeEl();
+  if (fs) {
+    try {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } catch (e) {}
+  }
+  ["gpPadDiagram", "kbBoardDiagram"].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) {
+      try { el.classList.remove("gp-fs-fallback"); } catch (e) {}
+    }
+  });
+  try { document.body.classList.remove("gp-fs-open"); } catch (e) {}
+  try { gamepadDiagReleaseAll(); } catch (e) {}
+  gamepadSyncFsBtns();
+}
+
+function gamepadToggleFullscreen(side) {
+  side = (side === "kb") ? "kb" : "pad";
+  if (gamepadIsFullscreen(side)) {
+    gamepadExitFullscreen();
+    return;
+  }
+  // 另一張開緊先閂（一次最多一張全屏）。
+  if (gamepadAnyFullscreen()) gamepadExitFullscreen();
+  var el = gamepadFsEl(side);
+  if (!el) return;
+  var req = null;
+  try { req = el.requestFullscreen || el.webkitRequestFullscreen; } catch (e) { req = null; }
+  if (req) {
+    try {
+      var p = req.call(el);
+      if (p && p.catch) {
+        p.catch(function () { gamepadFsFallback(el); });
+      }
+    } catch (e) {
+      gamepadFsFallback(el);
+      return;
+    }
+  } else {
+    gamepadFsFallback(el);
+    return;
+  }
+  gamepadSyncFsBtns();
+}
+
+// 圖內 ✕ 退出掣（全屏先現身，見 style.css .gp-fs-exit；平時 display:none）。
+// 掣本身無 gpcap-/data-kb 標記，pointerdown 掠過唔會誤觸發按鍵，原生 click 即退出。
+function gamepadFsEnsureExitBtns() {
+  [["gpPadDiagram"], ["kbBoardDiagram"]].forEach(function (pair) {
+    var host = document.getElementById(pair[0]);
+    if (!host) return;
+    try {
+      if (host.querySelector && host.querySelector(".gp-fs-exit")) return;
+    } catch (e) {}
+    var b = document.createElement("button");
+    b.className = "gp-fs-exit secondary";
+    b.textContent = "✕";
+    try {
+      b.setAttribute("data-i18n", "gamepad_exit_fullscreen_btn");
+      b.setAttribute("data-i18n-attr", "title");
+      b.setAttribute("title", t("gamepad_exit_fullscreen_btn"));
+      b.setAttribute("aria-label", t("gamepad_exit_fullscreen_btn"));
+    } catch (e) {}
+    b.onclick = function () { gamepadExitFullscreen(); };
+    // 掣自己唔好觸發圖上 pointer 綁定（pad／kb down handler 認 gpcap-/data-kb，呢粒無，即掠過）。
+    try { host.insertBefore(b, host.firstChild); } catch (e) {
+      try { host.appendChild(b); } catch (e2) {}
+    }
+  });
+}
+
+// 全屏版面跟相機手柄 canvas（cameraPadLayout 按 W/H 比例排）同一個諗法：
+// 純 CSS 比例單位（vmin／dvh），任何屏幕直／橫都唔超唔碌，唔使 JS 度大細，
+// 轉向／resize 瀏覽器自己重排。
+function gamepadBindFullscreen() {
+  try {
+    document.addEventListener("fullscreenchange", function () {
+      try { gamepadDiagReleaseAll(); } catch (e) {}
+      gamepadSyncFsBtns();
+    });
+  } catch (e) {}
+  try {
+    document.addEventListener("webkitfullscreenchange", function () {
+      try { gamepadDiagReleaseAll(); } catch (e2) {}
+      gamepadSyncFsBtns();
+    });
+  } catch (e) {}
+}
+
+// ---------------- 按住向前行／向後行（面板掣；步態＝.ubx，見後端 WalkCenter） ----------------
+// 按住期間每 250ms 叫一次 walk/start（續租約＋帶最新速度＋方向）；後端租約 700ms，
+// 所以頁面死機／斷網／切走分頁都會自動收步。放手／離開／失焦即 walk/stop。
+// 一次只認一個方向（已撳住其中一個時，另一個掣當冇撳）。
+var walkHoldTimer = null;
+var walkHolding = false;
+var walkHoldDir = "fwd";
+var walkGlobalBound = false;
+
+function walkSpeedValue() {
+  var el = document.getElementById("walkSpeed");
+  var v = el ? parseFloat(el.value) : 1;
+  return (isFinite(v) && v >= 1 && v <= 2) ? v : 1;
+}
+
+function walkSetState(st) {
+  var el = document.getElementById("walkState");
+  if (el) el.textContent = st ? t("walk_state_" + st) : "";
+}
+
+function walkTick() {
+  return Alpha2Api.walkStart({ speed: walkSpeedValue(), dir: walkHoldDir }).then(function (r) {
+    if (r && r.ok === false) { walkSetState(null); if (r.error === "booting") walkHoldEnd(); return; }
+    walkSetState(r && r.phase ? r.phase : "walking");
+  }).catch(function () { walkSetState(null); });
+}
+
+function walkHoldBegin(ev, dir) {
+  if (walkHolding) return;
+  walkHolding = true;
+  walkHoldDir = dir === "back" ? "back" : "fwd";
+  try { if (ev && ev.target && ev.target.setPointerCapture && ev.pointerId != null) ev.target.setPointerCapture(ev.pointerId); } catch (e) {}
+  walkTick();
+  walkHoldTimer = setInterval(walkTick, 250);
+}
+
+function walkHoldEnd() {
+  if (!walkHolding) return;
+  walkHolding = false;
+  if (walkHoldTimer) { clearInterval(walkHoldTimer); walkHoldTimer = null; }
+  Alpha2Api.walkStop({}).then(function (r) {
+    walkSetState(r && r.walking ? "standing" : null);
+  }).catch(function () { walkSetState(null); });
+}
+
+function walkBindBtn(id, dir) {
+  var btn = document.getElementById(id);
+  if (!btn || btn.getAttribute("data-bound")) return;
+  btn.setAttribute("data-bound", "1");
+  btn.addEventListener("pointerdown", function (e) { e.preventDefault(); walkHoldBegin(e, dir); });
+  ["pointerup", "pointercancel", "lostpointercapture", "pointerleave"].forEach(function (n) {
+    btn.addEventListener(n, function () { if (walkHoldDir === dir) walkHoldEnd(); });
+  });
+  btn.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+}
+
+function walkCardInit() {
+  var fwdBtn = document.getElementById("walkHoldBtn");
+  if (!fwdBtn) return;
+  walkBindBtn("walkHoldBtn", "fwd");
+  walkBindBtn("walkBackBtn", "back");
+  if (walkGlobalBound) return;
+  walkGlobalBound = true;
+  window.addEventListener("blur", walkHoldEnd);
+  document.addEventListener("visibilitychange", function () { if (document.hidden) walkHoldEnd(); });
+  var sp = document.getElementById("walkSpeed");
+  if (sp) sp.addEventListener("input", function () {
+    var v = document.getElementById("walkSpeedVal");
+    if (v) v.textContent = walkSpeedValue().toFixed(1) + "x";
+  });
+}
+
+// ---------------- 初始化（app-log.js init 呼叫） ----------------
 
 function gamepadInitPage() {
+  try { walkCardInit(); } catch (e) {}
   gamepadBuildKeyboardDiagram();
+  try { gamepadBindDiagrams(); } catch (e) {}
+  try { gamepadBindFullscreen(); } catch (e) {}
   gamepadSyncMappingToggles();
+  try { gamepadSyncFsBtns(); } catch (e) {}
   return gamepadRefresh();
 }

@@ -32,7 +32,6 @@ public final class ChestUpgrade {
     public static final long FIRMWARE_SIZE = 262144L;
     /** V352 staging app-update 小鏡像上限（0x0801F000..0x0803B000 共 0x1C000＝114688 bytes；此值或以下走 staging 更新，超限 MCU 經 48 回覆拒收）。 */
     public static final long FIRMWARE_SMALL_MAX = 0x1C000L;
-    public static final int FIRMWARE_PAGES = 2048;
     public static final int PAGE_SIZE = 128;
 
     /** 合法固件大小：只收 app 小鏡像 1..114688 bytes（見 FIRMWARE_SMALL_MAX），而且要係 4 嘅倍數：
@@ -254,8 +253,9 @@ public final class ChestUpgrade {
      *  固件側機制（V352 靜態分析實證）：48 擦暫存區 0x0801F000（上限 0x1C000，拒收回 1/2）；
      *  49 逐 word 寫入＋讀回驗證＋餵 MD5；50 對 MD5，並睇最後 24 byte——有 `ChestLar2s`
      *  即寫旗標 0x5AA55AA5 到 0x0803B000，bootloader 下次上電先搬去 app 區。
-     *  所以燒完必須成部機斷電重開先會生效，淨 reboot Android（胸板一路有電）係唔夠嘅；
-     *  面板成功提示已寫明呢點（chest_upgrade_done_power）。 */
+     *  所以燒完必須斷電重開先會寫入固件，僅 reboot Android（胸板一路有電）不足以生效；
+     *  重啟後電源鍵指示燈將依序顯示藍色 → 紅色 → 綠色，綠燈持續亮起即表示更新完成，
+     *  方可再次關機並重新開機；面板成功提示已寫明此流程（chest_upgrade_done_power）。 */
     private void doChestUpgradeFrom(final java.io.File file, final int startPage) {
         final int fileLen = (int) file.length();
         final int totalPages = (fileLen + 127) / 128;

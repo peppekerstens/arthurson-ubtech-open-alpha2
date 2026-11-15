@@ -203,12 +203,12 @@ function radioSearchFrontendFallback(q) {
 
   function tryNextMirror() {
     if (mirrorIdx >= mirrors.length) {
-      if (statusEl) statusEl.textContent = t("radio_search_no_result") + (uiLang === "en" ? " (The robot has no internet. The browser also cannot connect to radio-browser.info.)" : "（機械人無外網，前端亦無法連接 radio-browser.info）");
+      if (statusEl) statusEl.textContent = t("radio_search_no_result") + t("radio_no_internet_suffix");
       if (container) {
         container.innerHTML = "";
         const p = document.createElement("p");
         p.className = "hint";
-        p.textContent = uiLang === "en" ? "⚠️ The robot has no internet now (DNS failed). Check that the WiFi has internet. A direct browser connection also failed." : "⚠️ 機械人目前無法上網（DNS 失敗），請檢查 WiFi 是否有互聯網。已嘗試瀏覽器直連亦失敗。";
+        p.textContent = t("radio_dns_fail");
         container.appendChild(p);
       }
       return;

@@ -43,10 +43,11 @@ const I18N = {
   lang_switch_label:     { zh: "語言：", en: "Language:" },
   device_info_heading:   { zh: "裝置資訊",        en: "Device Info" },
   device_battery:        { zh: "🔋 電池",         en: "🔋 Battery" },
-  device_wifi:           { zh: "📶 WiFi",         en: "📶 WiFi" },
   device_bluetooth:      { zh: "🔷 藍牙",         en: "🔷 Bluetooth" },
   device_uuid:           { zh: "🤖 機械人 UUID",  en: "🤖 Robot UUID" },
   device_chest_fw:       { zh: "🧠 胸板固件",    en: "🧠 Chest FW" },
+  device_mic_fw:         { zh: "🎙️ MIC 固件",   en: "🎙️ MIC FW" },
+  device_battery_fw:     { zh: "🔋 電池固件",    en: "🔋 Battery FW" },
   uuid_query_btn:        { zh: "查詢",            en: "Query" },
   uuid_random_btn:       { zh: "🎲 隨機碼",       en: "🎲 Random" },
   sonar_heading:         { zh: "聲納",            en: "Sonar" },
@@ -84,31 +85,19 @@ const I18N = {
 
   // -- gamepad tab (BT gamepad/keyboard, shared by both ends) --
   gamepad_manage_heading:  { zh: "🎮 藍牙＋已接設備", en: "🎮 Bluetooth + Devices" },
-  gamepad_two_ends_hint:   { zh: "手柄／鍵盤直連機器人（本機藍牙配對，離線可用）；下面兩張卡即時顯示按鍵＋改映射。",
-                             en: "Pad/keyboard pairs straight to the robot (offline OK); the two cards below show live presses and edit mappings." },
-  gamepad_bt_label:        { zh: "藍牙：", en: "Bluetooth:" },
-  gamepad_devices_label:   { zh: "機器人端已接（A 端直連）：", en: "Robot-side devices (direct):" },
   gamepad_last_label:      { zh: "最後按鍵：", en: "Last key:" },
   gamepad_pad_card_heading: { zh: "🎮 手柄", en: "🎮 Gamepad" },
-  gamepad_pad_card_hint:    { zh: "直連手柄按鍵即時亮燈（經 WebSocket）；右搖桿郁點。預設映射：十字步態，A 停止。",
-                             en: "Direct pad presses light up live (via WebSocket); right stick moves the dot. Defaults: D-pad gaits, A stops." },
+  gamepad_pad_card_hint:    { zh: "直連手柄按鍵即時亮燈（經 WebSocket）；圖上掣可直接撳，搖桿可拖。預設映射：十字步態，A 停止。",
+                             en: "Direct pad presses light up live (via WebSocket); on-screen buttons are pressable, sticks draggable. Defaults: D-pad gaits, A stops." },
   gamepad_kb_card_heading: { zh: "⌨️ 鍵盤", en: "⌨️ Keyboard" },
-  gamepad_kb_card_hint:    { zh: "直連鍵盤按鍵即時亮燈（經 WebSocket）；字母數字原樣＋控制鍵全覆蓋可映射，a/b/x/y 同手柄同名但獨立值。",
-                             en: "Direct keyboard presses light up live (via WebSocket); letters/digits as-is + control keys all mappable; a/b/x/y share names with pad but hold own values." },
+  gamepad_kb_card_hint:    { zh: "直連鍵盤按鍵即時亮燈（經 WebSocket）；圖上鍵可直接撳。字母數字原樣＋控制鍵全覆蓋可映射，a/b/x/y 同手柄同名但獨立值。",
+                             en: "Direct keyboard presses light up live (via WebSocket); on-screen keys are pressable. Letters/digits as-is + control keys all mappable; a/b/x/y share names with pad but hold own values." },
   gamepad_reset_btn:       { zh: "↩ 回預設", en: "↩ Defaults" },
   gamepad_save_all_btn:    { zh: "💾 存全部", en: "💾 Save all" },
   gamepad_saving:          { zh: "儲存中…", en: "Saving…" },
   gamepad_nothing_changed: { zh: "無改動，唔使存。", en: "No changes." },
-  gamepad_querying:        { zh: "查詢中…", en: "Querying…" },
   gamepad_read_failed:     { zh: "讀取失敗", en: "Read failed" },
-  gamepad_bt_on:           { zh: "已開啟", en: "On" },
-  gamepad_bt_off:          { zh: "已關閉", en: "Off" },
-  gamepad_bt_na:           { zh: "不支援", en: "N/A" },
-  gamepad_no_devices:      { zh: "（未接手柄／鍵盤——先開藍牙＋入配對模式掃描）", en: "(no pad/keyboard connected — turn BT on + scan in pairing mode)" },
-  gamepad_scan_label:      { zh: "周邊藍牙（A 端配對）：", en: "Nearby BT (pair to robot):" },
   gamepad_scan_btn:        { zh: "🔍 掃描", en: "🔍 Scan" },
-  gamepad_scan_hint:       { zh: "先將手柄／鍵盤置於配對模式（閃燈），再按掃描；見到即按配對。約 12 秒掃完自動停。",
-                             en: "Put the pad/keyboard in pairing mode (blinking) first, then scan; hit Pair when it appears. ~12s per scan." },
   gamepad_scanning:        { zh: "掃描中…", en: "Scanning…" },
   gamepad_scan_done:       { zh: "掃完（無想要的？再掃一次）", en: "Done (missing it? scan again)" },
   gamepad_found_empty:     { zh: "（周邊無新設備／已綁定為空——先開藍牙＋手柄入配對模式）", en: "(nothing found — turn BT on + put pad in pairing mode)" },
@@ -136,22 +125,35 @@ const I18N = {
   gamepad_group_kbnum:     { zh: "數字區", en: "Numpad" },
   gamepad_group_fn:        { zh: "功能鍵 F1–F12", en: "Function F1–F12" },
   gamepad_pick_action:     { zh: "選動作", en: "Pick action" },
-  gamepad_pick_action_first: { zh: "先喺下拉選一個動作再存", en: "Pick an action from the list first" },
+  gamepad_fullscreen_btn:      { zh: "⛶ 全屏", en: "⛶ Fullscreen" },
+  gamepad_exit_fullscreen_btn: { zh: "✕ 退出全屏", en: "✕ Exit fullscreen" },
   gamepad_input_pad_toggle:  { zh: "直連手柄", en: "Direct gamepad" },
   gamepad_input_kb_toggle:  { zh: "直連鍵盤", en: "Direct keyboard" },
-  gamepad_input_hint:       { zh: "開＝該邊直連撳鍵即郁（預設雙開）；熄＝該邊一律只記錄唔執行（防誤觸）。",
-                             en: "On = that side drives (default both on); off = logged only, never executed." },
   gamepad_mapping_pad_heading: { zh: "🎮 手柄映射", en: "🎮 Gamepad mapping" },
   gamepad_mapping_kb_heading:  { zh: "⌨️ 鍵盤映射", en: "⌨️ Keyboard mapping" },
   gamepad_mapping_show_pad:    { zh: "映射表", en: "Mapping" },
   gamepad_mapping_show_kb:     { zh: "映射表", en: "Mapping" },
-  gamepad_mapping_pad_hint:    { zh: "同名鍵兩邊獨立值；改完即存機器人（重啟保留）。", en: "Same names hold separate values per side. Saved on robot." },
-  gamepad_mapping_kb_hint:     { zh: "同名鍵兩邊獨立值；改完即存機器人（重啟保留）。", en: "Same names hold separate values per side. Saved on robot." },
+  gamepad_mapping_pad_hint:    { zh: "同名鍵兩邊獨立值；每鍵按 + 可加多個動作（一次過順序做晒），IK 用 +／− 撳住連走；改完即存機器人（重啟保留）。", en: "Same names hold separate values per side. Press + per key for multi-action (run in order); hold IK +/- to move. Saved on robot." },
+  gamepad_mapping_kb_hint:     { zh: "同名鍵兩邊獨立值；每鍵按 + 可加多個動作（一次過順序做晒），IK 用 +／− 撳住連走；改完即存機器人（重啟保留）。", en: "Same names hold separate values per side. Press + per key for multi-action (run in order); hold IK +/- to move. Saved on robot." },
 
   // -- gamepad mapping-row dropdowns (kinds + values, both zh/en, so the panel is never mixed) --
   gamepad_kind_none:   { zh: "無動作", en: "None" },
   gamepad_kind_stop:   { zh: "停止", en: "Stop" },
   gamepad_kind_servo:  { zh: "舵機", en: "Servo" },
+  gamepad_kind_ik:     { zh: "IK 動作", en: "IK pose" },
+  gamepad_kind_walk:   { zh: "行路", en: "Walk" },
+  gamepad_walk_fwd:    { zh: "向前行（按住）", en: "Walk forward (hold)" },
+  gamepad_walk_back:   { zh: "向後行（按住）", en: "Walk backward (hold)" },
+  gamepad_walk_fast:   { zh: "行路加速", en: "Walk faster" },
+  gamepad_walk_slow:   { zh: "行路減速", en: "Walk slower" },
+  walk_card_heading:   { zh: "🚶 向前行／向後行（按住）", en: "🚶 Walk forward / backward (hold)" },
+  walk_card_hold:      { zh: "按住向前行", en: "Hold to walk forward" },
+  walk_card_hold_back: { zh: "按住向後行", en: "Hold to walk backward" },
+  walk_card_speed:     { zh: "速度", en: "Speed" },
+  walk_state_idle:     { zh: "待命", en: "Idle" },
+  walk_state_lead_in:  { zh: "起步中", en: "Starting" },
+  walk_state_walking:  { zh: "行緊", en: "Walking" },
+  walk_state_standing: { zh: "收步中", en: "Stopping" },
   gamepad_kind_music:  { zh: "音樂", en: "Music" },
   gamepad_kind_radio:  { zh: "電台", en: "Radio" },
   gamepad_kind_ring:   { zh: "鈴聲", en: "Ringtone" },
@@ -212,7 +214,7 @@ const I18N = {
 
   // -- servo tab --
   servo_heading:         { zh: "舵機 (Servos, 1–22)", en: "Servos (1–22)" },
-  servo_hint:            { zh: "拖動滑桿, 放手即送出, 自動限制在安全範圍內。", en: "Drag a slider and release to send — values are auto-clamped to a safe range." },
+  servo_hint:            { zh: "拖動滑桿即時跟隨（約 8Hz），放手用時間欄完成；數值自動限制在安全範圍內。", en: "Drag a slider to follow live (~8 Hz); release finishes with the time value. Values are auto-clamped to a safe range." },
   servo_time_label:      { zh: "時間(ms)：",       en: "Time (ms):" },
   servo_reset_btn:       { zh: "全部回到原位",     en: "Reset All to Home" },
   servo_read_all_btn:    { zh: "📖 讀取全部",       en: "📖 Read all" },
@@ -221,8 +223,51 @@ const I18N = {
   servo_reading_hint:    { zh: "讀取中…",             en: "Reading…" },
   servo_read_done:       { zh: "✅ 已更新",            en: "✅ Updated" },
   servo_read_failed_prefix: { zh: "❌ 讀取失敗：",     en: "❌ Read failed: " },
+  // -- servo tab: IK action card --
+  ik_heading:            { zh: "IK 動作",             en: "IK Actions" },
+  ik_direct_label:       { zh: "直接轉移",           en: "Direct transition" },
+  ik_squat_lean:         { zh: "蹲仰",               en: "Squat–Lean" },
+  ik_squat_split:        { zh: "蹲劈",               en: "Squat–Split" },
+  ik_squat:              { zh: "蹲下",               en: "Squat" },
+  ik_ysquat:             { zh: "蹲式",               en: "Squat 2" },
+  ik_split_lr:           { zh: "左右一字馬",         en: "Left-right split" },
+  ik_split_fb:           { zh: "前後一字馬",         en: "Front/back split" },
+  ik_laugh:              { zh: "大笑",               en: "Laugh" },
+  ik_kick:               { zh: "踢腿",               en: "Kick" },
+  ik_sirius:             { zh: "側弓步",             en: "Side lunge" },
+  ik_hulu:               { zh: "半蹲",               en: "Half squat" },
+  ik_hamlet:             { zh: "屈臂前伸",           en: "Bent-arm reach" },
+  ik_reset:              { zh: "↩ 開機企姿",         en: "↩ Boot pose" },
+  ik_name_squatlean:     { zh: "蹲仰",               en: "Squat–Lean" },
+  ik_name_squatsplit:    { zh: "蹲劈",               en: "Squat–Split" },
+  ik_name_squat:         { zh: "蹲下",               en: "Squat" },
+  ik_name_ysquat:        { zh: "蹲式",               en: "Squat 2" },
+  ik_name_lr:            { zh: "左右一字馬",         en: "Left-right split" },
+  ik_name_fb:            { zh: "前後一字馬",         en: "Front/back split" },
+  ik_name_laugh:         { zh: "大笑",               en: "Laugh" },
+  ik_name_kick:          { zh: "踢腿",               en: "Kick" },
+  ik_name_sirius:        { zh: "側弓步",             en: "Side lunge" },
+  ik_name_hulu:          { zh: "半蹲",               en: "Half squat" },
+  ik_name_hamlet:        { zh: "屈臂前伸",           en: "Bent-arm reach" },
+  ik_dir_left:           { zh: "左前",               en: "left-forward" },
+  ik_dir_right:          { zh: "右前",               en: "right-forward" },
+  // 舊 mapping 遷移前仍可能出現；保留標籤，後端 loadMapping 會轉成 fb。
+  ik_name_fsplit:        { zh: "左前一字馬",         en: "Left-forward split" },
+  ik_name_fsplit2:       { zh: "右前一字馬",         en: "Right-forward split" },
+  ik_status_ready:       { zh: "拖動滑桿",           en: "Drag a slider" },
+  ik_status_live:        { zh: "跟隨 {name} {pct}%…", en: "Following {name} {pct}%…" },
+  ik_status_live_base:   { zh: "回企姿…",            en: "Returning to boot pose…" },
+  ik_status_switching:   { zh: "切換 {name}：回企姿…", en: "Switching to {name}: boot pose…" },
+  ik_status_direct:      { zh: "直接過渡到 {name} {pct}%…", en: "Direct to {name} {pct}%…" },
+  ik_status_sending:     { zh: "完成中…",            en: "Finishing…" },
+  ik_status_sent:        { zh: "✅ 已完成 {name} {pct}%", en: "✅ Done {name} {pct}%" },
+  ik_status_base:        { zh: "✅ 已回到開機企姿",   en: "✅ Back to boot pose" },
+  ik_status_fail:        { zh: "❌ 送出失敗：{err}",  en: "❌ Send failed: {err}" },
+  ik_status_link_lost:   { zh: "⚠ 連線斷開，IK 已停止；重連後請重新拖動。", en: "⚠ Connection lost; IK stopped. Drag again after reconnect." },
+  ik_status_manual:      { zh: "手動調整；下次 IK 均速過渡。", en: "Manual change; next IK blends smoothly." },
+  ik_status_manual_move: { zh: "由現時 pose → {name} {pct}%…", en: "Current pose → {name} {pct}%…" },
   servo_tuner_heading:   { zh: "🔧 舵機角度調整", en: "🔧 Servo Angle Tuner" },
-  servo_tuner_hint:      { zh: "獨立於舵機分頁的進階微調器 — 直接修改 22 顆 servo 角度，±1° 精調，一鍵讀取全部目前角度。與原廠 1.0.0.4 校準工具相同佈局（1-20 對應肩/肘/髖/膝/踝/手/頭，21-22 為擴展）。長按 ±1 連發時已禁用系統複製選單。", en: "Standalone tuner — tune 22 servos directly, ±1° fine-tune, one-click read. Matches factory 1.0.0.4 layout (1-20: shoulder/elbow/hip/knee/ankle/hand/head, 21-22 extra). Long-press ±1 repeats, copy menu disabled." },
+  servo_tuner_hint:      { zh: "獨立於舵機分頁的進階微調器 — 開啟即自動掃描 22 顆 offset；±1° 精調角度。校准依官方 1.0.0.4 流程：一次過寫 offset → 等 EEPROM → 全部回標準姿勢 → 重掃驗證。與原廠相同佈局（1-20 對應肩/肘/髖/膝/踝/手/頭，21-22 為擴展）。長按 ±1 連發時已禁用系統複製選單。", en: "Standalone tuner — auto-scans all 22 offsets on open; ±1° fine-tune. Calibrate follows factory 1.0.0.4: write offsets in one batch → wait for EEPROM → return all to home → rescan verify. Same layout as factory (1-20: shoulder/elbow/hip/knee/ankle/hand/head, 21-22 extra). Long-press ±1 repeats, copy menu disabled." },
   servo_tuner_standby:   { zh: "復位+掃描",         en: "reset+scan" },
   servo_tuner_calibrate: { zh: "校准",               en: "Calibrate" },
   servo_tuner_angle:     { zh: "角度",               en: "Angle" },
@@ -241,8 +286,8 @@ const I18N = {
   servo_tuner_backup_fail:   { zh: "備份失敗",           en: "Backup failed" },
   servo_tuner_unscanned:     { zh: "（{n}/22 未讀）…",   en: "({n}/22 unread)…" },
 
-  // adv tuner dynamic status strings.
-  servo_tuner_ready:         { zh: "tuner {v} 就緒（加減/輸入僅變動角度；校准先成組寫 EEPROM）", en: "tuner {v} ready (+/- and input move only; Calibrate writes EEPROM)" },
+  // adv tuner 動態狀態字。
+  servo_tuner_ready:         { zh: "tuner {v} 就緒（自動掃描中；加減/輸入只動角度，校准先成組寫 EEPROM）", en: "tuner {v} ready (auto-scanning; +/- and input move only, Calibrate writes EEPROM)" },
   servo_tuner_read_all:      { zh: "一鍵實際讀取全部 trim 1-22（約幾秒）…", en: "Reading all 22 trims (a few seconds)…" },
   servo_tuner_read_done:     { zh: "實際讀取完成 {ok}/22",   en: "Read done {ok}/22" },
   servo_tuner_read_fails:    { zh: "，無回授：{ids}",   en: ", no feedback: {ids}" },
@@ -257,9 +302,18 @@ const I18N = {
   servo_tuner_cal_unknown:   { zh: "，未確認：{ids}（重新掃描驗證）", en: ", unconfirmed: {ids} (rescan to verify)" },
   servo_tuner_cal_failed:    { zh: "，失敗：{ids}",     en: ", failed: {ids}" },
   servo_tuner_cal_skipped:   { zh: "（跳過未掃描：{ids}）", en: "(skipped unscanned: {ids})" },
+  servo_tuner_cal_writing:   { zh: "校准中：官方流程（寫入 {n} 軸 offset → 等 EEPROM → 回標準姿勢）…", en: "Calibrating (factory flow: write {n} offsets → wait for EEPROM → return home)…" },
+  servo_tuner_cal_home_fail: { zh: "校准失敗（回標準姿勢）：{e}", en: "Calibration failed (home pose): {e}" },
+  servo_tuner_cal_verify:    { zh: "offset 已寫入，回標準姿勢中；3 秒後重掃驗證…", en: "Offsets written, returning home; rescanning to verify in 3s…" },
+  servo_tuner_cal_verify_done: { zh: "校准完成，重掃驗證 {ok}/{n} 一致", en: "Calibration done, rescan verified {ok}/{n}" },
+  servo_tuner_cal_verify_bad: { zh: "，未生效：{ids}", en: ", not applied: {ids}" },
+  servo_tuner_cal_verify_unread: { zh: "，讀不到：{ids}", en: ", unreadable: {ids}" },
+  servo_tuner_cal_verify_fail: { zh: "校准完成，但重掃失敗（請手動再掃描）", en: "Calibrated, but rescan failed (scan manually)" },
+  servo_tuner_cal_send_fail: { zh: "校准請求失敗：{e}", en: "Calibrate request failed: {e}" },
+  servo_tuner_scanning_wait: { zh: "掃描中，請等完成再操作…", en: "Scanning, please wait…" },
   servo_tuner_reset_sending: { zh: "送復位姿勢中…",      en: "Sending reset pose…" },
   servo_tuner_reset_fail:    { zh: "復位失敗：{e}",      en: "Reset failed: {e}" },
-  servo_tuner_reset_done:    { zh: "已復位，1.5 秒後重新掃描 trim…", en: "Reset done, rescanning trims in 1.5s…" },
+  servo_tuner_reset_done:    { zh: "已復位，3 秒後重新掃描 trim…", en: "Reset done, rescanning trims in 3s…" },
   servo_tuner_no_feedback:   { zh: "讀失敗",             en: "no feedback" },
   servo_tuner_live_suffix:   { zh: " (即時)",            en: " (live)" },
   servo_tuner_err_nofeedback: { zh: "無回授（超時或壞舵機）", en: "no feedback (timeout or faulty servo)" },
@@ -287,10 +341,6 @@ const I18N = {
   vosk_state_ready:        { zh: "就緒", en: "Ready" },
   vosk_state_listening:    { zh: "聆聽中", en: "Listening" },
   vosk_state_error:        { zh: "錯誤", en: "Error" },
-  vosk_dl_heading:         { zh: "⬇ Vosk 模型下載", en: "⬇ Vosk Model Download" },
-  vosk_dl_disabled_hint:   { zh: "開啟後才會顯示可下載模型", en: "Turn on to show downloadable models" },
-  vosk_dl_hint:            { zh: "點擊下載官方模型並自動解壓到 sdcard（完成自動載入，語音頁即多一個按鍵）。下面分有對話／無對話兩區。",
-                             en: "Tap to download an official model and auto-extract it to sdcard (auto-loads when done, a new button appears in the Speech tab). Split into dialogue / no-dialogue below." },
   vosk_dl_supported_heading: { zh: "✓ 已支持（可對答）", en: "✓ Supported (dialogue-ready)" },
   vosk_dl_unsupported_heading: { zh: "未支持（只聽寫）", en: "Unsupported (transcribe only)" },
   vosk_dl_transcribe_only: { zh: "只聽寫", en: "transcribe only" },
@@ -304,10 +354,8 @@ const I18N = {
   vosk_download_cancelled: { zh: "已取消下載", en: "Download cancelled" },
   // -- Experimental tab actions pack card (see ActionsPackController, fixed actions.zip) --
   actions_pack_heading:   { zh: "⬇ 動作包下載", en: "⬇ Actions Pack Download" },
-  actions_pack_disabled_hint: { zh: "開啟後才會顯示動作包下載", en: "Turn on to show actions pack download" },
   actions_pack_hint:      { zh: "更新包有 202 個動作，下載並自動解壓到 sdcard（舊 /sdcard/actions 會改名 /sdcard/actions-backup）。完成後去動作頁重新載入列表。",
                              en: "The update pack contains 202 actions; downloads and auto-extracts to sdcard (old /sdcard/actions is renamed to /sdcard/actions-backup). Reload the action list in the Actions tab when done." },
-  actions_pack_url_hint:  { zh: "來源：github release actions.zip（固定連結，後端直落）", en: "Source: github release actions.zip (fixed URL, downloaded by the robot)" },
   actions_pack_download_btn: { zh: "⬇ 下載 actions.zip", en: "⬇ Download actions.zip" },
   actions_pack_cancel_btn: { zh: "取消下載", en: "Cancel download" },
   actions_pack_downloading_prefix: { zh: "下載中", en: "Downloading" },
@@ -347,7 +395,6 @@ const I18N = {
   led_preset_long:       { zh: "💡 長開",          en: "💡 On" },
   led_preset_flash:      { zh: "⚡ 閃燈",          en: "⚡ Flash" },
   led_preset_breathe:    { zh: "🫧 呼吸燈",        en: "🫧 Breathe" },
-  led_preset_breathe_mouth: { zh: "🫁 呼吸燈",     en: "🫁 Breathe" },
   led_preset_chase:      { zh: "🏃 跑馬燈",        en: "🏃 Chase" },
   led_preset_dual:       { zh: "🎨 雙色燈",        en: "🎨 Dual Color" },
   led_preset_stop:       { zh: "⏹ 停止",          en: "⏹ Stop" },
@@ -362,6 +409,63 @@ const I18N = {
   camera_heading:        { zh: "相機",             en: "Camera" },
   camera_feature_key:    { zh: "功能鍵",           en: "Feature Key" },
   camera_pad_label:       { zh: "手柄",             en: "Gamepad" },
+  camera_zoom_hint:       { zh: "數位變焦 x1–x5（硬件支援時為硬件變焦，否則為軟件裁切；串流由前端即時縮放，拍照存檔由後端裁切）",
+                            en: "Digital zoom x1–x5 (hardware zoom when supported, otherwise software crop; the stream is scaled live in the browser, saved photos are cropped by the backend)" },
+  camera_zoom_hw:         { zh: "硬件變焦已生效（ratio {ratio}/100）", en: "Hardware zoom active (ratio {ratio}/100)" },
+  camera_zoom_sw:         { zh: "軟件變焦（前端即時縮放，拍照由後端裁切） x{z}", en: "Software zoom (scaled live in the browser, photos cropped by the backend) x{z}" },
+  err_unknown:            { zh: "未知錯誤", en: "Unknown error" },
+  err_prefix:             { zh: "錯誤: {msg}", en: "Error: {msg}" },
+  cam_photo_ctx:          { zh: "影相 {w}x{h}", en: "Photo {w}x{h}" },
+  cam_record_ctx:         { zh: "錄影", en: "Recording" },
+  fullscreen_ctx:         { zh: "全螢幕", en: "Fullscreen" },
+  fullscreen_unsupported: { zh: "此瀏覽器不支援 Fullscreen API", en: "This browser does not support the Fullscreen API" },
+  speech_ctx:             { zh: "語音", en: "Speech" },
+  radio_no_internet_suffix: { zh: "（機械人無外網，前端亦無法連接 radio-browser.info）", en: " (the robot has no internet access and the browser cannot reach radio-browser.info either)" },
+  radio_dns_fail:         { zh: "⚠️ 機械人目前無法上網（DNS 失敗），請檢查 WiFi 是否有互聯網。已嘗試瀏覽器直連亦失敗。", en: "⚠️ The robot cannot reach the internet right now (DNS failure). Please check that the WiFi has internet access. A direct browser connection was also tried and failed." },
+  loading:                { zh: "載入中…", en: "Loading…" },
+  action_play_ctx:        { zh: "播放動作", en: "Play action" },
+  action_enter_name:      { zh: "請輸入動作名稱", en: "Please enter an action name" },
+  chest_pick_bin:         { zh: "請先選擇一個 .bin 文件", en: "Please choose a .bin file first" },
+  chest_uploading:        { zh: "上傳中 {name} ({size} 字節)…", en: "Uploading {name} ({size} bytes)…" },
+  chest_upload_fail:      { zh: "❌ 上傳失敗：{msg}", en: "❌ Upload failed: {msg}" },
+  chest_upload_err:       { zh: "❌ 上傳錯誤：{msg}", en: "❌ Upload error: {msg}" },
+  chest_read_file_fail:   { zh: "讀取文件失敗", en: "Failed to read file" },
+  chest_querying:         { zh: "查詢中…", en: "Querying…" },
+  chest_upgrade_starting: { zh: "開始升級…", en: "Starting upgrade…" },
+  chest_start_fail:       { zh: "啟動失敗", en: "Failed to start" },
+  chest_upgrading:        { zh: "升級中…請勿斷電（約需 1–2 分鐘）", en: "Upgrading… do not cut power (about 1–2 minutes)" },
+  chest_done:             { zh: "✅ 完成", en: "✅ Done" },
+  chest_failed:           { zh: "失敗", en: "Failed" },
+  chest_cmd55_fail:       { zh: "❌ 讀取失敗 (chest cmd55 無回覆, 見 logcat)", en: "❌ Read failed (no reply to chest cmd55, see logcat)" },
+  cam_set_res:            { zh: "設定解像度…", en: "Setting resolution…" },
+  cam_set_res_fail:       { zh: "設定解像度失敗: {msg}", en: "Failed to set resolution: {msg}" },
+  cam_connecting:         { zh: "連接緊鏡頭串流…", en: "Connecting to camera stream…" },
+  cam_read_fail:          { zh: "讀取失敗: {msg}", en: "Read failed: {msg}" },
+  cam_read_err:           { zh: "讀取異常: {msg}", en: "Read error: {msg}" },
+  cam_shooting:           { zh: "影緊…", en: "Shooting…" },
+  cam_mode_picture:       { zh: "單張高清", en: "full-res still" },
+  cam_mode_snapshot:      { zh: "快照", en: "snapshot" },
+  cam_shoot_status:       { zh: "正在以 {w}x{h} {mode} 影相…", en: "Taking photo at {w}x{h} ({mode})…" },
+  cam_saved:              { zh: "✓ 已存 {w}x{h} → {path} ({bytes} bytes)", en: "✓ Saved {w}x{h} → {path} ({bytes} bytes)" },
+  cam_shoot_fail:         { zh: "✗ {w}x{h} 失敗: {msg}", en: "✗ {w}x{h} failed: {msg}" },
+  cam_dl_photo:           { zh: "⬇ 下載相片", en: "⬇ Download photo" },
+  cam_dl_video:           { zh: "⬇ 下載影片", en: "⬇ Download video" },
+  cam_need_open:          { zh: "請先開啟鏡頭先可以錄影", en: "Open the camera before recording" },
+  cam_no_mediarecorder:   { zh: "此瀏覽器不支援錄影 (MediaRecorder)", en: "This browser does not support recording (MediaRecorder)" },
+  cam_no_frame:           { zh: "找不到鏡頭畫面", en: "Camera frame not found" },
+  cam_rec_stopped:        { zh: "已停止錄影 ✓", en: "Recording stopped ✓" },
+  cam_recording:          { zh: "錄影中…", en: "Recording…" },
+  cam_rrec_stop_fail:     { zh: "機錄停止失敗：{msg}", en: "Robot recording failed to stop: {msg}" },
+  cam_rrec_on:            { zh: "機錄影中…{audio}", en: "Robot recording…{audio}" },
+  cam_audio_yes:          { zh: "（有聲）", en: " (with audio)" },
+  cam_audio_no:           { zh: "（無聲）", en: " (no audio)" },
+  cam_rrec_start_fail:    { zh: "機錄開始失敗：{msg}", en: "Robot recording failed to start: {msg}" },
+  cam_rrec_fail:          { zh: "機錄影失敗：{msg}", en: "Robot recording failed: {msg}" },
+  cam_rrec_done:          { zh: "機錄完成 ✓ {path}（{secs}s，{audio}）", en: "Robot recording done ✓ {path} ({secs}s, {audio})" },
+  cam_audio_yes2:         { zh: "有聲", en: "with audio" },
+  cam_audio_no2:          { zh: "無聲", en: "no audio" },
+  cam_actual_res:         { zh: "實際解像度: {w}x{h}", en: "Actual resolution: {w}x{h}" },
+  cam_stream_retry:       { zh: "鏡頭串流連接失敗,3 秒後重試…", en: "Camera stream connection failed, retrying in 3 s…" },
   face_track_label:      { zh: "人臉追蹤",         en: "Face Tracking" },
   color_track_label:     { zh: "顏色追蹤",         en: "Color Tracking" },
   color_name_red:        { zh: "紅",               en: "Red" },
@@ -389,6 +493,11 @@ const I18N = {
   // Google TTS has many voices per language: pick the language first, then the voice (the row collapses when no specific language is set).
   // Display follows Google system settings exactly: numbered "語音 I、II、III…" (the English panel shows "Voice I…").
   tts_android_voice_label: { zh: "聲音：", en: "Voice:" },
+  tts_pitch_label: { zh: "音高：", en: "Pitch:" },
+  tts_rate_label: { zh: "語速：", en: "Rate:" },
+  tts_prosody_reset_btn: { zh: "重設", en: "Reset" },
+  tts_prosody_hint: { zh: "1.0＝正常。設定會保存，之後「說話」同對話語音都跟呢個值。",
+                      en: "1.0 = normal. Saved on the robot; used by Speak and by dialogue TTS." },
   tts_android_voice_name: { zh: "語音", en: "Voice" },
   tts_android_voice_keep_option: { zh: "（預設聲）", en: "(Default voice)" },
   tts_android_voice_loading: { zh: "載入聲音中…", en: "Loading voices…" },
@@ -551,7 +660,7 @@ const I18N = {
   xiaozhi_send_text_error:    { zh: "送出失敗",             en: "Failed to send" },
   xiaozhi_stop_all_btn:       { zh: "⏹ 全部停止",           en: "⏹ Stop All" },
   xiaozhi_tts_engine_label:      { zh: "語音輸出：",         en: "Voice output:" },
-  xiaozhi_filler_heading:        { zh: "💃 講嘢時隨機動作",   en: "💃 Random move while speaking" },
+  xiaozhi_filler_heading:        { zh: "💃 隨機動作",         en: "💃 Random move" },
   xiaozhi_tts_engine_xiaozhi_btn: { zh: "小智",              en: "XiaoZhi" },
 
   // -- advanced tab --
@@ -622,11 +731,11 @@ const I18N = {
   chest_file_missing:    { zh: "設備上尚無固件文件，請先上傳 .bin（app 小鏡像）", en: "No firmware file on the robot yet — please upload a .bin first (app-only small image)" },
   chest_file_bad:        { zh: "❌ 設備上的固件不正確（{n} 字節，要求 1..114688 且為 4 字節對齊；256KB 完整鏡像不適用），請重新上傳", en: "❌ Firmware on the robot is invalid ({n} bytes; 1..114688 bytes with 4-byte alignment is required; 256KB full image is not supported) — please re-upload" },
   chest_file_ok:         { zh: "設備上的固件 ✅ {n} 字節（{p} 頁），可以按「開始升級」", en: "Firmware on the robot ✅ {n} bytes ({p} pages) — press Start Upgrade" },
-  chest_need_fresh_upload: { zh: "請先選擇 .bin 文件並等待上傳完成，才可以開始升級（唔會自動沿用機上舊檔）", en: "Select a .bin file and wait for the upload to finish before starting the upgrade (a stale file on the robot is never reused automatically)" },
-  chest_file_stale:      { zh: "機上有舊固件 {n} 字節（{p} 頁），要升級請重新選擇 .bin 上傳（唔會自動沿用舊檔）", en: "Stale firmware on the robot ({n} bytes, {p} pages) — re-select a .bin and upload to upgrade (never reused automatically)" },
-  chest_file_mismatch:   { zh: "❌ 機上固件（{n} 字節）同今次上傳（{m} 字節）對唔上，可能畀另一頁面覆蓋咗，請重新上傳", en: "❌ Firmware on the robot ({n} bytes) does not match this session's upload ({m} bytes) — it may have been overwritten by another tab, please re-upload" },
-  chest_upgrade_confirm: { zh: "確定要燒錄胸板固件嗎？中途斷電或重啟會導致變磚！電量須 ≥50%，全程約 1–2 分鐘（小鏡像速度較快），請勿觸碰機器人。完成後必須手動開關機兩次才會生效（第一次開機寫入固件，待電源鍵變紅後再關機，第二次開機正常啟動；僅重啟系統無效）。", en: "Flash the chest firmware? Power loss or reboot during flashing will brick the device! Battery must be ≥50%, about 1–2 minutes (small image is faster). Do not touch the robot. After success, you must manually power-cycle twice to apply (the first boot writes the firmware — wait until the power button turns red, then shut down; the second boot starts normally; rebooting Android alone is NOT enough)." },
-  chest_upgrade_done_power: { zh: "✅ 燒錄完成！必須手動開關機兩次才會生效：先長按電源鍵關機斷電；第一次開機為寫入固件，開機後等待約 10 秒，待電源鍵變紅後再長按關機；第二次開機即可正常啟動。注意：僅重啟系統無效。", en: "✅ Flash completed! You must manually power-cycle twice to apply: first long-press the power button to shut down completely; the first power-on writes the firmware — after it boots, wait about 10 seconds until the power button turns red, then long-press to shut down again; the second power-on boots normally. Note: reboot alone is NOT enough." },
+  chest_need_fresh_upload: { zh: "請先選擇 .bin 文件並等待上傳完成，方可開始升級（系統不會自動沿用設備上的舊文件）", en: "Select a .bin file and wait for the upload to finish before starting the upgrade (a stale file on the robot is never reused automatically)" },
+  chest_file_stale:      { zh: "設備上存在舊固件（{n} 字節，共 {p} 頁），如需升級，請重新選擇 .bin 文件並上傳（系統不會自動沿用舊文件）", en: "A stale firmware file exists on the robot ({n} bytes, {p} pages). To upgrade, please re-select a .bin file and upload it (the stale file is never reused automatically)" },
+  chest_file_mismatch:   { zh: "❌ 設備上的固件（{n} 字節）與本次上傳的文件（{m} 字節）不一致，可能已被其他頁面覆蓋，請重新上傳", en: "❌ Firmware on the robot ({n} bytes) does not match this session's upload ({m} bytes) — it may have been overwritten by another tab, please re-upload" },
+  chest_upgrade_confirm: { zh: "確定要燒錄胸板固件嗎？燒錄期間如遇斷電或重新啟動，設備將無法使用！電量須維持在 50% 或以上，全程約需 1–2 分鐘（小鏡像所需時間較短），期間請勿觸碰機器人。燒錄完成後，請關機後再重新開機，系統將開始寫入固件：電源鍵指示燈將依序顯示藍色 → 紅色 → 綠色；當綠燈持續亮起，即表示固件更新完成，此時方可再次關機並重新開機，系統將正常啟動。注意：僅重新啟動 Android 系統並不會寫入固件。", en: "Flash the chest firmware? Power loss or reboot during flashing will brick the device! Battery must be at least 50%. It takes about 1–2 minutes (a small image is faster). Do not touch the robot during the process. After flashing completes, power off and then power on again to start writing the firmware: the power button LED will change in the sequence blue → red → green. When the green light stays on, the firmware update is complete. You may then power off and power on again, and the system will boot normally. Note: rebooting Android alone does not write the firmware." },
+  chest_upgrade_done_power: { zh: "✅ 燒錄完成！請先長按電源鍵關機斷電，然後重新開機，系統將開始寫入固件。電源鍵指示燈將依序顯示藍色 → 紅色 → 綠色；當綠燈持續亮起，即表示固件更新完成，此時方可再次關機並重新開機，系統將正常啟動。注意：僅重新啟動 Android 系統無效。", en: "✅ Flashing completed! Long-press the power button to power off first, then power on again to start writing the firmware. The power button LED will change in the sequence blue → red → green. When the green light stays on, the firmware update is complete. You may then power off and power on again, and the system will boot normally. Note: rebooting Android alone does not apply the update." },
 
   // -- Experimental tab panel token auth (see PanelAuth.java, backend system/auth/*) --
   panel_auth_heading:    { zh: "🔐 面板認證",      en: "🔐 Panel Token" },
@@ -646,6 +755,28 @@ const I18N = {
   panel_lock_fail:       { zh: "❌ Token 不正確，請再試", en: "❌ Wrong token, try again" },
   panel_pw_show:         { zh: "顯示輸入",         en: "Show input" },
   panel_pw_hide:         { zh: "隱藏輸入",         en: "Hide input" },
+
+  // -- 群控鏡像（實驗 tab 新卡，見 app-group.js；開總開關先展開，Mirror 掣在內） --
+  group_heading:         { zh: "👯 群控鏡像",      en: "👯 Group Mirror" },
+  group_card_disabled_hint: { zh: "開啟後才會顯示群控鏡像設定", en: "Turn on to show group mirror settings" },
+  group_mirror_label:    { zh: "開＝自動搜尋＋跟隨，關＝停止", en: "On = auto-find + follow, Off = stop" },
+  group_hint:            { zh: "開啟後會自動搜尋同一網段內的機械人，完成後在本機執行的操作，其他機械人將同步執行（動作／舵機／LED／語音／音樂等）；查詢、韌體升級、下載、ID 寫入、拍照及錄影不會跟隨。關閉即停止。",
+                             en: "When enabled, robots on the same subnet are discovered automatically; operations performed on this robot are then mirrored to the followers (actions / servos / LEDs / speech / music, etc.). Queries, firmware upgrades, downloads, ID writes, photo and video capture are never mirrored. Turning it off stops mirroring." },
+  group_subnet_label:    { zh: "子網：",           en: "Subnet:" },
+  group_subnet_placeholder: { zh: "例如 192.168.1.", en: "e.g. 192.168.1." },
+  group_manual_placeholder: { zh: "手動新增（如設有口令）：192.168.1.105 token",
+                              en: "Add manually (token if set): 192.168.1.105 token" },
+  group_manual_add_btn:  { zh: "加入",             en: "Add" },
+  group_status_on:       { zh: "開（跟隨 {n} 部）", en: "On ({n} followers)" },
+  group_status_off:      { zh: "關",               en: "Off" },
+  group_scan_invalid:    { zh: "請輸入子網，例如 192.168.1.", en: "Please enter a subnet, e.g. 192.168.1." },
+  group_scanning:        { zh: "正在掃描 {subnet}0/24…（{done}/254，已找到 {found} 部）",
+                             en: "Scanning {subnet}0/24… ({done}/254, {found} found)" },
+  group_scan_found:      { zh: "已找到 {n} 部機械人", en: "Found {n} robot(s)" },
+  group_scan_failed:     { zh: "搜尋失敗：{err}",  en: "Scan failed: {err}" },
+  group_empty_list:      { zh: "跟隨名單為空——開啟鏡像後將自動搜尋",
+                             en: "Follower list is empty — turning the mirror on will auto-scan" },
+  group_checking:        { zh: "正在檢測…",        en: "Checking…" },
 
   // -- event log --
   event_log_heading:     { zh: "即時事件 Log (WebSocket)", en: "Live Event Log (WebSocket)" },
@@ -683,6 +814,7 @@ function t(key, params) {
  *  that contain inline <b>/<code> markup which must survive translation (the I18N
  *  entry's zh/en values contain literal HTML in that case, not plain text). */
 function applyUiLanguage() {
+  document.documentElement.lang = uiLang === "en" ? "en" : "zh-Hant"; // 輔助技術／瀏覽器翻譯靠呢個判斷頁面語言
   document.querySelectorAll("[data-i18n]").forEach(function (el) {
     const entry = I18N[el.dataset.i18n];
     if (!entry) return;
@@ -736,7 +868,11 @@ function setUiLanguage(lang) {
   try {
     if (typeof actionsPackApplyUiLanguage === "function") actionsPackApplyUiLanguage();
   } catch(e) {}
-  // The servo ID card port-side hint lines are also built dynamically (from the inputs + language). Language switch redraws them; no extra press needed.
+  // IK 卡狀態行也是動態起（跟 slider 操作），轉語言即重畫。
+  try {
+    if (typeof ikApplyUiLanguage === "function") ikApplyUiLanguage();
+  } catch(e) {}
+  // 舵機 ID 卡左右接口提示行一樣動態起（跟輸入＋語言），轉語言即重畫（唔使再撳）。
   try { if (typeof servoIdBusUpdate === "function") servoIdBusUpdate(); } catch(e) {}
   // The TTS follow status line is also built dynamically. One redraw converts it (no new backend call).
   try {
@@ -746,8 +882,12 @@ function setUiLanguage(lang) {
   try {
     if (typeof apkApplyUiLanguage === "function") apkApplyUiLanguage();
   } catch(e) {}
-  // The music EQ preset blue buttons and the Now Playing random-move/rhythm-LED status words are also built
-  // dynamically. Relabel them in place (no rebuild; slider positions and switch states stay).
+  // 群控鏡像狀態字一樣動態起，重畫一次就轉語言（不用再問後端）。
+  try {
+    if (typeof groupApplyUiLanguage === "function") groupApplyUiLanguage();
+  } catch(e) {}
+  // 音樂 EQ preset 藍掣＋播放中行隨機動作／節奏燈狀態字一樣動態起，就地重標
+  // （唔 rebuild，推桿位／開關狀態唔郁）。
   try {
     if (typeof musicEqApplyUiLanguage === "function") musicEqApplyUiLanguage();
   } catch(e) {}
@@ -916,6 +1056,9 @@ window.addEventListener("unhandledrejection", function (e) {
 
 function api(path, params) {
   clearError();
+  // 鏡像模式（群控 tab，見 app-group.js）：開咗掣就將呢次寫入同步去跟隨名單，其他機同做。
+  // fire-and-forget，跟隨失敗靜默略過，本機回傳唔變。typeof guard 保證 app-group.js 未 load 都唔爆。
+  try { if (typeof mirrorFanout === "function") mirrorFanout("alpha2", path, params); } catch (e) {}
   const qs = apiQuery(params);
   return fetch(API + "alpha2/" + path + qs, { headers: panelAuthHeaders(params) }).then(function (res) {
     return res.json().catch(function (e) {
@@ -950,6 +1093,7 @@ function hwApi(path, params) {
 // api('system/...') directly would hit /api/alpha2/system/... and 404 - do not do that.
 function sysApi(path, params) {
   clearError();
+  try { if (typeof mirrorFanout === "function") mirrorFanout("system", path, params); } catch (e) {}
   const qs = apiQuery(params);
   return fetch(API + "system/" + path + qs, { headers: panelAuthHeaders(params) }).then(function (res) {
     return res.json().catch(function (e) {
@@ -968,6 +1112,7 @@ function sysApi(path, params) {
 
 function directApi(path, params) {
   clearError();
+  try { if (typeof mirrorFanout === "function") mirrorFanout("direct", path, params); } catch (e) {}
   const qs = apiQuery(params);
   return fetch(API + "direct/" + path + qs, { headers: panelAuthHeaders(params) }).then(function (res) {
     return res.json().catch(function (e) {

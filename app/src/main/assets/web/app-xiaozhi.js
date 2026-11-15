@@ -31,9 +31,11 @@
 // backend prefix logic of api()/hwApi().
 function xiaozhiApi(path, params) {
   clearError();
-  // Experimental tab panel token: like api()/sysApi(), it travels in the Authorization: Bearer header
-  // (panelAuthHeaders + apiQuery live in app-core.js; boot_voice/set needs it when auth is on, missing = 401).
-  // The business token of ota_config/set still goes in the query - it is a different key from the header panel token, so they never clash (see PanelAuth).
+  // 鏡像模式（群控 tab，見 app-group.js）：小智連線／文字等寫入都會同步去跟隨名單。
+  try { if (typeof mirrorFanout === "function") mirrorFanout("xiaozhi", path, params); } catch (e) {}
+  // 實驗 tab 面板 token：同 api()/sysApi() 一樣行 Authorization: Bearer header
+  //（panelAuthHeaders＋apiQuery 住 app-core.js；boot_voice/set 啟用中要驗，不帶即 401）。
+  // ota_config/set 個業務 token 照行 query——同 header panel token 唔同 key，不會撞（見 PanelAuth）。
   const clean = (typeof stripPanelToken === "function") ? stripPanelToken(params) : params;
   const qs = clean ? "?" + new URLSearchParams(clean).toString() : "";
   const hdrs = (typeof panelAuthHeaders === "function") ? panelAuthHeaders(params) : {};
@@ -174,11 +176,6 @@ function xiaozhiShowActivationCode(code) {
     xiaozhiAppendChatLine("xiaozhi-msg-system", t("xiaozhi_activation_code_chat_prefix") + " " + code);
   }
 }
-
-/** The pairing code shows only in the conversation UI; two no-op stubs stay so old cached pages do not hit ReferenceError. */
-
-function xiaozhiShowActivationModal() { /* the pairing code shows only in the conversation UI */ }
-function xiaozhiHideActivationModal() { /* see above */ }
 
 function xiaozhiHideActivationCode() {
   const els = xiaozhiElements();

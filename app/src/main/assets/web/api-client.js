@@ -9,10 +9,9 @@
 // mirroring ApiValidator.java on the server side.
 
 const Alpha2Api = (function() {
-  function qs(params) { return params ? '?' + new URLSearchParams(params).toString() : ''; }
   function assertEnum(val, allowed, key) { if (val != null && !allowed.includes(val)) throw new Error(key + ' must be one of ' + allowed.join(',')); }
-  // 2026-09-09: numeric enums (ubx/speed 0.5/0.67/...) use a numeric comparison + the same 0.001 tolerance as the backend --
-  // URL/query values arrive as strings; a strict includes wrongly kills legal values like "1".
+  // 數字 enum 用數值比對＋後端同款 0.001 容差——
+  // URL/query 來的是字串，嚴格 includes 會誤殺 "1" 之類合法值。
   function assertEnumNum(val, allowed, key) { if (val != null && !allowed.some(function(a){ return Math.abs(Number(val)-a) < 0.001; })) throw new Error(key + ' must be one of ' + allowed.join(',')); }
   function assertRange(val, min, max, key) { if (val < min || val > max) throw new Error(key + ' must be between '+min+' and '+max); }
 
@@ -352,6 +351,11 @@ const Alpha2Api = (function() {
     return api('battery/status', params);
   }
 
+  function batteryVersion(params) {
+    // 讀電池固件版本 (原廠「系統信息」同名欄位；胸 cmd 57 [3] POWER_INFO)
+    return api('battery/version', params);
+  }
+
   function btStatus(params) {
     // Query the Bluetooth state
     return api('bt/status', params);
@@ -387,6 +391,11 @@ const Alpha2Api = (function() {
   function chestVersion(params) {
     // Read the chest MCU firmware version (sendCommand 51)
     return api('chest/version', params);
+  }
+
+  function micVersion(params) {
+    // 讀 MIC 固件版本 (原廠「系統信息」同名欄位 = ro.hardware.version)
+    return api('mic/version', params);
   }
 
   function miscRequestUuid(params) {
@@ -476,7 +485,7 @@ const Alpha2Api = (function() {
   }
 
   function directUbxSpeed(params) {
-    if (params && params.value != null) assertEnumNum(params.value, [0.5, 0.67, 1, 1.5, 2], 'value');
+    if (params && params.value != null) assertRange(Number(params.value), 0.5, 2.0, 'value');
     // Action playback speed (servos + music scale together; sticky, a set while playing restarts from the start at once)
     return directApi('ubx/speed', params);
   }
@@ -502,7 +511,7 @@ const Alpha2Api = (function() {
   }
 
   function ubxSpeed(params) {
-    if (params && params.value != null) assertEnumNum(params.value, [0.5, 0.67, 1, 1.5, 2], 'value');
+    if (params && params.value != null) assertRange(Number(params.value), 0.5, 2.0, 'value');
     // Action playback speed (servos + music scale together; sticky, a set while playing restarts from the start at once)
     return api('ubx/speed', params);
   }
@@ -541,7 +550,7 @@ const Alpha2Api = (function() {
   function gamepadConfigSet(params) {
     if (params && params.side != null) assertEnum(params.side, ['pad', 'kb'], 'side');
     if (params && params.reset != null) assertEnum(params.reset, ['0', '1', 'true', 'false'], 'reset');
-    // Change one key mapping (or reset = 1 to restore that side default)
+    // Change one key mapping (one key, many actions: action can hold several lines, run in order; or reset = 1 to restore that side default)
     return api('gamepad/config/set', params);
   }
 
@@ -785,6 +794,12 @@ const Alpha2Api = (function() {
   function servoBackAngleAll(params) {
     // Read all 22 axes of read-back angle in a row (cmd23/0x17, no interval, read only and no write back)
     return api('servo/back-angle-all', params);
+  }
+
+  function servoCalibrate(params) {
+    if (params && params.time != null) assertRange(Number(params.time), 20, 32767, 'time');
+    // 官方流程舵機校準（批次寫 trim → 等 EEPROM → 回標準姿勢）
+    return api('servo/calibrate', params);
   }
 
   function servoHardware(params) {
@@ -1133,6 +1148,30 @@ const Alpha2Api = (function() {
   }
 
   // ── upload ──────────────────────────────────────────────
+  // ── walk ──────────────────────────────────────────────
+  function walkSpeed(params) {
+    if (params && params.value != null) assertRange(Number(params.value), 1.0, 2.0, 'value');
+    // 設預設行路速度（同時即時套用於行緊嘅路）
+    return api('walk/speed', params);
+  }
+
+  function walkStart(params) {
+    if (params && params.speed != null) assertRange(Number(params.speed), 1.0, 2.0, 'speed');
+    if (params && params.dir != null) assertEnum(params.dir, ['fwd', 'back'], 'dir');
+    // 按住向前行／向後行：未行就起步，行緊就續租約並更新速度
+    return api('walk/start', params);
+  }
+
+  function walkStatus(params) {
+    // 行路狀態
+    return api('walk/status', params);
+  }
+
+  function walkStop(params) {
+    // 放手：先行到最近一個著地收步格（約半步內），再收返企定姿勢然後停（hard=true 即刻硬停，舵機保持末位姿）
+    return api('walk/stop', params);
+  }
+
   // ── websocket ──────────────────────────────────────────────
   // ── xiaozhi ──────────────────────────────────────────────
   function xiaozhiActivationStatus(params) {
@@ -1317,6 +1356,7 @@ const Alpha2Api = (function() {
     faceTrackStatus,
     faceTrackStop,
     batteryStatus,
+    batteryVersion,
     btStatus,
     chestPage,
     chestUpgrade,
@@ -1324,6 +1364,7 @@ const Alpha2Api = (function() {
     chestUpgradeResume,
     chestUpgradeStatus,
     chestVersion,
+    micVersion,
     miscRequestUuid,
     miscSetUuid,
     status,
@@ -1392,6 +1433,7 @@ const Alpha2Api = (function() {
     servoAngleRestore,
     servoBackAngle,
     servoBackAngleAll,
+    servoCalibrate,
     servoHardware,
     servoHardwareAll,
     servoModifyId,
@@ -1456,6 +1498,10 @@ const Alpha2Api = (function() {
     systemMusicStatus,
     systemMusicStop,
     systemMusicVolume,
+    walkSpeed,
+    walkStart,
+    walkStatus,
+    walkStop,
     xiaozhiActivationStatus,
     xiaozhiAutoMode,
     xiaozhiBootVoiceGet,

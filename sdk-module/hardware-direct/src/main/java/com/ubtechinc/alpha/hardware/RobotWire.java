@@ -22,15 +22,27 @@ public final class RobotWire {
     public static final String ALPHA_WIFI_RESULT = "com.ubt.alpha2.wifiresult";
 
     // -- Chest microcontroller serial command bytes ---------------------------
+    /** 官方開機 START（cmd 0x01）：狀態查詢＋電源初始化，回 0x8A(DC 狀態)/0x8D。
+     *  官方 Alpha2Services 開機 ChestStartThread 等串口連上後第一條就發佢。 */
+    public static final byte CHEST_CMD_START = 1;
     public static final byte CHES_CMD_MOTORANGLE = 5;
     public static final byte CHEST_CMD_SETTING = 4;
     public static final byte CHES_CMD_START_UPDATE = 48;
     public static final byte CHES_CMD_UPDATE_PAGE = 49;
     public static final byte CHES_CMD_UPDATE_END = 50;
     public static final byte CHEST_READ_VERSION = 51;
-    /** 已死：播放唔行呢個（行 cmd 3），留低只防同 52 撞名，唔好用。 */
-    @Deprecated
+    /** 電池資訊/版本 cmd 57（V352 新命令 POWER_INFO；payload [3] 讀版本，
+     *  官方 Alpha2Services VersionCollector 同款問法，回覆經 parseBatteryVersion
+     *  解析——payload[1]==3 時版本字串由 payload[2] 起）。 */
+    public static final byte CHEST_POWER_INFO = 57;
+    /** 官方 v1.1.7.3 sendFreeAngle / robotStandup 用嘅全舵機命令
+     *  （cmd 0x34 [20軸+BE16 time]）。5-mic 直驅舊實測 0x34 有 ACK 唔郁，
+     *  故 5-mic 改行 cmd 3 同一 payload；2-mic 照官方用 cmd 52
+     *  （見 DirectChestController.playAllServos）。 */
     public static final byte CHEST_SET_ALL_ANGLE = 52;
+    /** 「充電時播放」設定/查詢（cmd 0x35）：官方開機 queryChargePlay() 發 [2] 查詢；
+     *  MCU 側順帶觸發 servo 掃描（模式 11）。 */
+    public static final byte CHEST_CMD_CHANGE_PLAY = 53;
     /** 讀舵機 trim/cmd13（DirectChestController.readServo）。 */
     public static final byte CHEST_CMD_READ_SERVO = 13;
     /** 寫舵機 trim/cmd12（DirectChestController.writeServoTrim，EEPROM 掉電保持）。 */
@@ -57,8 +69,16 @@ public final class RobotWire {
     public static final byte CHEST_SERVO_POWER = 25;
 
     // -- Head microcontroller serial command bytes ----------------------------
+    /** 2-mic 耳燈（DeveloperEarLedData，9-byte payload）。5-mic 已失效。 */
     public static final byte LED_EAR = 1;
+    /** 2-mic 眼燈（DeveloperEyesLedData，10-byte payload）。5-mic 已失效。 */
+    public static final byte LED_EYE = 2;
+    /** 2-mic 停燈：payload [1] = 耳燈，[0] = 眼燈（官方 stopEarLED/stopEyeLED）。 */
     public static final byte STOP_CMD = 8;
+    /** 官方 HeadStartThread（只喺 2-mic 行）：開機送 cmd 5（無 payload）。 */
+    public static final byte HEAD_CMD_INIT_2MIC = 5;
+    /** 官方 HeadStartThread（只喺 2-mic 行）：cmd 0x20 payload [1]。 */
+    public static final byte HEAD_CMD_READY_2MIC = 0x20;
     public static final byte HEAD_CONTROL_BYPASS = 39;
     public static final byte HEADER_READ_VERSION = 51;
 }

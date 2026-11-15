@@ -20,14 +20,17 @@
 // factory lowercase-first style (for example 'the deer and the lion').
 // All 200 ids are now verified against the factory nameEn values.
 //
-// Classification logic: 5 main groups (basic/dance/story/yoga/others), each
-// split into 15 sub groups in total, mapped as follows (main -> [sub,...]):
-//   basic: Movement, Gesture, Head, Expression / Interaction, Full body / Other
-//   dance: Kids songs / Cartoon dances, Pop / Rhythm dances, Brand / Custom dances
-//   story: Chinese fables, Western fables / Stories
-//   yoga: Standing / Balance poses, Stretching poses, Horse-riding poses, Kicking / Dynamic poses
-//   others: Neuron get-up actions (BackStand/FrontStand, from the Neuron
-//     project, not confirmed on the real robot, see the ALPHA_ACTIONS entry note)
+// ⚠️ 2026-10 更新: 用家要求保留原本 202 個動作, 只補回「不愛洗澡的小豬」
+// (1487404045427) 1 個, 清單總數為 203 個 (201 個機身動作 + 2 個 Neuron 動作)。
+//
+// 分類邏輯: 5 個 main (basic/dance/story/yoga/others) 之下再分 15 個 sub, 對照
+// 如下 (main -> [sub,...]):
+//   basic: 移動類, 手勢類, 頭部類, 表情 / 互動類, 全身 / 其他動作
+//   dance: 兒童歌曲 / 卡通舞蹈, 流行 / 節奏舞蹈, 品牌 / 客製舞蹈
+//   story: 中國寓言, 西方寓言 / 故事
+//   yoga: 站立式 / 平衡式, 伸展式, 騎馬式, 踢腿 / 動態式
+//   others: Neuron 起身動作 (BackStand/FrontStand, 來自 Neuron 專案, 未經
+//     機身實測確認, 見底下 ALPHA_ACTIONS 對應 entry 的註解)
 //
 // UI structure: the play built-in action block is now a 3-level dropdown
 // main -> sub -> action (see alpha_action_play_builtin in blockly-blocks.js).
@@ -281,6 +284,7 @@
     { id: '1464835936127', nameCn: '狼與羔羊', nameEn: 'The wolf and the lamb', main: 'story', sub: '西方寓言 / 故事' },
     { id: '1464835936128', nameCn: '老鼠、青蛙和老鷹', nameEn: 'The mouse, the frog, and the eagle', main: 'story', sub: '西方寓言 / 故事' },
     { id: '1464835936129', nameCn: '特洛伊木馬', nameEn: 'Trojan horse', main: 'story', sub: '西方寓言 / 故事' },
+    { id: '1487404045427', nameCn: '不愛洗澡的小豬', nameEn: "The Little Pig Who Doesn't Like Bathing", main: 'story', sub: '西方寓言 / 故事' },
     { id: '1509004671917', nameCn: '金雞獨立', nameEn: 'one foot standing', main: 'yoga', sub: '站立式 / 平衡式' },
     { id: '1509004843153', nameCn: '敬禮式', nameEn: 'salute', main: 'yoga', sub: '站立式 / 平衡式' },
     { id: '1509004868066', nameCn: '蹲式', nameEn: 'squat pose', main: 'yoga', sub: '站立式 / 平衡式' },
@@ -359,13 +363,13 @@
   // id -> main category table. blockly-run.js uses it to prefix entries in
   // the live action list (refreshActionDropdown, fetched from /api/action/list).
   //
-  // The old version of this function had only the name: it inferred the
-  // category from the raw type number (1/2/3/4) the robot returned, through
-  // a whitelist, and ignored the id itself. The new data comes from the real
-  // actionInfo.txt list (see the 2026-08 header note). The table maps
-  // id -> {main, sub}, so a direct lookup is simpler and more accurate.
-  // A live action whose id is in this list (200 real ids + the 2 Neuron
-  // actions below) gets the right prefix. A missing prefix is normal, not a bug.
+  // 舊版這個 function 僅得個名, 實際是靠機械人回傳的原始 type 數字 (1/2/3/4) 做
+  // 白名單推斷分類, 完全不理個 id 本身。新版資料來自 actionInfo.txt 實機清單 (見
+  // 檔頭 2026-08 更新註解), 對照表本身就是「id -> {main, sub}」, 更準確亦更簡單
+  // 直接查表, 不用再靠 type 數字猜測。機械人即時回傳的 action 裡面, 凡是 id 剛好
+  // 在這個已知清單 (201 個實機 id + 底下額外加的 2 個 Neuron 動作) 裡面的, 就
+  // 會拿到正確分類前綴; 不在清單裡面的 (例如用家自己上載的自訂動作, 或者部分
+  // 機型先有的擴充動作) 就沒有前綴, 屬正常現象, 不是 bug。
   var ACTION_MAIN_BY_ID = {};
   window.ALPHA_ACTIONS.forEach(function (a) { ACTION_MAIN_BY_ID[a.id] = a.main; });
   window.ALPHA_ACTION_CATEGORY_OF = function (idOrType) {

@@ -3,7 +3,6 @@ package com.ubtechinc.alpha.hardware;
 import android.util.Log;
 
 import java.io.File;
-import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -40,7 +39,6 @@ public final class DirectSerialPort {
 
     private volatile InputStream input;
     private volatile OutputStream output;
-    private FileDescriptor fd;
     private Object serialPortFileObj; // JNI 路徑時持有，供 close() 用
     private volatile String openedPath;
     private Thread readerThread;
@@ -77,10 +75,31 @@ public final class DirectSerialPort {
     }
 
     public static DirectSerialPort forChest() {
+        if (HardwareVersion.is2Mic()) {
+            // 1.1.7.3 官方 AlphaSerialPortServices 先讀 ro.front.serial，
+            // 冇先用 /dev/ttySAC0；RK 板後備 ttyS1/ttyS0。
+            String primary = HardwareVersion.getProperty("ro.front.serial",
+                    DirectSerialConfig.CHEST_TTY_2MIC);
+            // primary 已經係 ttySAC0 就唔好重複試；後備保留 5-mic ttyS1 同舊 RK ttyS0。
+            String alt = DirectSerialConfig.CHEST_TTY_2MIC.equals(primary)
+                    ? DirectSerialConfig.CHEST_TTY
+                    : DirectSerialConfig.CHEST_TTY_2MIC;
+            Log.i(TAG, "2mic chest serial: " + primary + " (ro.front.serial), fallback "
+                    + alt + "," + DirectSerialConfig.CHEST_TTY_ALT2);
+            return new DirectSerialPort(primary, alt,
+                    DirectSerialConfig.CHEST_TTY_ALT2, DirectSerialConfig.BAUDRATE);
+        }
         return new DirectSerialPort(DirectSerialConfig.CHEST_TTY, DirectSerialConfig.CHEST_TTY_ALT, DirectSerialConfig.CHEST_TTY_ALT2, DirectSerialConfig.BAUDRATE);
     }
 
     public static DirectSerialPort forHead() {
+        if (HardwareVersion.is2Mic()) {
+            // 1.1.7.3 官方 2-mic 路徑；RK 板後備 ttyS3。ttyS0 同胸板共用，
+            // 唔加落 head，免得搶錯 port。
+            return new DirectSerialPort(DirectSerialConfig.HEAD_TTY_2MIC,
+                    DirectSerialConfig.HEAD_TTY, null,
+                    DirectSerialConfig.BAUDRATE);
+        }
         return new DirectSerialPort(DirectSerialConfig.HEAD_TTY, DirectSerialConfig.HEAD_TTY_ALT, DirectSerialConfig.HEAD_TTY_ALT2, DirectSerialConfig.BAUDRATE);
     }
 
@@ -96,8 +115,6 @@ public final class DirectSerialPort {
     }
 
     public void addListener(OnFrameListener l) { listeners.add(l); }
-    public void removeListener(OnFrameListener l) { listeners.remove(l); }
-    public String getOpenedPath() { return openedPath; }
 
     public synchronized boolean open() {
         if (running.get()) return true;
@@ -122,18 +139,29 @@ public final class DirectSerialPort {
             Log.d(TAG, "device not found: " + path);
             return false;
         }
+        ensure2MicAccess(path);
+        // 2-mic 先用 1.1.7.3 原裝 android_serialport_api.SerialPort（官方
+        // libserial_port_2mic.so，Android 4.4.2 實機相容）；失敗再試 5-mic
+        // 自製 SerialPortFile。
+        if (HardwareVersion.is2Mic()
+                && tryOpenViaClass(path, dev, "android_serialport_api.SerialPort")) {
+            return true;
+        }
+        return tryOpenViaClass(path, dev, "com.ubtechinc.alpha.jni.SerialPortFile");
+    }
+
+    private boolean tryOpenViaClass(String path, File dev, String className) {
         try {
-            Class<?> cls = Class.forName("com.ubtechinc.alpha.jni.SerialPortFile");
+            Class<?> cls = Class.forName(className);
             Object obj = cls.getConstructor(File.class, int.class, int.class)
                     .newInstance(dev, baudrate, 0);
             InputStream in;
             OutputStream out;
-            FileDescriptor jfd = null;
             try {
                 in = (InputStream) cls.getMethod("getInputStream").invoke(obj);
                 out = (OutputStream) cls.getMethod("getOutputStream").invoke(obj);
             } catch (NoSuchMethodException nsme) {
-                Log.d(TAG, "SerialPortFile has no stream getters: " + nsme.getMessage());
+                Log.d(TAG, className + " has no stream getters: " + nsme.getMessage());
                 try { cls.getMethod("close").invoke(obj); } catch (Exception ignore) {}
                 return false;
             }
@@ -142,15 +170,6 @@ public final class DirectSerialPort {
                 try { cls.getMethod("close").invoke(obj); } catch (Exception ignore) {}
                 return false;
             }
-            try {
-                try {
-                    jfd = (FileDescriptor) cls.getMethod("getFD").invoke(obj);
-                } catch (NoSuchMethodException nsme2) {
-                    java.lang.reflect.Field f = cls.getDeclaredField("mFd");
-                    f.setAccessible(true);
-                    jfd = (FileDescriptor) f.get(obj);
-                }
-            } catch (Exception ignore) { /* fd 可選，有則存，無亦可 */ }
             if (!claimPath(path)) {
                 Log.w(TAG, path + " already held by another port, skipping (獨佔，防分流幀)");
                 try { cls.getMethod("close").invoke(obj); } catch (Exception ignore) {}
@@ -158,17 +177,17 @@ public final class DirectSerialPort {
             }
             this.input = in;
             this.output = out;
-            this.fd = jfd;
             this.serialPortFileObj = obj;
             this.openedPath = path;
-            Log.i(TAG, "opened via JNI SerialPortFile: " + path + " baud=" + baudrate);
+            Log.i(TAG, "opened via JNI " + className + ": " + path + " baud=" + baudrate);
             return true;
         } catch (ClassNotFoundException e) {
-            Log.d(TAG, "SerialPortFile class not found, fallback to File: " + e.getMessage());
+            Log.d(TAG, className + " not found, fallback: " + e.getMessage());
         } catch (Throwable t) {
             // UnsatisfiedLinkError/NoSuchMethodError（Error 非 Exception）唔接會
             // 穿透撞死調用線程；一律當開唔到，試下一個。
-            Log.d(TAG, "JNI open failed for " + path + " (" + t.getClass().getSimpleName() + "): " + t.getMessage());
+            Log.d(TAG, "JNI open failed for " + path + " (" + className + ", "
+                    + t.getClass().getSimpleName() + "): " + t.getMessage());
         }
         return false;
     }
@@ -180,6 +199,7 @@ public final class DirectSerialPort {
             Log.d(TAG, "device not found: " + path);
             return false;
         }
+        ensure2MicAccess(path);
         if (!claimPath(path)) {
             Log.w(TAG, path + " already held by another port, skipping (獨佔，防分流幀)");
             return false;
@@ -198,12 +218,22 @@ public final class DirectSerialPort {
             }
             this.input = fin;
             this.output = fout;
-            try { this.fd = fin.getFD(); } catch (Exception ignore) {}
             this.serialPortFileObj = null;
             this.openedPath = path;
             // 純 Java 開不出 termios，必須用 stty 把波特率從預設 9600 改到 115200，
             // 否則 MCU 侧全是亂碼（2026-09 實測教訓）。busybox 自帶 stty。
-            configureBaudStty(path, baudrate);
+            // 改唔到就當開唔到：留喺 9600 嘅 port 只會靜默發亂碼（舵機唔郁、
+            // 回覆全爛），比誠實失敗更難查——寧願 isAvailable()=false 等重試。
+            if (!configureBaudStty(path, baudrate)) {
+                Log.w(TAG, "File path stty 配 baud 失敗（port 會留喺 9600 發亂碼），放棄 " + path);
+                try { fin.close(); } catch (Exception ignore) {}
+                try { fout.close(); } catch (Exception ignore) {}
+                this.input = null;
+                this.output = null;
+                this.openedPath = null;
+                releasePath(path);
+                return false;
+            }
             Log.i(TAG, "opened via File: " + path);
             return true;
         } catch (Exception e) {
@@ -214,8 +244,84 @@ public final class DirectSerialPort {
         }
     }
 
-    /** 用 busybox stty 配波特率+8N1 raw（File 路徑專用，JNI 路徑 native 已配好）。 */
-    private static void configureBaudStty(String path, int baudrate) {
+    /**
+     * 2-mic（Android 4.4.2 / Exynos）嘅 /dev/ttySAC* 未必係 777：普通 app
+     * 可能無 rw。官方 1.1.7.3 android_serialport_api.SerialPort 喺 canRead/
+     * canWrite 失敗時會經 su chmod 666；呢度照做（先試直接 chmod，再試 su）。
+     * 5-mic 唔行，避免無謂 su。
+     */
+    private static void ensure2MicAccess(String path) {
+        if (!HardwareVersion.is2Mic()) return;
+        File f = new File(path);
+        if (f.canRead() && f.canWrite()) return;
+        runQuietly(new String[]{"chmod", "666", path}, 2000);
+        if (f.canRead() && f.canWrite()) {
+            Log.i(TAG, "2mic chmod ok (direct): " + path);
+            return;
+        }
+        // 官方 SerialPort 同款：echo "chmod 666 ..." | su。
+        // 4.4.2 嘅 su 可能喺 /system/bin 或 /system/xbin，PATH 未必搵到。
+        String[] suPaths = {"/system/bin/su", "/system/xbin/su", "su"};
+        for (String su : suPaths) {
+            Process p = null;
+            try {
+                p = Runtime.getRuntime().exec(su);
+                OutputStream os = p.getOutputStream();
+                os.write(("chmod 666 " + path + "\nexit\n").getBytes());
+                os.flush();
+                os.close();
+                waitForProcess(p, 3000);
+                if (f.canRead() && f.canWrite()) {
+                    Log.i(TAG, "2mic chmod ok (" + su + "): " + path);
+                    break;
+                }
+            } catch (Throwable t) {
+                Log.d(TAG, "2mic su chmod failed (" + su + ") for " + path + ": " + t.getMessage());
+            } finally {
+                if (p != null) p.destroy();
+            }
+        }
+        Log.i(TAG, "2mic chmod " + path + " read=" + f.canRead() + " write=" + f.canWrite());
+    }
+
+    private static void runQuietly(String[] cmd, long timeoutMs) {
+        Process p = null;
+        try {
+            p = Runtime.getRuntime().exec(cmd);
+            waitForProcess(p, timeoutMs);
+        } catch (Throwable t) {
+            Log.d(TAG, "2mic chmod exec failed: " + t.getMessage());
+        } finally {
+            if (p != null) p.destroy();
+        }
+    }
+
+    /** 等子進程，逾時 destroy（su 可能等授權而唔返）。 */
+    private static boolean waitForProcess(Process p, long timeoutMs) {
+        final Process proc = p;
+        Thread t = new Thread(new Runnable() {
+            @Override public void run() {
+                try { proc.waitFor(); } catch (InterruptedException ignored) {}
+            }
+        }, "serial-chmod-wait");
+        t.setDaemon(true);
+        t.start();
+        try {
+            t.join(timeoutMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        if (t.isAlive()) {
+            p.destroy();
+            return false;
+        }
+        return true;
+    }
+
+    /** 用 busybox stty 配波特率+8N1 raw（File 路徑專用，JNI 路徑 native 已配好）。
+     *  回 true = 已讀回確認 baudrate 生效；false = 兩條 stty 都配唔到（調用方必須
+     *  當開 port 失敗，唔可以留喺 9600 發亂碼）。 */
+    private static boolean configureBaudStty(String path, int baudrate) {
         String[] cmds = {
                 "busybox stty -F " + path + " " + baudrate + " cs8 -cstopb -parenb raw -echo",
                 "stty -F " + path + " " + baudrate + " cs8 -cstopb -parenb raw -echo",
@@ -238,7 +344,7 @@ public final class DirectSerialPort {
                     } catch (Exception ignore) {}
                     p.waitFor();
                     Log.i(TAG, "stty " + path + " [" + cmd.split(" ")[0] + "] -> " + sb.toString().trim());
-                    if (sb.toString().contains(String.valueOf(baudrate))) return; // 配好了就不用試下一條
+                    if (sb.toString().contains(String.valueOf(baudrate))) return true; // 讀回確認配好先算成功
                 } finally {
                     try { r.close(); } catch (Exception ignore) {}
                 }
@@ -248,6 +354,7 @@ public final class DirectSerialPort {
                 if (p != null) p.destroy();
             }
         }
+        return false;
     }
 
     public boolean isAvailable() { return running.get() && input != null && output != null; }
@@ -403,6 +510,6 @@ public final class DirectSerialPort {
             try { if (output != null) output.close(); } catch (IOException ignore) {}
         }
         releasePath(openedPath);
-        input = null; output = null; fd = null; serialPortFileObj = null; openedPath = null;
+        input = null; output = null; serialPortFileObj = null; openedPath = null;
     }
 }

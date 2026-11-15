@@ -20,17 +20,28 @@ public final class ActionDirect {
     /** The "squat then stand up" recovery action played after the one-key stop-all. */
     public static final String STOP_RECOVERY_ACTION_ID = "1510818174706";
 
-    // actionInfo.txt line format (GBK encoded): <fileId>##<nameCn>##<nameEn>##<type>.
-    // The line order differs from the old AIDL getActionList (id/type/nameCn/nameEn); re-arranged here.
-    // The JSON shape the frontend receives is exactly as before; app-actions.js needs no change.
+    /** 官方 Alpha2Services v1.1.7.3 `robotStandup()` 20 軸企姿（raw 0-255；
+     *  官方 smali 係 signed byte：-51→205、-111→145、-121→135、-79→177。
+     *  #19 官方原文係 -6→250，呢度跟 app 安全範圍改為 120。
+     *  同 {@link IkPose#BOOT_POSE}／web app-ik.js {@code IK_BOOT_POSE} 一致，改要三邊一齊改。 */
+    private static final int[] OFFICIAL_BOOT_STANDUP_POSE = {
+            120, 205, 120, 120, 35, 120, 120, 63, 145, 135,
+            120, 120, 177, 95, 105, 120, 120, 120, 120, 120
+    };
+    /** 官方 STANDUP_TOTAL_TIME（robotStandup 嘅 move 時間）。 */
+    private static final int OFFICIAL_BOOT_STANDUP_TIME_MS = 2000;
+
+    // actionInfo.txt 行格式（GBK 编码）：<fileId>##<nameCn>##<nameEn>##<type>，
+    // 与旧 AIDL getActionList 行顺序不同（彼为 id/type/nameCn/nameEn），此处重排，
+    // 前端收到的 JSON 形状与以前完全一致，app-actions.js 无需改动。
     private static final String ACTION_DIR = "/sdcard/actions";
     private static final String ACTION_INFO = "/sdcard/actions/actionInfo.txt";
 
     private final Context appContext;
     private final UbxPlayer ubxPlayer;
 
-    private List<String[]> actionInfoCache; // each entry is [fileId, nameCn, nameEn, type]
-    /** Cached parse of assets/web/xiaozhi_actions.json (202 actions, id/nameCn/nameEn) -
+    private List<String[]> actionInfoCache; // 每项 [fileId, nameCn, nameEn, type]
+    /** Cached parse of assets/web/xiaozhi_actions.json (203 動作, id/nameCn/nameEn) -
      *  loaded once lazily on first use rather than at onCreate(), since it's only
      *  needed if/when the XiaoZhi tab's play_action tool schema is actually requested.
      *  null until first load attempt; an empty (but non-null) list means the load was
@@ -197,14 +208,11 @@ public final class ActionDirect {
             "1464835936012", "1464835936013", "1464835936017", "1464835936018",
     };
 
-    /** Id table of sound actions: an action has a same-named subdirectory in the desktop UBX
-     *  directory (alpha2/UBX/actions) (containing an mp3) if the firmware plays sound
-     *  during playback; 86 in total (all checked against the 202-entry catalog).
-     *  Shared by the semantic pipeline: SemanticCenter resolves to the real id before playing
-     *  and then checks this table. If loud, the whole TTS line is not spoken (to avoid fighting
-     *  the action sound effect for the speaker); the random filler pool is already verified
-     *  fully silent, so it does not need the check, but running the same check does no harm.
-     *  When new actions land on the body, check the UBX directory once. */
+    /** 有聲效動作 id 表：桌面 UBX 目錄（alpha2/UBX/actions）有同名子目錄
+     *  （入面有 mp3）者即播嗰陣韌體會自己出聲，共 87 個（全部已對過 203 catalog）。
+     *  語意管線共用：SemanticCenter 播之前先 resolve 做真實 id 再查呢個表，
+     *  有聲就成句 TTS 對白唔講（免同動作音效搶喇叭）；隨機 filler 池本身已驗證
+     *  全 silent，唔使查但照行同一個判斷無妨。有新動作加落機先對一次 UBX 目錄。 */
     private static final String[] SOUND_ACTION_IDS = {
             "1464835936108",
             "1464835936109",
@@ -239,6 +247,7 @@ public final class ActionDirect {
             "1487404045423",
             "1487404045424",
             "1487404045425",
+            "1487404045427",
             "1496217022040",
             "1496218328201",
             "1496218474326",
@@ -490,10 +499,70 @@ public final class ActionDirect {
     }
 
     /**
-     * Shared internally: one-key stop-all (action part) - cut off UbxPlayer, then play
-     * STOP_RECOVERY_ACTION_ID, the squat-then-stand-up recovery. Whether the recovery plays or not
-     * does not affect the return value. Shared by the 0x5e gesture (including the two-pads head tap),
-     * MCP stop_action and HTTP action/stop.
+     * 官方 v1.1.7.3 開機起身序列（參考 AlphaMainSeviceImpl.initThread）：
+     *   1. robotStandup() 固定企姿 20 軸 raw + 2000ms——零檔案依賴，一開機就企。
+     *   2. 之後先發官方開機握手：cmd 0x01 START（狀態查詢＋電源初始化，回 0x8A
+     *      DC 狀態）＋ cmd 0x35[2] 查「充電時播放」（queryChargePlay 原文）。
+     *      （官方次序就係企姿先，ChestStartThread 嗰兩條係 5s+ 之後先出，
+     *      呢度等 2.2s 企姿 move 行完先補，唔阻住個 2s move。）
+     *
+     * 官方 robotStandup 用 cmd 0x34(52)。5-mic 本 repo 真機直驅實測 0x34 有
+     * ACK 唔郁，故 5-mic 用同一 payload 行 cmd 0x03；2-mic 照官方用 cmd 0x34
+     *（DirectChestController.setAllServos 內部按 HardwareVersion 分流）。
+     *
+     * 企姿發唔出（串口閂咗）短重試 3 次；一 send 得出即返 true——官方係
+     * fire-and-forget，冇 ACK 可等，調用方唔好當 false 係「MCU 冇做」。
+     */
+    public boolean officialBootStandup() {
+        HardwareDirectManager dm = HardwareDirectManager.get(appContext);
+        if (!dm.chest().isAvailable()) return false;
+        boolean sent = false;
+        for (int attempt = 0; attempt < 3 && !sent; attempt++) {
+            if (dm.chest().setAllServos(OFFICIAL_BOOT_STANDUP_POSE,
+                    (short) OFFICIAL_BOOT_STANDUP_TIME_MS)) {
+                ubxPlayer.notePose(OFFICIAL_BOOT_STANDUP_POSE);
+                sent = true;
+                break;
+            }
+            Log.w(TAG, "official boot standup send failed, retry " + (attempt + 1) + "/3");
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        if (!sent) return false;
+        // 等 2s 企姿 move 行完先發官方開機握手（同官方一樣係之後先出）。
+        try {
+            Thread.sleep(OFFICIAL_BOOT_STANDUP_TIME_MS + 200L);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return true; // 企姿已經發出，握手唔發都唔改變結果
+        }
+        dm.chest().sendStart();
+        dm.chest().queryChargePlay();
+        // START／掃描可能令胸板重播上次動作（例如死機前最後一格 IK）。
+        // 再送企姿兩次，確保開機最終停喺企姿，唔會「自己做返之前既動作」。
+        for (int i = 0; i < 2; i++) {
+            try {
+                Thread.sleep(i == 0 ? 600L : 1200L);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return true;
+            }
+            if (dm.chest().setAllServos(OFFICIAL_BOOT_STANDUP_POSE,
+                    (short) OFFICIAL_BOOT_STANDUP_TIME_MS)) {
+                ubxPlayer.notePose(OFFICIAL_BOOT_STANDUP_POSE);
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 内部共用：一键全停（动作部分）——截停 UbxPlayer 后补播 STOP_RECOVERY_ACTION_ID
+     * 蹲下站起回位。回位播不播到不影响返回值。供 0x5e 手势（含拍头双 pad）、
+     * MCP stop_action、HTTP action/stop 共用。
      */
     public UbxErrorCode.API_ERROR_CODE stopActionWithRecovery() {
         ubxPlayer.stop();

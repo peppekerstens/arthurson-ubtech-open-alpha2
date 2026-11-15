@@ -57,14 +57,13 @@
     }
   };
 
-  // 2026-08 update: the actions toolbox changed from a nested tree ("top category -> 4 sub-categories, each with its own color")
-  // to a flat list. Opening "Actions" now shows every action block immediately, with no extra
-  // expansion step. With this change, action blocks no longer change color by CATEGORY. The single
-  // clr.action color is enough: it is easy to see at a glance "this is an action block", and color no longer
-  // needs to separate basic/dance/story/yoga. The CATEGORY dropdown is shown in the block again
-  // so the user can pick it. The old trick (the toolbox sub-category presetting CATEGORY) no longer works, because
-  // those sub-categories are gone from the toolbox.
-  const ACTION_CATEGORY_COLOUR = null; // keep the const name as a no-op; nothing below uses it to look up colors
+  // 2026-08 更新: 動作 toolbox 由「總分類 -> 4 個子分類 (各自顏色) 」的 nested
+  // tree 改做扁平化 —— 一按「動作」這個分類就即刻見完所有動作 block, 不用再逐層
+  // 展開先看到東西。跟著這個改動, 動作 block 不應該再跟著 CATEGORY 轉色 (遵循
+  // clr.action 單一顏色就夠, 一眼看得出「這粒是動作 block」已經足夠, 不需要再靠
+  // 顏色分辨基本/跳舞/故事/瑜伽), CATEGORY dropdown 亦都要重新在 block 度顯示
+  // 給用家自己選 (以前靠拖哪個 toolbox 子分類來預設 CATEGORY 這招不再適用, 因為
+  // toolbox 已經沒有了那些子分類)。
 
   // Sub-category list: kept in sync with ALPHA_ACTION_SUBCATEGORIES in blockly-actions-data.js
   // (the sub-categories under each main category, for example basic has movement/gesture/head/
@@ -414,26 +413,9 @@
   // Servo (20 motors) + Sonar
   // ---------------------------------------------------------------------
 
-  // The real SERVO_NAMES / SERVO_GROUPS / SERVO_CALIBRATION data lives in the separate file
-  // blockly-servo-data.js (kept in sync with app-core.js, see that file's header comment). Here we only read
-  // window.ALPHA_SERVO_* and never keep a second copy that could drift and be wrong.
-  // 2026-08 update: the servo toolbox changed from a nested tree ("top category -> 5 body-part sub-categories, each with its own color")
-  // to a flat list. Opening "Servo" now shows every servo block immediately, with no extra expansion step.
-  // With this change, servo blocks no longer change color by body part; the fixed clr.servo color is enough.
-  // servoGroupColour() stays only as a no-op fallback (always returns clr.servo), so nothing
-  // that calls it needs to change.
-  function servoGroups() {
-    return (window.ALPHA_SERVO_GROUPS && window.ALPHA_SERVO_GROUPS.length) ? window.ALPHA_SERVO_GROUPS : [
-      { key: 'head', label: t('servo_group_head') },
-      { key: 'right-arm', label: t('servo_group_right_arm') },
-      { key: 'left-arm', label: t('servo_group_left_arm') },
-      { key: 'right-leg', label: t('servo_group_right_leg') },
-      { key: 'left-leg', label: t('servo_group_left_leg') },
-    ];
-  }
-  function servoGroupColour(key) {
-    return clr.servo;
-  }
+  // 實際的 SERVO_NAMES / SERVO_GROUPS / SERVO_CALIBRATION 資料在獨立檔案
+  // blockly-servo-data.js 定義 (同 app-core.js 保持一致, 見該檔頭註解), 這裡僅讀
+  // window.ALPHA_SERVO_* 來用, 不重複定義一份會出錯的副本。
   function servoHomeAngle(id) {
     const cal = window.ALPHA_SERVO_CALIBRATION && window.ALPHA_SERVO_CALIBRATION[Number(id)];
     return cal ? cal.home : 120;

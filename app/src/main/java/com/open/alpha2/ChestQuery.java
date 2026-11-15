@@ -12,7 +12,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 胸口 MCU 同步查詢：韌體版本 (cmd 51) 同 SN/UUID (cmd 55)，pure-direct。
+ * 胸口 MCU 同步查詢：韌體版本 (cmd 51)、電池固件版本 (cmd 57) 同 SN/UUID (cmd 55)，pure-direct。
  *
  * 擁有關係：
  * - MainActivity.onDirectChestFrame() 收到胸串口幀先處理心跳/避障/mute/PIR/
@@ -80,22 +80,24 @@ public final class ChestQuery {
     // payload [10, status, ...]（status 0 = OK，同 cmd12/升級 ACK 同一套語義）。
     // 只認領等待中那次（單發唔重試，見 modifyServoId）。
     private volatile CountDownLatch modifyIdLatch;
-    private volatile int modifyIdExpectOld = -1;
-    private volatile int modifyIdExpectNew = -1;
     private volatile Boolean modifyIdOk = null;
     // Motor firmware version read (cmd 14 / 0x0e) latch. Query
     // f8 8f 08 05 00 0e <id> <sum> ed; reply shape UNVERIFIED
     // (first real-device read will show raw bytes in logcat + API rawHex).
     // Claim any payload[0]==14 while waiting and keep the raw payload.
     private volatile CountDownLatch motorVerLatch;
-    private volatile int motorVerExpectId = -1;
     private volatile byte[] motorVerPayload = null;
     // Motor hardware info read (cmd 33 / 0x21) latch. Query
     // f8 8f 08 05 00 21 <id> <sum> ed; reply shape UNVERIFIED.
     // Claim any payload[0]==33 while waiting and keep the raw payload.
     private volatile CountDownLatch motorHwLatch;
-    private volatile int motorHwExpectId = -1;
     private volatile byte[] motorHwPayload = null;
+    // 電池固件版本 (cmd 57 POWER_INFO / 0x39, payload [3]) latch。官方
+    // VersionCollector 同款問法（iz 命令 cmd 57 [3]）；回覆 payload =
+    // [57, 3, ASCII 版本…]，payload[1]==3 時版本字串由 payload[2] 起
+    // （官方 SoftwareVersionUtils.parseBatteryVersion 原文）。
+    private volatile CountDownLatch batteryVerLatch;
+    private volatile byte[] batteryVerPayload = null;
 
     public ChestQuery(Context context, RobotStub robot) {
         this.appContext = context.getApplicationContext();
@@ -228,10 +230,16 @@ public final class ChestQuery {
             modifyIdLatch.countDown();
             return true;
         }
-        // VERSION latch (cmd 0x33). Take only a frame with command byte 0x33.
-        // Earlier code took any frame that was not a sonar ACK, an obstacle or
-        // a UUID frame. A heartbeat 0x8D or telemetry 0x8B that came first then
-        // became the version (for example "141.2 (hex:8D 02)").
+        // 電池版本 latch (cmd 57)：只認等待中嗰次，keep payload（[57, 3, …]），
+        // 解析交 parseBatteryVersion。要放喺版本 latch fallback 之前，
+        // 否則 57 回覆會俾版本 fallback 誤食。
+        if (batteryVerLatch != null && batteryVerLatch.getCount() > 0
+                && plen >= 2 && (payload[0] & 0xFF) == RobotWire.CHEST_POWER_INFO) {
+            batteryVerPayload = java.util.Arrays.copyOf(payload, plen);
+            batteryVerLatch.countDown();
+            return true;
+        }
+        // 版本 latch：完整帧优先（isVersionFrame 认 F8 8F），否则按 payload fallback
         if (chestVersionLatch != null && chestVersionLatch.getCount() > 0) {
             boolean isVer = isVersionFrame(frame, frame.length, RobotWire.CHEST_READ_VERSION);
             boolean isStripped = !isVer
@@ -265,15 +273,13 @@ public final class ChestQuery {
         backAngleLatch = null;
         backAngleExpectId = -1;
         modifyIdLatch = null;
-        modifyIdExpectOld = -1;
-        modifyIdExpectNew = -1;
         modifyIdOk = null;
         motorVerLatch = null;
-        motorVerExpectId = -1;
         motorVerPayload = null;
         motorHwLatch = null;
-        motorHwExpectId = -1;
         motorHwPayload = null;
+        batteryVerLatch = null;
+        batteryVerPayload = null;
     }
 
     /** 最後一次版本回覆原幀 (拷貝，可 null)，供升級超時診斷 log 用。 */
@@ -312,7 +318,7 @@ public final class ChestQuery {
         // 嘗試按標準幀解析
         for (int i = 0; i + 5 < n; i++) {
             if ((bytes[i] & 0xFF) == 0xF8 && (bytes[i + 1] & 0xFF) == 0x8F) {
-                if (bytes[i + 5] == RobotWire.CHEST_READ_VERSION || bytes[i + 5] == RobotWire.HEADER_READ_VERSION) {
+                if (bytes[i + 5] == RobotWire.CHEST_READ_VERSION /* 同 HEADER_READ_VERSION 同值 51 */) {
                     int lenByte = bytes[i + 2] & 0xFF;
                     int pl = lenByte - 7;
                     if (pl < 0) pl = 0;
@@ -483,6 +489,89 @@ public final class ChestQuery {
         } finally {
             chestVersionLatch = null;
         }
+    }
+
+    /**
+     * 同步阻塞查詢電池固件版本（胸 cmd 57 POWER_INFO，payload [3]）。
+     * 官方 Alpha2Services VersionCollector 同款問法（iz：cmd 57 [3]，
+     * 回覆 parseBatteryVersion 解析）。必須在非主 thread 調用。
+     *
+     * timeoutMs = 總等待預算。實測智能電池 UART 閒置一排會瞓：首問多數冇
+     * 回覆，之後 2-3 秒內 poke 多幾下就瞓醒（醒咗之後一問即回）。所以
+     * 期間每隔 ~0.9s 補發一次，醒即收工；唔會死等一發。
+     * @return 解碼後版本字串，失敗／超時回 null
+     */
+    public String queryBatteryVersion(long timeoutMs) {
+        if (!chestReady()) {
+            Log.w(TAG, "queryBatteryVersion: chest not ready (pure-direct)");
+            return null;
+        }
+        long deadline = System.currentTimeMillis() + Math.max(800, timeoutMs);
+        CountDownLatch latch = new CountDownLatch(1);
+        batteryVerLatch = latch;
+        batteryVerPayload = null;
+        try {
+            boolean got = false;
+            int pokes = 0;
+            while (!got && System.currentTimeMillis() < deadline) {
+                boolean sent = HardwareDirectManager.get(appContext).chest().readBatteryVersion();
+                pokes++;
+                if (!sent) {
+                    Log.w(TAG, "queryBatteryVersion: send failed (poke " + pokes + ")");
+                    return null;
+                }
+                long remain = deadline - System.currentTimeMillis();
+                if (remain > 0) {
+                    got = latch.await(Math.min(900, remain), TimeUnit.MILLISECONDS);
+                }
+            }
+            if (!got || batteryVerPayload == null) {
+                Log.w(TAG, "queryBatteryVersion timeout " + timeoutMs + "ms after " + pokes + " poke(s) (no reply)");
+                return null;
+            }
+            String v = parseBatteryVersion(batteryVerPayload, batteryVerPayload.length);
+            Log.i(TAG, "battery version raw=" + MainActivity.toHex(batteryVerPayload, batteryVerPayload.length)
+                    + " parsed=" + v + " (poke " + pokes + ")");
+            return v;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        } finally {
+            batteryVerLatch = null;
+        }
+    }
+
+    /**
+     * 解電池版本回覆 payload。實測真機 shape：payload = [57, 00(status), 03,
+     * ASCII 版本…]（例如 39 00 03 "V1.5"）；官方 parseBatteryVersion 收嘅
+     * 係剝咗 cmd 嘅形 [00, 03, …]（bArr[1]==3 → 版本由 bArr[2] 起）。兩種
+     * 都算同一個 start 檢查；非此形狀就掃最長可打印段兜底，最後 hex 兜底。
+     */
+    private static String parseBatteryVersion(byte[] payload, int plen) {
+        if (payload == null || plen <= 0) return null;
+        int start = 0;
+        if (plen >= 3 && (payload[2] & 0xFF) == 3) start = 3;      // 本 app 形（含 cmd）
+        else if (plen >= 2 && (payload[1] & 0xFF) == 3) start = 2; // 官方形（剝咗 cmd）
+        // 掃 start..plen 最長可打印連續段
+        int bestStart = -1, bestLen = 0, curStart = -1;
+        for (int i = start; i <= plen; i++) {
+            boolean printable = i < plen && (payload[i] & 0xFF) >= 0x20 && (payload[i] & 0xFF) <= 0x7E;
+            if (printable) {
+                if (curStart == -1) curStart = i;
+            } else {
+                if (curStart != -1) {
+                    int curLen = i - curStart;
+                    if (curLen > bestLen) { bestLen = curLen; bestStart = curStart; }
+                    curStart = -1;
+                }
+            }
+        }
+        if (bestLen >= 2) {
+            String s = new String(payload, bestStart, bestLen, StandardCharsets.US_ASCII).trim();
+            s = s.replaceAll("[^A-Za-z0-9._\\-]", "");
+            if (!s.isEmpty()) return s;
+        }
+        return MainActivity.toHex(payload, plen);
     }
 
     /**
@@ -710,8 +799,6 @@ public final class ChestQuery {
             return null;
         }
         java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
-        modifyIdExpectOld = oldId;
-        modifyIdExpectNew = newId;
         modifyIdOk = null;
         modifyIdLatch = latch;
         boolean sent;
@@ -760,7 +847,6 @@ public final class ChestQuery {
             return null;
         }
         java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
-        motorVerExpectId = id;
         motorVerPayload = null;
         motorVerLatch = latch;
         boolean sent;
@@ -809,7 +895,6 @@ public final class ChestQuery {
             return null;
         }
         java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
-        motorHwExpectId = id;
         motorHwPayload = null;
         motorHwLatch = latch;
         boolean sent;

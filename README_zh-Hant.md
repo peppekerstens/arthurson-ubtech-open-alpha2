@@ -3,7 +3,7 @@
 > 語言：[English](README.md) | 繁體中文（本檔）
 
 `com.open.alpha2` —— 裝在 UBTECH Alpha2 機械人上的 Android 應用程式
-（`versionName "beta 7"`／`versionCode 7`），讓機械人可以被遙距操控。
+（`versionName "beta 8.1"`／`versionCode 9`），讓機械人可以被遙距操控。
 開機後會自動啟動 HTTP＋WebSocket 伺服器（port `8888`）；在同一 Wi-Fi
 下的任何瀏覽器開啟 `http://<機械人IP>:8888/`，即可使用完整控制面板。
 Blockly 編程頁面位於 `/blockly.html`；同一 port 亦提供 OpenAPI／AsyncAPI
@@ -11,12 +11,20 @@ spec 及 Swagger UI（見 [HTTP 接口](#http-接口)）。
 
 ## 前提條件
 
-- 機械人：RK3288（僅 `armeabi-v7a`），Android 5.1.1（API 22）。
+- 機械人：`alpha2_10005` 5-mic（RK3288，Android 5.1.1／API 22）或
+  `alpha2_10002` 2-mic（Android 4.4.2／API 19）；僅 `armeabi-v7a`。
+  應用程式開機讀 `ro.hardware.version`，自動選返對應嘅串口／JNI 路徑。
   APK 宣告 `minSdkVersion 19`、`targetSdkVersion 22`（刻意如此，不上架
   Play Store——以 `adb install` 直接安裝）。
-- 應用程式接管的硬件：胸板 MCU（`/dev/ttyS1`）、頭板 MCU（`/dev/ttyS3`，
-  波特率 115200）；頭頂＋/－觸控鍵（`/dev/input/event0`）；頭／眼／嘴
-  LED（經 `libhead_led.so` JNI）。
+- 應用程式接管的硬件：
+  - `alpha2_10005`：胸板 MCU（`/dev/ttyS1`）、頭板 MCU（`/dev/ttyS3`，
+    波特率 115200）；頭／眼／嘴 LED 經 `libhead_led.so`（JNI）；頭頂鍵經
+    `libhead_key_mgr.so`。
+  - `alpha2_10002`：胸板 MCU（`/dev/ttySAC0`）、頭板 MCU（`/dev/ttySAC1`，
+    波特率 115200；失敗 fallback `ttyS1`／`ttyS3`）；頭／眼 LED 經頭板 MCU
+    串口（`0x01`／`0x02`／`0x08`）；頭頂鍵經 1.1.7.3 `libNativeClassJni.so`。
+    網頁面板唔會顯示 PIR 卡同胸板固件升級卡。
+  - 頭頂＋/－觸控鍵（`/dev/input/event0`）。
 - 機械人與瀏覽器裝置必須在同一 Wi-Fi。伺服器只用純 HTTP。
 - ⚠️ **僅限可信內網**：預設沒有認證——同網段任何人都可以播放動作、查看
   相機、收聽咪高峰或上載韌體。切勿橋接至互聯網，亦不要放在共用大內網。
@@ -46,8 +54,8 @@ adb -s <serial> forward tcp:8888 tcp:8888
 編出嚟約 5.5 MB——普通增量編譯會留低廢棄 entries 而脹大
 （運行無影響）；出機前跑一次 `./gradlew clean assembleDebug --offline`
 即可。CI（`build-apk.yml`，Temurin JDK 11＋Node 20）會先剝離網頁註解再編出
-同一個 APK，以 artifact `open-alpha2-beta7-apk` 發佈（檔名
-`open-alpha2-beta7.apk`，保留 7 日，只留最近 3 個）。預編 `.so` 檔
+同一個 APK，以 artifact `open-alpha2-beta8.1-apk` 發佈（檔名
+`open-alpha2-beta8.1.apk`，保留 7 日，只留最近 3 個）。預編 `.so` 檔
 （`head_led`／`head_key_mgr`／`serial_port`）放在
 `sdk-module/hardware-direct/src/main/jniLibs`；`libeasyopus.so` 由
 `app/src/main/cpp` 經 CMake 即時編譯。Vosk 同 JNA 的 AAR 已放喺
@@ -60,25 +68,60 @@ adb -s <serial> forward tcp:8888 tcp:8888
 - 狀態 (📊)——語言切換、媒體音量、系統／裝置資訊（電池、Wi-Fi／藍牙、機械人
   UUID、胸板韌體）、聲納圖表、PIR 感應器（可選警示：紅燈＋鈴聲）、加速度
   計即時曲線，以及可選的四方向傾側 → 頭／眼 LED。
-- 動作 (🕺)——動作清單及分類分頁、播放／停止、變速（0.5／0.67／1／1.5／2 倍）。
-  動作名粒粒跟分類轉色（先跟子分類色，無就跟大分類色）。
-  （動作包下載在實驗分頁。）
+- 動作 (🕺)——動作清單及分類分頁、播放／停止、變速 slider（0.5–2.0 倍，
+  舵機同 mp3 配樂速度一齊跟住變）。動作名粒粒跟分類轉色（先跟子分類色，
+  無就跟大分類色）。（動作包下載在實驗分頁。）
 - 舵機 (⚙️)——22 軸按頭／手／腳／擴展分組，逐顆或全組控制，附即時指令位姿顯示。
-  即時角度回讀：一鍵 `servo/back-angle-all`（胸板 cmd `0x17` 純讀，22 軸全讀，
+  拖動逐顆 slider 會即時跟隨（約 8Hz），放手完成。即時角度回讀：一鍵 `servo/back-angle-all`（胸板 cmd `0x17` 純讀，22 軸全讀，
   包括 21／22），另有單顆讀取——`servo/angle`（胸板 cmd6 即時查詢）、
   `servo/back-angle`（cmd `0x17`）、`servo/read`（經 cmd13 讀 trim／偏差）及
   `servo/angle-restore`（cmd6 讀完即寫回同一位置，關節唔會鬆）。擴展卡：
   逐顆固件版本（`servo/version`，胸板 cmd14）及硬件資訊（`servo/hardware`，
   cmd33）、舵機 ID 變更（`servo/modify-id`，胸板 cmd10——跟足胸板左右 bus
   接線），以及單顆舵機韌體燒錄（`servo/upgrade`，7168-byte `.bin` 閘）。
+  IK 動作卡：蹲仰（−100＝大笑、+100＝蹲下）、蹲劈（−100＝蹲式〔官方
+  1509004868066 最深格〕、+100＝左右一字馬）兩條二合一 slider；另加踢腿、
+  側弓步（Sirius）、半蹲（Hulu）、屈臂前伸（Hamlet）
+  同前後一字馬（排最尾）。帶符號 slider 係
+  −100…+100：正數＝原姿勢（或右踢）、負數＝鏡像（或左踢）、0＝企姿。
+  全部由開機企姿（robotStandup；#19 頭左右用 120）開始；拖動設定目標，
+  機械人每 120ms 行 10%（0→100 約 1200ms 均速），各條互斥。
+  「直接轉移」開關控制切換方式：閂（預設）先均速回開機企姿再去新動作；
+  開就由目前 A pose 直接均速過渡去 B pose（每 120ms 一格，唔經企姿）。
+  開關會記住。直接模式會線性混合 20 個舵機角度，中間 pose 未必係合法
+  IK，建議先由低百分比試。做緊 IK 時改舵機格，IK 百分比會保留；下次拉
+  IK 會由現時 pose 以同樣每步 120ms 均速過渡，唔會跳返舊百分比。
+  IK 動作本身唔會郁嘅軸（例如蹲下時嘅頭左右）會保持手動值。蹲下只會
+  控制腳 7–16 共 10 顆舵機；蹲式／左右一字馬控制腳 7–16 加肩 roll 2/5
+  （目標分別 180/60 同 140/100）；左前／右前一字馬控制腳 7–16 加肩
+  pitch 1/4（左前 90/70、右前 170/150，雙臂前後擺）。大笑／踢腿控制
+  1–16 號但保持手／頭；側弓步／半蹲／屈臂前伸用官方單關鍵幀
+  20 軸 pose。轉動作時新動作唔控制嘅軸會保持目前值（直接轉移閂、先回
+  企姿嗰段亦只郁新動作嘅軸），雙手唔會跌落。
+  開機安全：企姿同 START 握手完成之前，API 會拒絕會令
+  舵機郁嘅指令（回 `ok:false, "booting"`）；握手後會再送企姿；面板未有用家
+  真正拖過之前，會忽略瀏覽器還原表單 slider 值嘅事件；WebSocket 斷線或
+  `servo/all` 超過 2 秒冇回應，IK 會即刻停。咁樣死機／reboot 後，機械人
+  唔會自己重播上一次 IK pose。
 - 手柄 (🎮)——藍牙手柄／鍵盤直連機器人、手柄鍵盤映射分開（`gamepad/*`，同名鍵獨立
   值）：頁面開藍牙／只列 HID 的掃描／配對／主動連接／解除綁定，離線可用；
   撳鍵即執行，右搖桿轉頭 19／20 號；滑鼠類直吞；直連手柄／直連鍵盤開關分開，
   熄邊只記唔做。手柄圖／全鍵盤圖即時亮燈，映射表分兩區；`gamepad/key`／
   `gamepad/axis` 後端保留畀脚本直調。動作值支援 22 軸 `servo1-22±` 步進
-  （撳住連走、放手停；跟 servo tab 同一套校準大小值）、本地音樂功能鍵
+  （撳住連走、放手停；跟 servo tab 同一套校準大小值）、IK 動作
+  （同 Web IK 卡 slider 一致嘅二合一：`ik:squatlean±` `−`＝大笑／`+`＝蹲下、
+  `ik:squatsplit±` `−`＝蹲式／`+`＝左右一字馬、`ik:fb±` `−`＝左前／`+`＝右前，
+  0＝企姿；另加 `ik:kick±`／`ik:sirius±`／`ik:hulu±`／`ik:hamlet±`，
+  負數＝鏡像／左踢（側弓步／屈臂前伸方向已對調）；舊 `ik:squat±`／`ik:laugh±`／
+  `ik:ysquat±`／`ik:lr±`／`ik:fsplit±`／`ik:fsplit2±` 映射會自動遷移
+  （`ik:kneel±` 已移除，載入時掉走），
+  `ik:fb±` 而家就係二合一（舊左前別名已退役）；撳住每步 10%／120ms，
+  由實際 pose 均速行到 0%／100%（帶符號動作係 -100%／+100%）；
+  轉動作先以同一速度回舊動作 0%，新動作唔控制嘅軸保持原位；面板每次
+  撳鍵帶 seq，快速輕按保證只行一格，就算 up request 快過慢嘅 down
+  request 都唔會變長按）、本地音樂功能鍵
   （含隨機歌）／隨機瑜伽／系統鈴聲（名／預設電話鈴）／頭眼咀 LED／三燈全熄／
-  影相＋人臉顏色追蹤開關＋202 動作（基本／舞蹈／故事／瑜伽／其他 5 分組）；
+  影相＋人臉顏色追蹤開關＋203 動作（基本／舞蹈／故事／瑜伽／其他 5 分組）；
   mapping `stop` 係全部停止（動作回位＋TTS＋音樂電台＋鈴聲＋三燈）；`taken`
   照真執行结果，面板 `✓`／`✗只記錄唔執行`一眼分清。
 - 語音 (🗣️)——對話界面（可打字測試 `speech/semantic_simulate`）、Vosk 離線
@@ -103,7 +146,8 @@ adb -s <serial> forward tcp:8888 tcp:8888
   工具清單（逐項開關）、小智控制台連結。
 - 實驗（進階，🧪）——面板認證口令、開機語音模式（全部手動／開機自動連小智／開機
   自動啟用 Vosk）、資源下載（Vosk 模型目錄、202 招動作包、Google TTS APK——經
-  `DownloadGate` 一次只准一樣）、22ch 舵機角度微調器（offset 備份／還原）、
+  `DownloadGate` 一次只准一樣）、22ch 舵機角度微調器（offset 備份／還原；校准依
+  原廠流程：批次寫 trim → 等 EEPROM → 回標準姿勢 → 重掃驗證）、
   機械人 ID 變更器（查詢／複製／QR 預覽／寫入 EEPROM）、胸板韌體升級
   （先上載後燒錄；升級一定要今次開頁 session 內重新上載 `.bin`——機上舊檔
   永不自動沿用）、舵機固件版本／燒錄卡、版本連結。事件 Log 係分頁下方常駐卡片。
@@ -120,8 +164,8 @@ adb -s <serial> forward tcp:8888 tcp:8888
 - 回答語音使用 Android 系統 TTS（`speech/tts`、`speech/stop`），可選自動
   跟隨已載入 Vosk 模型嘅語言。
 - 十種對話語言的本地意圖配對（中英西法日德意葡韓俄，
-  `app/src/main/assets/semantic/`）。每種語言各有 85 組動作意圖、13 組
-  功能意圖及 200 組閒聊意圖（共 298 組）。
+  `app/src/main/assets/semantic/`）。每種語言各有 86 組動作意圖、13 組
+  功能意圖及 200 組閒聊意圖（共 299 組）。
   - 動作意圖會說出回覆並播放機械人動作。
   - 功能意圖會真正執行：全部停止、音量加／減一格、藍牙開／關、Wi-Fi
     開／關、拍照、本地音樂播放／上／下一首。關機／重啟意圖只會說出
@@ -194,10 +238,14 @@ enable/disable 喺小智分頁；開機自動連線係實驗分頁嘅開機語�
 
 - 生成器及閘門：`generate-api-client.py`、`generate-mcp-tools.py`、
   `check-openapi-drift.py`、`check-api-client-routes.py`、
-  `check-spec-copies.py`（見上面 HTTP 接口）。
+  `check-spec-copies.py`（見上面 HTTP 接口）、
+  `strip-web-comments.js`（CI 預建步驟，清走 `assets/web/*` 的註解；
+  加 `--ci` 才執行，本地跑不會污染原始碼）。
 - 單元測試跑手（零依賴，經 `javac`／`java` 即編即跑）：
   `test-apivalidator.py`（`ApiValidator`＋顏色追蹤＋EQ 三套）、
-  `test-serialcodec.py`（`SerialFrameCodec`）。
+  `test-serialcodec.py`（`SerialFrameCodec`）、
+  `test-headkeypoller.py`（`HeadKeyPoller`＋`HeadKeyMgr`——臨時 android stub，
+  所以 `--offline` 也能跑）。
 - 離線 `.ubx` 分析工具：`ubx_scan.py`（關鍵幀／軌掃描）、`ubx_anatomy.py`
   （邊啲舵機郁）、`ubx_phase.py`（逐關節步態相位）、`ubx_gaitdiff.py`／
   `ubx_armcheck.py`／`ubx_tail.py`（版本對比）、`ubx_gate.py`（官方分發模擬）、
@@ -222,7 +270,7 @@ enable/disable 喺小智分頁；開機自動連線係實驗分頁嘅開機語�
 ```
 open-alpha2/
 ├── app/                            ← com.open.alpha2 (UI server, API, all centers)
-│   ├── src/main/java/com/open/alpha2/  ← MainActivity wiring + ~69 classes:
+│   ├── src/main/java/com/open/alpha2/  ← MainActivity wiring + ~73 classes:
 │   │   Action/Speech/Audio/Music centers, ApiDispatcher/ApiValidator,
 │   │   UbxApi/ChestQuery/ChestUpgrade/ServoUpgrade, Camera/FaceTrack/
 │   │   ColorTrack centers, Led/Sonar/DeviceStatus, Gamepad/Gesture,
@@ -231,14 +279,14 @@ open-alpha2/
 │   ├── src/main/assets/web/        ← control panel (10 tabs) + Blockly +
 │   │                                  generated api-client.js (199 wrappers)
 │   │                                  (CI strips web comments before build)
-│   ├── src/main/assets/semantic/   ← 10 intent libraries (298 groups each:
-│   │                                  85 action + 13 function + 200 chat)
+│   ├── src/main/assets/semantic/   ← 10 intent libraries (299 groups each:
+│   │                                  86 action + 13 function + 200 chat)
 │   │                                  + action category pools
 │   ├── src/main/cpp/               ← easyopus JNI (CMake)
 │   ├── src/test/java/…             ← ApiValidatorTest + ColorTrackTest + MusicEqTest
 │   │                                  (run via scripts/test-apivalidator.py)
 │   ├── libs/                       ← vendored vosk-android + JNA AARs (v7a)
-│   └── build.gradle                ← versionName "beta 7", armeabi-v7a only
+│   └── build.gradle                ← versionName "beta 8.1", armeabi-v7a only
 ├── sdk-module/hardware-direct/     ← serial ports (/dev/ttyS1+S3), LED/pad JNI,
 │                                      wire protocol, .ubx parse/play/speed-shifted music
 │   └── src/test/java/…             ← SerialFrameCodecTest (scripts/test-serialcodec.py)
@@ -254,8 +302,8 @@ open-alpha2/
 
 - `build-apk`（push 上 main／master＋PR＋手動）：JDK 11 → 裝
   `platforms;android-25`＋`build-tools;30.0.3` → 剝離網頁註解 →
-  `assembleDebug` → 上載 APK artifact `open-alpha2-beta7-apk`
-  （檔名 `open-alpha2-beta7.apk`，保留 7 日，只留最近 3 個）。
+  `assembleDebug` → 上載 APK artifact `open-alpha2-beta8.1-apk`
+  （檔名 `open-alpha2-beta8.1.apk`，保留 7 日，只留最近 3 個）。
 - `check-openapi`（push／PR 掂到 spec、代碼、客戶端、scripts 或網頁 spec
   副本即跑）：spec／代碼漂移、客戶端新鮮度（`--check` ×2：api-client＋
   MCP）、客戶端→路由前綴一致、YAML 合法性、單元測試
@@ -271,8 +319,9 @@ open-alpha2/
 - 沒有舵機電流回授；舵機分頁顯示指令位姿，另有 `servo/back-angle-all`
   （22 軸）及單顆讀取做即時角度驗證。
 - 胸板 `cmd6` 即時讀取會令該舵機瞬間鬆力（firmware 行為）；要保持上力請用
-  `servo/angle-restore`（後端一次過讀＋寫回）。胸板韌體升級只燒今次上載的
-  鏡像，生效要手動開關機兩次（淨重啟系統唔夠）。
+  `servo/angle-restore`（後端一次過讀＋寫回）。胸板韌體升級僅會燒錄本次上載的
+  鏡像；燒錄完成後須關機再重新開機以寫入固件（電源鍵指示燈將依序顯示藍色→紅色→綠色，
+  綠燈持續亮起即表示更新完成，方可再次關機並重新開機；僅重新啟動系統無效）。
 - 語音對話沿用「先說話、等 200 毫秒、再動作」的時序；帶大音效的動作會
   跳過語音回覆，以免兩者搶喇叭。
 - 預期會見到嘅 logcat 噪音，並非 bug：預編 native 庫（`head_led`／

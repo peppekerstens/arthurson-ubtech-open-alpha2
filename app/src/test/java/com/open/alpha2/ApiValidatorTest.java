@@ -144,6 +144,11 @@ public final class ApiValidatorTest {
         eq(Float.NaN, ApiValidator.optionalFloat(q(), "k", Float.NaN), "optionalFloat.nanDefault");
         eq(1.5f, ApiValidator.optionalFloat(q("k", "1.5"), "k", Float.NaN), "optionalFloat.present");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalFloat(q("k", "abc"), "k", Float.NaN); } }, "optionalFloat.bad");
+        // NaN／Infinity 解析得到但穿過 min/max 比較，必須擋
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalFloatRange(q("k", "NaN"), "k", 0, 1, 0f); } }, "optionalFloatRange.nan");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalFloatRange(q("k", "Infinity"), "k", 0, 1, 0f); } }, "optionalFloatRange.inf");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireFloat(q("k", "NaN"), "k"); } }, "requireFloat.nan");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireDouble(q("k", "-Infinity"), "k"); } }, "requireDouble.inf");
         eq(Double.valueOf(2.5d), Double.valueOf(ApiValidator.requireDouble(q("k", "2.5"), "k")), "requireDouble.ok");
         eq(Double.valueOf(3.0d), Double.valueOf(ApiValidator.optionalDouble(q(), "k", 3.0d)), "optionalDouble.missing");
 
@@ -229,8 +234,11 @@ public final class ApiValidatorTest {
         // ── ubx speed ──
         eq(1.0f, ApiValidator.requireUbxSpeed(q("value", "1")), "ubxSpeed.one");
         eq(0.67f, ApiValidator.requireUbxSpeed(q("value", "0.67")), "ubxSpeed.067");
+        eq(1.3f, ApiValidator.requireUbxSpeed(q("value", "1.3")), "ubxSpeed.slider");
         eq(2.0f, ApiValidator.parseUbxSpeedValue("2"), "ubxSpeed.parse");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireUbxSpeed(q("value", "3")); } }, "ubxSpeed.bad");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireUbxSpeed(q("value", "0.49")); } }, "ubxSpeed.low");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.requireUbxSpeed(q("value", "2.01")); } }, "ubxSpeed.high");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireUbxSpeed(q()); } }, "ubxSpeed.missing");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.parseUbxSpeedValue(null); } }, "ubxSpeed.null");
 
@@ -262,6 +270,30 @@ public final class ApiValidatorTest {
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireAngles20(q("angles", "1,2,3")); } }, "angles20.short");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireAngles20(q("angles", "90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90")); } }, "angles21.bad");
         throwsIllegal(new Runnable() { public void run() { ApiValidator.requireAngles20(q()); } }, "angles20.missing");
+
+        // ── 校準 trim CSV ──
+        eq(null, ApiValidator.optionalTrims20or22(q()), "trims.missing");
+        StringBuilder trims22 = new StringBuilder("81,,,-12");
+        for (int i = 4; i < 22; i++) trims22.append(',');
+        Integer[] trims = ApiValidator.optionalTrims20or22(q("trims", trims22.toString()));
+        eq(22, trims.length, "trims22.len");
+        eq(Integer.valueOf(81), trims[0], "trims22.first");
+        eq(null, trims[1], "trims22.empty");
+        eq(Integer.valueOf(-12), trims[3], "trims22.negative");
+        eq(null, trims[21], "trims22.trailingEmpty");
+        String trims20 = "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19";
+        eq(20, ApiValidator.optionalTrims20or22(q("trims", trims20)).length, "trims20.len");
+        StringBuilder skipMarkers = new StringBuilder("-,null,,5");
+        for (int i = 4; i < 22; i++) skipMarkers.append(',');
+        Integer[] skipped = ApiValidator.optionalTrims20or22(q("trims", skipMarkers.toString()));
+        eq(null, skipped[0], "trims.markerDash");
+        eq(null, skipped[1], "trims.markerNull");
+        eq(null, skipped[2], "trims.markerEmpty");
+        eq(Integer.valueOf(5), skipped[3], "trims.markerValue");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalTrims20or22(q("trims", "1,2,3")); } }, "trims.tooShort");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalTrims20or22(q("trims", "x,,,0")); } }, "trims.badInt");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalTrims20or22(q("trims", "1001,,,,,,,,,,,,,,,,,,,,,")); } }, "trims.high");
+        throwsIllegal(new Runnable() { public void run() { ApiValidator.optionalTrims20or22(q("trims", "-1001,,,,,,,,,,,,,,,,,,,,,")); } }, "trims.low");
 
         // ── 舵機校準 clamp（同 app-core.js SERVO_CALIBRATION 一字不差；
         // 手柄 jog／搖桿／觸控板共用，頂限位唔會再頂過龍）──

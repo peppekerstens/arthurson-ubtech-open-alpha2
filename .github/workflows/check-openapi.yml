@@ -17,6 +17,7 @@ on:
       - 'app/src/main/java/com/open/alpha2/LedCenter.java'
       - 'app/src/test/**'
       - 'app/build.gradle'
+      - 'app/src/test/**'
       - 'app/src/main/assets/web/api-client.js'
       - 'scripts/**'
       - 'sdk-module/**'
@@ -41,6 +42,7 @@ on:
       - 'app/src/main/java/com/open/alpha2/LedCenter.java'
       - 'app/src/test/**'
       - 'app/build.gradle'
+      - 'app/src/test/**'
       - 'app/src/main/assets/web/api-client.js'
       - 'scripts/**'
       - 'sdk-module/**'
@@ -83,6 +85,8 @@ jobs:
         run: python scripts/test-serialcodec.py
       - name: Run ChestSafety guard vector tests
         run: python scripts/test-chestsafety.py
+      - name: Run HeadKeyPoller unit tests
+        run: python scripts/test-headkeypoller.py
       - name: Check web spec copies are in sync with openapi/
         run: python scripts/check-spec-copies.py
       - name: Check version sync (build.gradle vs openapi)

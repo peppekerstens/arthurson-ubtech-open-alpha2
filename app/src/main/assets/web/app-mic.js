@@ -329,7 +329,7 @@ function toggleCameraFullscreen() {
     if (request) {
       request.call(viewport);
     } else {
-      showError(uiLang === "en" ? "Fullscreen" : "全螢幕", new Error(uiLang === "en" ? "This browser does not support the Fullscreen API" : "此瀏覽器不支援 Fullscreen API"));
+      showError(t("fullscreen_ctx"), new Error(t("fullscreen_unsupported")));
     }
   }
 }

@@ -72,25 +72,6 @@ public final class VoskController {
     public enum State { IDLE, LOADING, READY, LISTENING, ERROR }
 
     private final Context appContext;
-    private final SemanticMatcherZh matcherZh;
-
-    private final SemanticMatcherEn matcherEn;
-
-    private final SemanticMatcherEs matcherEs;
-
-    private final SemanticMatcherFr matcherFr;
-
-    private final SemanticMatcherJa matcherJa;
-
-    private final SemanticMatcherDe matcherDe;
-
-    private final SemanticMatcherIt matcherIt;
-
-    private final SemanticMatcherPt matcherPt;
-
-    private final SemanticMatcherKo matcherKo;
-
-    private final SemanticMatcherRu matcherRu;
     private volatile State state = State.IDLE;
     private volatile String modelId;
     private volatile String lastError;
@@ -148,7 +129,6 @@ public final class VoskController {
     private Recognizer recognizer;
     private SpeechService speechService;
     private String grammarJson; // 恆 null（開放式辨識，保留欄位免改 start 流程）
-    private boolean stripSpaces; // 恆 false（舊中文 char-grammar 先用）
 
     /** final 平均 word conf 低過呢個就當底噪幻聽掉咗佢 (唔發佈、
      *  唔入配對；logcat 照留 "low-conf final dropped")。
@@ -156,21 +136,8 @@ public final class VoskController {
      *  定值 0.01：幾乎全放行，只擋極低分垃圾。 */
     private static final double MIN_FINAL_CONF = 0.01;
 
-    public VoskController(Context context, SemanticMatcherZh zh,
-            SemanticMatcherEn en, SemanticMatcherEs es, SemanticMatcherFr fr, SemanticMatcherJa ja,
-            SemanticMatcherDe de, SemanticMatcherIt it, SemanticMatcherPt pt,
-            SemanticMatcherKo ko, SemanticMatcherRu ru) {
+    public VoskController(Context context) {
         this.appContext = context.getApplicationContext();
-        this.matcherZh = zh;
-        this.matcherEn = en;
-        this.matcherEs = es;
-        this.matcherFr = fr;
-        this.matcherJa = ja;
-        this.matcherDe = de;
-        this.matcherIt = it;
-        this.matcherPt = pt;
-        this.matcherKo = ko;
-        this.matcherRu = ru;
         try {
             LibVosk.setLogLevel(LogLevel.WARNINGS);
         } catch (Throwable ignore) {
@@ -521,7 +488,6 @@ public final class VoskController {
 
     /** The stored grammar (vosk/grammar), or null for open vocabulary. Never throws. */
     private String buildGrammar(String id) {
-        stripSpaces = false;
         try {
             String g = prefs().getString(PREF_GRAMMAR, "");
             return g == null || g.trim().isEmpty() ? null : g;
@@ -880,9 +846,7 @@ public final class VoskController {
     }
 
     private static String escape(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"")
-                .replace("\n", "\\n").replace("\r", "\\r");
+        return JsonUtil.esc(s);
     }
 
     // -- 模型下載＋自動 unzip -------------------------------------------------

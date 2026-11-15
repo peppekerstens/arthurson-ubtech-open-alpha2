@@ -6,7 +6,6 @@ import android.util.Log;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,15 +38,6 @@ public abstract class SemanticMatcherBase {
     private static final String ASSET_PATH_CATEGORIES = "semantic/action_category_pools.json";
     private static final String RANDOM_CATEGORY_PREFIX = "__RANDOM_CATEGORY__";
 
-    /** 十語共用的「聽不懂」fallback 動作組（5 個已驗證沒聲效動作；各子類之前各自複製同一份）。 */
-    protected static final String[] DEFAULT_FALLBACK_ACTION_IDS = {
-            "1464835936013", // 搖頭 / Shake head
-            "1464835936026", // 思考 / Thinking
-            "1464835936043", // 眨眼 / Wink
-            "1509000313549", // 賣萌 / Cute
-            "1464835936087", // 點頭 / Nod
-    };
-
     /** 配對結果。type 和 MainActivity 已有的 asr_result event 格式對齊,
      *  answer/actionId 可能是 null (例如 CHAT 類沒 actionId, 部分 FUNCTION 沒 answer)。
      *  matched＝真命中問法庫／false＝fallback 亂答（主 matcher 聽唔明就用主嗰個 fallback）。
@@ -58,7 +48,7 @@ public abstract class SemanticMatcherBase {
         public final String operation;  // 悠聊 operation 代號, CHAT 類是 null
         public final String slot;       // 方向/情緒 slot, 沒有就是 null
         public final String answer;     // 隨機選一句的回覆句, 沒答案句就是 null
-        public final String actionId;   // 202動作清單裡面的 action id, 沒動作就是 null
+        public final String actionId;   // 203動作清單裡面的 action id, 沒動作就是 null
         public final boolean matched;   // 真命中／fallback
         public final int matchLayer;    // 0 精確／1 包含／2 反包含／3 模糊／4 fallback
 
@@ -366,8 +356,8 @@ public abstract class SemanticMatcherBase {
         String actionId = e.actionId;
         if ("__RANDOM__".equals(actionId)) {
             // 這類 operation 在問法庫裡面沒對應固定動作, 跟著用戶決定: 隨機選一個
-            // 202 動作清單裡面的動作。實際隨機邏輯留給呼叫方做 (MainActivity 已經
-            // 有 loadXiaozhiActions(), 這個 class 不重複讀多一次 202 動作清單),
+            // 203 動作清單裡面的動作。實際隨機邏輯留給呼叫方做 (MainActivity 已經
+            // 有 loadXiaozhiActions(), 這個 class 不重複讀多一次 203 動作清單),
             // 這裡回傳 "__RANDOM__" 標記給呼叫方識別。
         }
         return new MatchResult(e.q, e.type, e.op, e.slot, answer, actionId, true, layer);
@@ -433,7 +423,7 @@ public abstract class SemanticMatcherBase {
      *  呼叫方 (SemanticCenter.handleSemanticMatch()) 應該在拿到 MatchResult
      *  之後、真正 call robot.action_PlayActionName() 之前, 用這個方法將
      *  actionId 解析成真實可播放的 id - 和 "__RANDOM__" 標記屬於同一種「延遲到
-     *  執行時才選」的設計, 但這是分類限定的隨機, 不是全部 202 個隨便選。 */
+     *  執行時才選」的設計, 但這是分類限定的隨機, 不是全部 203 個隨便選。 */
     public String resolveCategoryRandomActionId(String actionId) {
         if (actionId == null || !actionId.startsWith(RANDOM_CATEGORY_PREFIX)) {
             return actionId;

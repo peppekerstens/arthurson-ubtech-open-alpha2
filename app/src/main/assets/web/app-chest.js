@@ -28,7 +28,7 @@ function chestUpload() {
   // Picking a new file voids the old proof. It is re-issued only after this upload succeeds.
   chestFreshUpload = null;
   if (!input || !input.files || input.files.length === 0) {
-    if (status) status.textContent = uiLang === "en" ? "Select a .bin file first" : "請先選擇一個 .bin 文件";
+    if (status) status.textContent = t("chest_pick_bin");
     return;
   }
   const file = input.files[0];
@@ -39,7 +39,7 @@ function chestUpload() {
     if (status) status.textContent = t("chest_upload_bad_size", { n: file.size });
     return;
   }
-  if (status) status.textContent = uiLang === "en" ? "Uploading " + file.name + " (" + file.size + " bytes)…" : "上傳中 " + file.name + " (" + file.size + " 字節)…";
+  if (status) status.textContent = t("chest_uploading", { name: file.name, size: file.size });
   const reader = new FileReader();
   reader.onload = function(e) {
     const bytes = e.target.result;
@@ -63,23 +63,23 @@ function chestUpload() {
         chestFreshUpload = { name: file.name, size: file.size };
         chestFileInfo();
       } else {
-        if (status) status.textContent = (uiLang === "en" ? "❌ Upload failed: " : "❌ 上傳失敗：") + (json.error || JSON.stringify(json));
+        if (status) status.textContent = t("chest_upload_fail", { msg: json.error || JSON.stringify(json) });
       }
     }).catch(function(err) {
-      if (status) status.textContent = (uiLang === "en" ? "❌ Upload error: " : "❌ 上傳錯誤：") + err.message;
+      if (status) status.textContent = t("chest_upload_err", { msg: err.message });
     });
   };
-  reader.onerror = function() { if (status) status.textContent = uiLang === "en" ? "Failed to read the file" : "讀取文件失敗"; };
+  reader.onerror = function() { if (status) status.textContent = t("chest_read_file_fail"); };
   reader.readAsArrayBuffer(file);
 }
 
 function chestCheck() {
   const ver = document.getElementById("chestVersionText");
-  if (ver) ver.textContent = uiLang === "en" ? "Querying…" : "查詢中…";
+  if (ver) ver.textContent = t("chest_querying");
   Alpha2Api.chestVersion().then(function(json) {
     if (ver) ver.textContent = json.version || (json.ok ? "" : "not found");
   }).catch(function(err) {
-    if (ver) ver.textContent = (uiLang === "en" ? "Error: " : "錯誤: ") + err.message;
+    if (ver) ver.textContent = t("err_prefix", { msg: err.message });
   });
 }
 
@@ -137,7 +137,7 @@ function chestUpgrade() {
       return;
     }
     if (!confirm(t("chest_upgrade_confirm"))) return;
-    if (status) status.textContent = uiLang === "en" ? "Starting upgrade…" : "開始升級…";
+    if (status) status.textContent = t("chest_upgrade_starting");
     if (wrap) wrap.style.display = "block";
     if (bar) bar.style.width = "0%";
     if (txt) txt.textContent = "0%";
@@ -150,8 +150,8 @@ function startChestUpgradePoll() {
   const bar = document.getElementById("chestProgressBar");
   const txt = document.getElementById("chestProgressText");
   Alpha2Api.chestUpgrade().then(function(json) {
-    if (!json.ok) { if (status) status.textContent = "❌ " + (json.error || (uiLang === "en" ? "Start failed" : "啟動失敗")); return; }
-    if (status) status.textContent = uiLang === "en" ? "Upgrading… Do not power off (takes 1-2 minutes)" : "升級中…請勿斷電（約需 1–2 分鐘）";
+    if (!json.ok) { if (status) status.textContent = "❌ " + (json.error || t("chest_start_fail")); return; }
+    if (status) status.textContent = t("chest_upgrading");
     const timer = setInterval(function() {
       Alpha2Api.chestUpgradeStatus().then(function(s) {
         const p = s.progress || 0;
@@ -162,32 +162,14 @@ function startChestUpgradePoll() {
           if (s.status && s.status.indexOf("success") !== -1) {
             if (status) status.textContent = t("chest_upgrade_done_power");
           } else if (p === 100) {
-            if (status) status.textContent = uiLang === "en" ? "✅ Done" : "✅ 完成";
+            if (status) status.textContent = t("chest_done");
           } else {
-            if (status) status.textContent = "❌ " + (s.status || (uiLang === "en" ? "Failed" : "失敗"));
+            if (status) status.textContent = "❌ " + (s.status || t("chest_failed"));
           }
           chestCheck();
         }
       }).catch(function(){});
     }, 500);
   }).catch(function(err){ if (status) status.textContent = "❌ " + err.message; });
-}
-
-// Auto-refresh the progress (event push when the upgrade runs in the background)
-if (typeof EventBus !== "undefined" && EventBus.subscribe) {
-  // Old EventBus support: subscribe when available, otherwise fall back to polling
-  try {
-    EventBus.subscribe(function(evt){
-      if (evt && evt.type === "chest_upgrade_progress") {
-        try {
-          const d = JSON.parse(evt.data);
-          const bar = document.getElementById("chestProgressBar");
-          const txt = document.getElementById("chestProgressText");
-          if (bar && d.progress!=null) bar.style.width = d.progress+"%";
-          if (txt) txt.textContent = (d.progress||0)+"%";
-        } catch(e){}
-      }
-    });
-  } catch(e){}
 }
 

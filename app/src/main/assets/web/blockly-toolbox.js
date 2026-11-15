@@ -2,14 +2,23 @@
 // It has 12 categories: control flow first (most used), then the API groups,
 // and last the Blockly standards: logic/loops/math/text/variables/functions.
 //
-// Wrapping this in a function (not a one-shot object literal) is for the
-// language switch: category names and example texts read
-// window.ALPHA_BLOCK_I18N through t(), and t() fixes its result the moment
-// this file loads (JS has no lazy evaluation). Assigning a static object once
-// would leave even updateToolbox() with an old-language snapshot after a
-// switch. window.buildAlphaToolbox() lets blockly-i18n.js re-call it during a
-// switch to get the new language. window.ALPHA_TOOLBOX keeps "the last built
-// version" so initWorkspace() (blockly-page.js) can read it on first injection.
+// 包做 function (而不是一次性 object literal) 是給語言切換用: 分類名/範例裡面
+// 的文字都經 t() 正在讀 window.ALPHA_BLOCK_I18N, 但 t() 的結果在這個檔案 load
+// 那一刻就已經計死了 (JS 沒有 lazy evaluation) —— 如果僅 assign 一次做靜態
+// object, 之後切語言就算 updateToolbox() 都是取回那份舊語言的快照。改用
+// window.buildAlphaToolbox() 令 blockly-i18n.js 可以在切換語言當時重新 call
+// 一次, 拿到用回新語言的版本。window.ALPHA_TOOLBOX 保留做「最近一次 build
+// 出來的版本」, 等 initWorkspace() (blockly-page.js) 首次注入 workspace 當時
+// 不用改呼叫方式。
+// alpha2_10002 冇 PIR：主頁 PIR 卡收埋之外，Blockly toolbox 亦唔顯示 PIR
+// 開關／觸發 block（alpha2Is2Mic 由 blockly.html 讀 mic/version 後設）。
+function tbNoPir(items) {
+  if (!window.alpha2Is2Mic) return items;
+  return items.filter(function (it) {
+    return it.type !== 'alpha_sensor_pir_toggle' && it.type !== 'alpha_event_pir_triggered';
+  });
+}
+
 window.buildAlphaToolbox = function () {
   return {
   kind: 'categoryToolbox',
@@ -34,7 +43,7 @@ window.buildAlphaToolbox = function () {
     },
     {
       kind: 'category', name: t('toolbox_cat_events'), colour: '0',
-      contents: [
+      contents: tbNoPir([
         { kind: 'block', type: 'alpha_sensor_accel_toggle', fields: { ON: 'true' } },
         { kind: 'block', type: 'alpha_sensor_sonar_toggle', fields: { ON: 'true' } },
         { kind: 'block', type: 'alpha_sensor_pir_toggle', fields: { ON: 'true' } },
@@ -42,7 +51,7 @@ window.buildAlphaToolbox = function () {
         { kind: 'block', type: 'alpha_event_accel_threshold' },
         { kind: 'block', type: 'alpha_event_sonar_triggered' },
         { kind: 'block', type: 'alpha_event_pir_triggered' },
-      ]
+      ])
     },
     {
       // 2026-08 update: the one alpha_action_play_builtin block (with a

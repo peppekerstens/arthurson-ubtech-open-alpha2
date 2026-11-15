@@ -1,7 +1,7 @@
 asyncapi: 2.6.0
 info:
   title: Open Alpha2 WebSocket Events
-  version: beta 7
+  version: beta 8.1
   description: |
     WebSocket live event bus (RFC6455) `GET /ws`, driven by `WebSocketServer.java:34` + `EventBus.java` + `RobotEventReceiver.java`.
     All async results of HTTP `/api/*` operations are pushed here, no polling needed. The front end `app-log.js` subscribes to all events.
