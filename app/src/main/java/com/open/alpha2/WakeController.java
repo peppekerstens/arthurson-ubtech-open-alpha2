@@ -300,12 +300,13 @@ public final class WakeController {
             }
             if (q.containsKey("stop_conf")) {
                 float v = Float.parseFloat(q.get("stop_conf").trim());
-                if (v < 0.3f || v > 1.0f) return "stop_conf must be 0.3-1.0";
+                // NaN fails every comparison: use the negated range check (WakeCommandMatch).
+                if (WakeCommandMatch.confOutOfRange(v, 0.3, 1.0)) return "stop_conf must be 0.3-1.0";
                 ed.putFloat("stop_conf", v);
             }
             if (q.containsKey("wake_conf")) {
                 float v = Float.parseFloat(q.get("wake_conf").trim());
-                if (v < 0.5f || v > 1.0f) return "wake_conf must be 0.5-1.0";
+                if (WakeCommandMatch.confOutOfRange(v, 0.5, 1.0)) return "wake_conf must be 0.5-1.0";
                 ed.putFloat("wake_conf", v);
             }
             if (q.containsKey("sleep_mode")) {

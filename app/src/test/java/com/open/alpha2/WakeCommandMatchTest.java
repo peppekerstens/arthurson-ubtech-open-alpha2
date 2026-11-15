@@ -75,6 +75,14 @@ public final class WakeCommandMatchTest {
         eq(-1.0, WakeCommandMatch.wakeConf(Arrays.asList(), Arrays.asList(), wake), "133: empty");
         eq(-1.0, WakeCommandMatch.wakeConf(null, null, wake), "133: no result array");
 
+        // alpha2-brain#133: the conf range check. NaN is out of range (the old check
+        // v < min || v > max let Float.parseFloat("NaN") through). wake_conf bounds: 0.5-1.0.
+        eq(true, WakeCommandMatch.confOutOfRange(Double.NaN, 0.5, 1.0), "133: NaN is out of range");
+        eq(true, WakeCommandMatch.confOutOfRange(0.49, 0.5, 1.0), "133: 0.49 is out of range");
+        eq(false, WakeCommandMatch.confOutOfRange(0.5, 0.5, 1.0), "133: 0.5 is in range (min boundary)");
+        eq(false, WakeCommandMatch.confOutOfRange(1.0, 0.5, 1.0), "133: 1.0 is in range (max boundary)");
+        eq(true, WakeCommandMatch.confOutOfRange(1.01, 0.5, 1.0), "133: 1.01 is out of range");
+
         // Robot session 2026-11-01: "alpha", a pause, then "stand up". The wake turn opens
         // after the cue, and WakeController starts the window again at that time.
         long wakeAt = 1_000_000L;

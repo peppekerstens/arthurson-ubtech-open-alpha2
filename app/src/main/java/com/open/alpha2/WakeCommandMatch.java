@@ -83,6 +83,13 @@ final class WakeCommandMatch {
         return best;
     }
 
+    /** True when the conf is outside [min, max]. NaN is outside: the old check
+     *  (v &lt; min || v &gt; max) let Float.parseFloat("NaN") through, because every
+     *  comparison with NaN is false (alpha2-brain#133). */
+    static boolean confOutOfRange(double v, double min, double max) {
+        return !(v >= min && v <= max);
+    }
+
     /** True when the clean text holds "stop" as a whole word. */
     static boolean hasStop(String text) {
         return (" " + clean(text) + " ").contains(" stop ");
