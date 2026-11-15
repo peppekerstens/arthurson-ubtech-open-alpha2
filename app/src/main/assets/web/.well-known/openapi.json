@@ -12602,6 +12602,13 @@
                           "type": "string",
                           "description": "The last text that the recognizer heard"
                         },
+                        "recent_wake_confs": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          },
+                          "description": "The last 50 wake word hits with their confidence (memory only)"
+                        },
                         "error": {
                           "type": "string",
                           "nullable": true,
@@ -12908,6 +12915,13 @@
                         "last_heard": {
                           "type": "string",
                           "description": "The last text that the recognizer heard"
+                        },
+                        "recent_wake_confs": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          },
+                          "description": "The last 50 wake word hits with their confidence (memory only)"
                         },
                         "error": {
                           "type": "string",
