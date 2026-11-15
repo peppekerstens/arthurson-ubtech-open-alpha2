@@ -442,6 +442,9 @@ public final class XiaozhiBridge {
         }
         SonarCenter.McpResult timeErr = checkServoTimeMs(timeMs);
         if (timeErr != null) return timeErr;
+        // Motion gate (alpha2-brain#148): this MCP tool did not pass the dispatcher guard.
+        String gateWhy = actionDirect.servoRefusal(mcpId);
+        if (gateWhy != null) return SonarCenter.McpResult.err(gateWhy);
         boolean sent = HardwareDirectManager.get(appContext).chest().setSingleServo((byte) mcpId, angle, (short) timeMs);
         return directServoResult(sent, directChestReady());
     }
@@ -474,6 +477,9 @@ public final class XiaozhiBridge {
         int timeMs = arguments.optInt("time_ms", 1000);
         SonarCenter.McpResult timeErr = checkServoTimeMs(timeMs);
         if (timeErr != null) return timeErr;
+        // Motion gate (alpha2-brain#148): this MCP tool did not pass the dispatcher guard.
+        String gateWhy = actionDirect.allServosRefusal();
+        if (gateWhy != null) return SonarCenter.McpResult.err(gateWhy);
         // pure-direct: 经 /dev/ttyS1 直发。
         boolean sentAll = HardwareDirectManager.get(appContext).chest().setAllServos(angles, (short) timeMs);
         return directServoResult(sentAll, directChestReady());

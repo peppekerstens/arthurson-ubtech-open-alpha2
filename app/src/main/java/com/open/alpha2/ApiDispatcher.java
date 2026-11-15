@@ -118,6 +118,7 @@ public final class ApiDispatcher {
         this.apkDownloadController = apkDownloadController;
         this.gamepadCenter = gamepadCenter;
         this.walkCenter = walkCenter;
+        walkCenter.setMotionGate(motionGate); // a walk moves the whole body (alpha2-brain#148)
     }
 
     // directChestReady() inlined: uses appContext, no Activity (each center carries its own copy).

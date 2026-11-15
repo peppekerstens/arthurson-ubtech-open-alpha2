@@ -122,6 +122,31 @@ public final class PlayRefusalTest {
         check(mcpRandom.contains("PlayRefusal.route(motionGate, \"play_random_action\""),
                 "source: mcpPlayRandomAction calls PlayRefusal.route");
 
+        // 7. The boot stand-up (alpha2-brain#148): refused with the gate off, with only the head
+        //    switch, and with no gate. Allowed with the gate on. The text names the call.
+        why = PlayRefusal.refusalForBootStandup(new MotionGate());
+        check(why != null && why.startsWith("Motion is refused") && why.contains("official boot standup"),
+                "boot standup, gate off: refused, the text names the call");
+        why = PlayRefusal.refusalForBootStandup(headOnly);
+        check(why != null && why.startsWith("Motion is refused"), "boot standup, head only: refused");
+        why = PlayRefusal.refusalForBootStandup(null);
+        check(why != null && why.contains("has no motion gate"), "boot standup, no gate: refused");
+        check(PlayRefusal.refusalForBootStandup(gateOn) == null, "boot standup, gate on: allowed");
+        // Servo moves of the other paths (Xiaozhi MCP tools, gamepad, walk).
+        check(PlayRefusal.refusalForServoMove(new MotionGate(), 5) != null, "servo move, gate off: refused");
+        check(PlayRefusal.refusalForServoMove(null, 5) != null, "servo move, no gate: refused");
+        check(PlayRefusal.refusalForServoMove(gateOn, 5) == null, "servo move, gate on: allowed");
+        check(PlayRefusal.refusalForServoMove(headOnly, 5) != null, "servo move, head only, body servo: refused");
+        check(PlayRefusal.refusalForAllServosMove(new MotionGate()) != null, "all servos, gate off: refused");
+        check(PlayRefusal.refusalForAllServosMove(null) != null, "all servos, no gate: refused");
+        check(PlayRefusal.refusalForAllServosMove(headOnly) != null, "all servos, head only: refused");
+        check(PlayRefusal.refusalForAllServosMove(gateOn) == null, "all servos, gate on: allowed");
+        // Source check: officialBootStandup asks the gate before the first servo command.
+        int bs = src.indexOf("public boolean officialBootStandup()");
+        int firstSet = src.indexOf("setAllServos(", bs);
+        int gateAsk = src.indexOf("PlayRefusal.refusalForBootStandup(motionGate)", bs);
+        check(bs > 0 && gateAsk > bs && firstSet > gateAsk, "source: the boot standup asks the gate first");
+
         System.out.println("PlayRefusalTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }

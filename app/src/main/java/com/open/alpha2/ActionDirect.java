@@ -443,6 +443,26 @@ public final class ActionDirect {
         return why;
     }
 
+    /** Gate refusal of a whole-body call for the other classes that write servos (alpha2-brain#148).
+     *  Null when allowed. Logs a refusal. */
+    public String wholeBodyRefusal(String what) {
+        return playRefusal(what);
+    }
+
+    /** Gate refusal of a move of one servo, or null. Logs a refusal (alpha2-brain#148). */
+    public String servoRefusal(int servoId) {
+        String why = PlayRefusal.refusalForServoMove(motionGate, servoId);
+        if (why != null) Log.w("MotionGate", "refused: " + why);
+        return why;
+    }
+
+    /** Gate refusal of a move of all servos, or null. Logs a refusal (alpha2-brain#148). */
+    public String allServosRefusal() {
+        String why = PlayRefusal.refusalForAllServosMove(motionGate);
+        if (why != null) Log.w("MotionGate", "refused: " + why);
+        return why;
+    }
+
     public HttpServer.ApiResponse actionPlayDirect(String name) {
         String why = playRefusal("action/play");
         if (why != null) return new HttpServer.ApiResponse(403, "application/json; charset=utf-8", JsonUtil.okFalse(why));
@@ -514,6 +534,18 @@ public final class ActionDirect {
      * fire-and-forget，冇 ACK 可等，調用方唔好當 false 係「MCU 冇做」。
      */
     public boolean officialBootStandup() {
+        // Motion gate (alpha2-brain#148): the stand-up pose moves all servos. With the gate off
+        // no servo command goes out. The caller still sends START and the rest of the boot.
+        String refused = PlayRefusal.refusalForBootStandup(motionGate);
+        if (refused != null) {
+            Log.w("MotionGate", "refused: " + refused);
+            HardwareDirectManager gdm = HardwareDirectManager.get(appContext);
+            if (gdm.chest().isAvailable()) {
+                gdm.chest().sendStart();
+                gdm.chest().queryChargePlay();
+            }
+            return false;
+        }
         HardwareDirectManager dm = HardwareDirectManager.get(appContext);
         if (!dm.chest().isAvailable()) return false;
         boolean sent = false;

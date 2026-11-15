@@ -25,6 +25,28 @@ final class PlayRefusal {
         return gate.refusalForWholeBody(what);
     }
 
+    /** The name of the boot stand-up in the refusal text. */
+    static final String BOOT_STANDUP = "official boot standup";
+
+    /** The refusal text for the stand-up pose that the app sends about 30 s after each start
+     *  (ActionDirect.officialBootStandup), or null when the gate allows it. The pose moves all
+     *  servos, so the head-only switch does not allow it (alpha2-brain#148). */
+    static String refusalForBootStandup(MotionGate gate) {
+        return refusalForPlay(gate, BOOT_STANDUP);
+    }
+
+    /** The refusal text for a move of one servo, or null. Without a gate the move is refused. */
+    static String refusalForServoMove(MotionGate gate, int servoId) {
+        if (gate == null) return "Motion is refused: servo " + servoId + " has no motion gate.";
+        return gate.refusalForServo(servoId);
+    }
+
+    /** The refusal text for a move of all servos, or null. Without a gate the move is refused. */
+    static String refusalForAllServosMove(MotionGate gate) {
+        if (gate == null) return "Motion is refused: a move of all servos has no motion gate.";
+        return gate.refusalForAll();
+    }
+
     /** The code that builds the result when the gate refuses the call, from the
      *  refusal text. */
     interface Refused<T> {
