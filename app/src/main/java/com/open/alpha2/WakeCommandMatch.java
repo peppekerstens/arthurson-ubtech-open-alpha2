@@ -52,16 +52,21 @@ final class WakeCommandMatch {
         return null;
     }
 
-    /** True when the clean text holds a configured wake word as a whole word
+    /** The first configured wake word in the text as a whole word, or null
      *  (alpha2-brain#133). Case and punctuation do not matter, [unk] is a word
      *  boundary: "alpha" and "Alpha." count, "Aha", "ah", "alfa" not (not the
      *  exact word). */
-    static boolean hasWakeWord(String text, List<String> wakeWords) {
+    static String wakeWord(String text, List<String> wakeWords) {
         String t = " " + clean(text) + " ";
         for (String w : wakeWords) {
-            if (t.contains(" " + w + " ")) return true;
+            if (t.contains(" " + w + " ")) return w;
         }
-        return false;
+        return null;
+    }
+
+    /** True when the clean text holds a configured wake word as a whole word. */
+    static boolean hasWakeWord(String text, List<String> wakeWords) {
+        return wakeWord(text, wakeWords) != null;
     }
 
     /** The highest word confidence of a wake word in the tokens

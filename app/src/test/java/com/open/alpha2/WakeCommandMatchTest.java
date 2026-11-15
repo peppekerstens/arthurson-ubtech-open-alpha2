@@ -60,6 +60,13 @@ public final class WakeCommandMatchTest {
         eq(true, WakeCommandMatch.hasWakeWord("[unk] robot [unk]", wake), "133: the other wake word");
         eq(false, WakeCommandMatch.hasWakeWord("", wake), "133: empty");
 
+        // alpha2-brain#133: the wake word of the text (for the D-221 log line).
+        eq("alpha", WakeCommandMatch.wakeWord("alpha", wake), "133: wake word alpha");
+        eq("robot", WakeCommandMatch.wakeWord("robot stand up", wake), "133: wake word robot");
+        eq("alpha", WakeCommandMatch.wakeWord("alpha stand up", wake), "133: wake word in the phrase");
+        eq(null, WakeCommandMatch.wakeWord("aha", wake), "133: no wake word");
+        eq(null, WakeCommandMatch.wakeWord("", wake), "133: no wake word, empty");
+
         // alpha2-brain#133: the word confidence of the wake word (the highest of
         // the wake-word tokens). -1 = no wake-word token, or conf unknown.
         eq(1.0, WakeCommandMatch.wakeConf(Arrays.asList("alpha"), Arrays.asList(1.0), wake),

@@ -646,12 +646,15 @@ public final class WakeController {
         if (wake) {
             // alpha2-brain#133: a short word (Aha, ah, ...) that the decoder
             // still labels as the wake word must not pass the word confidence.
-            // -1 = no word conf known (old library): fail-open, as before.
+            // D-221: one log line per wake word hit. -1 = no word conf known
+            // (old library): fail-open, as before (do not change it).
+            String wword = WakeCommandMatch.wakeWord(text, words);
             double wc = wakeWordConf(result, words);
-            if (wc >= 0 && wc < wakeConf()) {
-                Log.i(TAG, "wake word conf " + wc + " below " + wakeConf() + ": ignored");
-                wake = false;
-            }
+            double limit = wakeConf();
+            boolean passed = wc < 0 || wc >= limit;
+            Log.i(TAG, "wake word " + wword + " conf=" + (wc < 0 ? "unknown" : wc)
+                    + " limit=" + limit + " -> " + (passed ? "passed" : "ignored"));
+            if (!passed) wake = false;
         }
         long now = System.currentTimeMillis();
         // "stop" also inside a sentence (stopping is safe), but without the wake word
