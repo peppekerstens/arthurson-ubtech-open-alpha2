@@ -12362,7 +12362,7 @@
             }
           },
           "200": {
-            "description": "{ok, enabled, mode, words, window_ms, half_duplex, sleep_mode, speech_rms, stop_while_speaking, stop_conf, wake_conf, commands, sleeping, last_heard, error}",
+            "description": "{ok, enabled, mode, words, window_ms, half_duplex, sleep_mode, speech_rms, stop_while_speaking, stop_conf, wake_conf, commands, sleeping, last_heard, recent_wake_confs, error}",
             "content": {
               "application/json": {
                 "schema": {

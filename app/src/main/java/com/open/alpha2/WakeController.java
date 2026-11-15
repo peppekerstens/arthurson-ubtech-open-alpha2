@@ -84,6 +84,21 @@ public final class WakeController {
 
     enum Mode { OFF, WAKE, LISTEN, THINKING, SPEAKING }
 
+    /** A recent wake word hit (alpha2-brain#133, D-221): the time, the word, the word
+     *  confidence (-1 = unknown) and the result of the confidence check. */
+    private static final class WakeHit {
+        final long time;
+        final String word;
+        final double conf;
+        final String result;
+        WakeHit(long time, String word, double conf, String result) {
+            this.time = time;
+            this.word = word;
+            this.conf = conf;
+            this.result = result;
+        }
+    }
+
     private static volatile WakeController instance;
 
     private final Context appContext;
@@ -96,6 +111,9 @@ public final class WakeController {
     private volatile Mode mode = Mode.OFF;
     private volatile String lastError;
     private volatile String lastHeard = "";
+    /** The last 50 wake word hits, oldest first (alpha2-brain#133, D-221). In memory
+     *  only: the list starts empty after a restart. */
+    private final List<WakeHit> recentWake = new ArrayList<>();
     private volatile boolean sleeping = false;
     private volatile long windowDeadline;
     private volatile long lastSpeechMs;
@@ -382,6 +400,7 @@ public final class WakeController {
             o.put("commands", commandMap());
             o.put("sleeping", sleeping);
             o.put("last_heard", lastHeard);
+            o.put("recent_wake_confs", recentWakeConfs());
             o.put("error", lastError == null ? JSONObject.NULL : lastError);
             return o.toString();
         } catch (Exception e) {
@@ -494,6 +513,31 @@ public final class WakeController {
     private void publish() {
         EventBus.get().publish("wake_state", "{\"mode\":\"" + mode.name().toLowerCase(Locale.US)
                 + "\",\"sleeping\":" + sleeping + "}");
+    }
+
+    /** D-221: keep the last 50 wake word hits (oldest first), in memory only. */
+    private void recordWakeHit(long time, String word, double conf, boolean passed) {
+        synchronized (recentWake) {
+            recentWake.add(new WakeHit(time, word, conf, passed ? "passed" : "ignored"));
+            while (recentWake.size() > 50) recentWake.remove(0);
+        }
+    }
+
+    /** recent_wake_confs of the status (D-221): the last 50 wake word hits, oldest
+     *  first, conf -1 = unknown. Empty after a restart. */
+    private JSONArray recentWakeConfs() {
+        synchronized (recentWake) {
+            JSONArray a = new JSONArray();
+            for (WakeHit h : recentWake) {
+                JSONObject o = new JSONObject();
+                o.put("time", h.time);
+                o.put("word", h.word);
+                o.put("conf", h.conf);
+                o.put("result", h.result);
+                a.put(o);
+            }
+            return a;
+        }
     }
 
     // -- worker: recognizer, window, capture watchdog --------------------------------
@@ -654,6 +698,7 @@ public final class WakeController {
             boolean passed = wc < 0 || wc >= limit;
             Log.i(TAG, "wake word " + wword + " conf=" + (wc < 0 ? "unknown" : wc)
                     + " limit=" + limit + " -> " + (passed ? "passed" : "ignored"));
+            recordWakeHit(System.currentTimeMillis(), wword, wc, passed);
             if (!passed) wake = false;
         }
         long now = System.currentTimeMillis();
