@@ -24,6 +24,10 @@ import java.util.Arrays;
  *   <li>A cmd 0x17 reply is hidden from {@code chest_rcv} only when its id is in the running
  *       cycle and no other requester asked for that id in the last
  *       {@link #EXTERNAL_WINDOW_MS} ms ({@link #noteExternalRead}, alpha2-brain#29).</li>
+ *   <li>The servo bus is busy with the move frame and its replies after a move write
+ *       (alpha2-rl#217): a read cycle that starts in the settle time
+ *       ({@link #MOVE_SETTLE_MS}) after the move write is paused (paused_cycles) and sends
+ *       no frame, so its reads are not missed. The next cycle starts only after that time.</li>
  * </ul>
  */
 final class ServoStreamCore {
@@ -78,6 +82,12 @@ final class ServoStreamCore {
     static final byte CMD_READ_BACK = 0x17;
     /** The 8 kg servos that answer cmd 0x17 (alpha2_rl READABLE_SERVOS plus 21 and 22). */
     static final int[] READABLE_IDS = {2, 3, 5, 6, 17, 18, 19, 20, 21, 22};
+    /**
+     * alpha2-rl#217: after a move write, the servo bus is still busy with the move frame and
+     * its replies. A read cycle that starts in this time after the move write is paused
+     * (paused_cycles), not missed (ms).
+     */
+    static final long MOVE_SETTLE_MS = 10;
     /** A reply for an id that another requester asked for in this time goes out as chest_rcv. */
     static final long EXTERNAL_WINDOW_MS = 1000;
 
@@ -226,6 +236,8 @@ final class ServoStreamCore {
     private volatile long seq, cycles, completeCycles, missedReads, pausedCycles, lateCycles, lateReplies;
     /** Moves that waited for a cycle (move_waits) and moves that went out after the limit (move_forced). */
     private volatile long moveWaits, moveForced;
+    /** The time when the next read cycle may start after a move write (Clock.nanoTime). */
+    private volatile long moveSettleUntilNs;
     /** The ids that the last cycle missed. Read loop thread only. */
     private int[] lastMissed = new int[0];
     private volatile int lastReadMs = -1, maxReadMs = -1;
@@ -250,6 +262,8 @@ final class ServoStreamCore {
     long pausedCycles() { return pausedCycles; }
 
     long cycles() { return cycles; }
+
+    long completeCycles() { return completeCycles; }
 
     long lateReplies() { return lateReplies; }
 
@@ -298,7 +312,12 @@ final class ServoStreamCore {
             }
             if (waited) moveWaits++;
             if (forced) moveForced++;
-            return w.run();
+            T r = w.run();
+            // alpha2-rl#217: the next read cycle starts only after the settle time after the
+            // move write. Set before the gate is released, so the cycle that takes the gate
+            // next sees the time and pauses while the bus is busy with the move frame.
+            moveSettleUntilNs = clock.nanoTime() + MOVE_SETTLE_MS * 1_000_000L;
+            return r;
         }
     }
 
@@ -488,6 +507,13 @@ final class ServoStreamCore {
             // alpha2-brain#26: check right before the write, in one step with the write.
             if (!alive(gen)) return;
             if (env.busy() || !env.portAvailable()) {
+                pausedCycles++;
+                return;
+            }
+            // alpha2-rl#217: the servo bus is still busy with the move frame and its replies
+            // after a move write. Pause this cycle (no frame, no missed reads) until after
+            // the settle time. The next cycle starts only after that time.
+            if (clock.nanoTime() < moveSettleUntilNs) {
                 pausedCycles++;
                 return;
             }

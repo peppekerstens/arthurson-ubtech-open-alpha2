@@ -437,6 +437,38 @@ public class ServoStreamCoreTest {
         eq(true, g.core.statusJson().contains("\"move_waits\":") && g.core.statusJson().contains("\"move_forced\":1"),
                 "move.statusFields");
 
+        // -- alpha2-rl#217: the read cycle right after a move write waits the settle time --
+        // A move write takes 45 ms and ends 35 ms into the next 50 ms period. The cycle that
+        // would read then is paused (paused_cycles), the next cycle starts only after the
+        // settle time and gives all its replies. missed_reads stays 0.
+        final SimEnv m = new SimEnv();
+        m.sendDelayMs = 0;
+        m.replyDelayMs = 30;
+        m.answer = true;
+        m.core = new ServoStreamCore(m, m.clock, new int[]{2, 3}, 20, 1000);
+        m.core.start(new int[]{2, 3}, 20, 1000, false);
+        final AtomicInteger mWrites = new AtomicInteger();
+        final long mOrigin = m.clock.ns;
+        m.clock.at(mOrigin + 40_000_000L, new Runnable() {
+            @Override public void run() {
+                m.core.writeBetweenCycles(60, new ServoStreamCore.Write<Boolean>() {
+                    @Override public Boolean run() {
+                        m.clock.sleepMs(45); // the move write takes 45 ms
+                        mWrites.incrementAndGet();
+                        return Boolean.TRUE;
+                    }
+                });
+            }
+        });
+        m.clock.runLoop();
+        eq(1, mWrites.get(), "settle.moveWritten");
+        eq(0L, m.core.moveWaits(), "settle.noMoveWait");
+        eq(1L, m.core.pausedCycles(), "settle.pausedNotMissed");
+        eq(0L, m.core.missedReads(), "settle.noMissed");
+        eq(20L, m.core.cycles(), "settle.cyclesSent");
+        eq(20L, m.core.completeCycles(), "settle.allComplete");
+        eq(20, m.readEventsWithAngle(), "settle.nextCycleGivesReplies");
+
         // -- status JSON --
         String st = e.core.statusJson();
         eq(true, st.contains("\"running\":false") && st.contains("\"busy\":false")
