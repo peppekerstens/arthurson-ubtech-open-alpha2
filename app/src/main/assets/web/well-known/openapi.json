@@ -12362,11 +12362,107 @@
             }
           },
           "200": {
-            "description": "{ok, enabled, mode, words, window_ms, half_duplex, sleep_mode, speech_rms, stop_while_speaking, stop_conf, commands, sleeping, last_heard, error}",
+            "description": "The state of the wake word and the settings",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OkWrapper"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean",
+                          "description": "The wake word is on now: the test mode value if there is one, else default_enabled"
+                        },
+                        "default_enabled": {
+                          "type": "boolean",
+                          "description": "The stored default after a restart (default true)"
+                        },
+                        "test_mode": {
+                          "type": "boolean",
+                          "description": "true when wake/set?enabled set a test mode (memory only, a restart clears it)"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "description": "Wake state, for example off, wake or speaking"
+                        },
+                        "language": {
+                          "type": "string",
+                          "description": "The voice language"
+                        },
+                        "languages": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "The voice languages that the owner allows"
+                        },
+                        "model": {
+                          "type": "string",
+                          "description": "The Vosk model id of the language"
+                        },
+                        "command_window_ms": {
+                          "type": "integer",
+                          "description": "Time to say a command after the wake word, in ms"
+                        },
+                        "words": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "The wake words"
+                        },
+                        "window_ms": {
+                          "type": "integer",
+                          "description": "The follow-up window, in ms"
+                        },
+                        "half_duplex": {
+                          "type": "boolean",
+                          "description": "The microphone is off while the robot speaks"
+                        },
+                        "cue": {
+                          "type": "boolean",
+                          "description": "The robot gives a cue after the wake word"
+                        },
+                        "sleep_mode": {
+                          "type": "string",
+                          "description": "The sleep mode"
+                        },
+                        "speech_rms": {
+                          "type": "integer",
+                          "description": "The speech level threshold (RMS)"
+                        },
+                        "stop_while_speaking": {
+                          "type": "boolean",
+                          "description": "The stop phrase works while the robot speaks"
+                        },
+                        "stop_conf": {
+                          "type": "number",
+                          "description": "The minimum word confidence of the stop phrase"
+                        },
+                        "commands": {
+                          "type": "object",
+                          "description": "The local command phrases and their actions"
+                        },
+                        "sleeping": {
+                          "type": "boolean",
+                          "description": "The robot is asleep"
+                        },
+                        "last_heard": {
+                          "type": "string",
+                          "description": "The last text that the recognizer heard"
+                        },
+                        "error": {
+                          "type": "string",
+                          "nullable": true,
+                          "description": "The last error, or null"
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -12398,11 +12494,107 @@
             }
           },
           "200": {
-            "description": "{ok, enabled, mode, words, window_ms, half_duplex, sleep_mode, speech_rms, stop_while_speaking, stop_conf, commands, sleeping, last_heard, error}",
+            "description": "The state of the wake word and the settings",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OkWrapper"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean",
+                          "description": "The wake word is on now: the test mode value if there is one, else default_enabled"
+                        },
+                        "default_enabled": {
+                          "type": "boolean",
+                          "description": "The stored default after a restart (default true)"
+                        },
+                        "test_mode": {
+                          "type": "boolean",
+                          "description": "true when wake/set?enabled set a test mode (memory only, a restart clears it)"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "description": "Wake state, for example off, wake or speaking"
+                        },
+                        "language": {
+                          "type": "string",
+                          "description": "The voice language"
+                        },
+                        "languages": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "The voice languages that the owner allows"
+                        },
+                        "model": {
+                          "type": "string",
+                          "description": "The Vosk model id of the language"
+                        },
+                        "command_window_ms": {
+                          "type": "integer",
+                          "description": "Time to say a command after the wake word, in ms"
+                        },
+                        "words": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "The wake words"
+                        },
+                        "window_ms": {
+                          "type": "integer",
+                          "description": "The follow-up window, in ms"
+                        },
+                        "half_duplex": {
+                          "type": "boolean",
+                          "description": "The microphone is off while the robot speaks"
+                        },
+                        "cue": {
+                          "type": "boolean",
+                          "description": "The robot gives a cue after the wake word"
+                        },
+                        "sleep_mode": {
+                          "type": "string",
+                          "description": "The sleep mode"
+                        },
+                        "speech_rms": {
+                          "type": "integer",
+                          "description": "The speech level threshold (RMS)"
+                        },
+                        "stop_while_speaking": {
+                          "type": "boolean",
+                          "description": "The stop phrase works while the robot speaks"
+                        },
+                        "stop_conf": {
+                          "type": "number",
+                          "description": "The minimum word confidence of the stop phrase"
+                        },
+                        "commands": {
+                          "type": "object",
+                          "description": "The local command phrases and their actions"
+                        },
+                        "sleeping": {
+                          "type": "boolean",
+                          "description": "The robot is asleep"
+                        },
+                        "last_heard": {
+                          "type": "string",
+                          "description": "The last text that the recognizer heard"
+                        },
+                        "error": {
+                          "type": "string",
+                          "nullable": true,
+                          "description": "The last error, or null"
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -12461,7 +12653,16 @@
             "schema": {
               "type": "boolean"
             },
-            "description": "true starts wake mode (one microphone for Vosk and Xiaozhi), false stops it"
+            "description": "true starts wake mode (one microphone for Vosk and Xiaozhi), false stops it. This is a test mode that lives in memory only: a restart of the app clears it, and the wake word is on again (unless default_enabled=false is stored)."
+          },
+          {
+            "name": "default_enabled",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "The stored default of the wake word after a restart (default true). This value stays over a restart."
           },
           {
             "name": "words",
@@ -12587,11 +12788,107 @@
             }
           },
           "200": {
-            "description": "{ok, enabled, mode, words, window_ms, half_duplex, sleep_mode, speech_rms, stop_while_speaking, stop_conf, commands, sleeping, last_heard, error}",
+            "description": "The state of the wake word and the settings",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OkWrapper"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OkWrapper"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean",
+                          "description": "The wake word is on now: the test mode value if there is one, else default_enabled"
+                        },
+                        "default_enabled": {
+                          "type": "boolean",
+                          "description": "The stored default after a restart (default true)"
+                        },
+                        "test_mode": {
+                          "type": "boolean",
+                          "description": "true when wake/set?enabled set a test mode (memory only, a restart clears it)"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "description": "Wake state, for example off, wake or speaking"
+                        },
+                        "language": {
+                          "type": "string",
+                          "description": "The voice language"
+                        },
+                        "languages": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "The voice languages that the owner allows"
+                        },
+                        "model": {
+                          "type": "string",
+                          "description": "The Vosk model id of the language"
+                        },
+                        "command_window_ms": {
+                          "type": "integer",
+                          "description": "Time to say a command after the wake word, in ms"
+                        },
+                        "words": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "The wake words"
+                        },
+                        "window_ms": {
+                          "type": "integer",
+                          "description": "The follow-up window, in ms"
+                        },
+                        "half_duplex": {
+                          "type": "boolean",
+                          "description": "The microphone is off while the robot speaks"
+                        },
+                        "cue": {
+                          "type": "boolean",
+                          "description": "The robot gives a cue after the wake word"
+                        },
+                        "sleep_mode": {
+                          "type": "string",
+                          "description": "The sleep mode"
+                        },
+                        "speech_rms": {
+                          "type": "integer",
+                          "description": "The speech level threshold (RMS)"
+                        },
+                        "stop_while_speaking": {
+                          "type": "boolean",
+                          "description": "The stop phrase works while the robot speaks"
+                        },
+                        "stop_conf": {
+                          "type": "number",
+                          "description": "The minimum word confidence of the stop phrase"
+                        },
+                        "commands": {
+                          "type": "object",
+                          "description": "The local command phrases and their actions"
+                        },
+                        "sleeping": {
+                          "type": "boolean",
+                          "description": "The robot is asleep"
+                        },
+                        "last_heard": {
+                          "type": "string",
+                          "description": "The last text that the recognizer heard"
+                        },
+                        "error": {
+                          "type": "string",
+                          "nullable": true,
+                          "description": "The last error, or null"
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }

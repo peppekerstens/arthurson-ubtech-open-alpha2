@@ -41,7 +41,9 @@ import java.util.concurrent.TimeUnit;
  * match: abort to the server, playback off, back to wake mode. "stop" never moves the
  * robot. The setting stop_while_speaking=false turns this off.
  *
- * The setting "enabled" is false by default. wake/set?enabled=false stops all of it.
+ * The wake word is on after a start (alpha2-brain#136). wake/set?enabled=false stops all
+ * of it, but only until the next restart of the app (WakeEnabledPolicy). The stored
+ * default is the setting default_enabled (default true).
  */
 public final class WakeController {
     private static final String TAG = "WakeController";
@@ -75,6 +77,8 @@ public final class WakeController {
     private final XiaozhiBridge bridge;
     private final VoskController vosk;
     private final ApiDispatcher api;
+    /** The test mode of wake/set?enabled: in memory only, a restart clears it. */
+    private final WakeEnabledPolicy enabledPolicy = new WakeEnabledPolicy();
 
     private final LinkedBlockingQueue<short[]> frames = new LinkedBlockingQueue<>(64);
     private final ExecutorService commands = Executors.newSingleThreadExecutor();
@@ -121,12 +125,12 @@ public final class WakeController {
                 Log.i(VoiceTiming.TAG, text);
             }
         });
-        if (w.prefs().getBoolean("enabled", false)) {
+        if (w.enabledNow()) {
             // The Vosk model loads in the background at boot: wait for it.
             new Thread(new Runnable() {
                 @Override public void run() {
                     for (int i = 0; i < 120 && w.mode == Mode.OFF; i++) {
-                        if (w.prefs().getBoolean("enabled", false) && w.start() == null) return;
+                        if (w.enabledNow() && w.start() == null) return;
                         try { Thread.sleep(2000); } catch (InterruptedException e) { return; }
                     }
                 }
@@ -169,6 +173,25 @@ public final class WakeController {
 
     private SharedPreferences prefs() {
         return appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    /** The stored value of default_enabled, or null when nothing is stored. */
+    private Boolean storedDefaultOrNull() {
+        SharedPreferences p = prefs();
+        return p.contains(WakeEnabledPolicy.KEY_DEFAULT_ENABLED)
+                ? Boolean.valueOf(p.getBoolean(WakeEnabledPolicy.KEY_DEFAULT_ENABLED, WakeEnabledPolicy.BUILT_IN_DEFAULT))
+                : null;
+    }
+
+    /** The stored default (settings value default_enabled). On unless the owner turns it off. */
+    private boolean defaultEnabled() {
+        Boolean stored = storedDefaultOrNull();
+        return stored != null ? stored.booleanValue() : WakeEnabledPolicy.BUILT_IN_DEFAULT;
+    }
+
+    /** The override of wake/set?enabled (memory only), else the stored default. */
+    private boolean enabledNow() {
+        return enabledPolicy.effective(storedDefaultOrNull());
     }
 
     private List<String> wakeWords() {
@@ -246,6 +269,12 @@ public final class WakeController {
     private String applySettings(Map<String, String> q) {
         SharedPreferences.Editor ed = prefs().edit();
         try {
+            if (q.containsKey("default_enabled")) {
+                // Refuse a value that is not true or false (same words as ApiValidator).
+                Boolean v = WakeEnabledPolicy.parse(q.get("default_enabled"));
+                if (v == null) return "default_enabled must be true or false";
+                ed.putBoolean(WakeEnabledPolicy.KEY_DEFAULT_ENABLED, v.booleanValue());
+            }
             if (q.containsKey("words")) ed.putString("words", q.get("words"));
             String newLanguages = languages();
             if (q.containsKey("languages")) {
@@ -308,8 +337,13 @@ public final class WakeController {
             return "bad value: " + e.getMessage();
         }
         boolean wasOn = mode != Mode.OFF;
-        Boolean enable = q.containsKey("enabled") ? Boolean.valueOf(q.get("enabled")) : null;
-        if (enable != null) ed.putBoolean("enabled", enable);
+        Boolean enable = null;
+        if (q.containsKey("enabled")) {
+            enable = WakeEnabledPolicy.parse(q.get("enabled"));
+            if (enable == null) return "enabled must be true or false";
+        }
+        // alpha2-brain#136: a test mode, in memory only. A restart clears it.
+        if (enable != null) enabledPolicy.setOverride(enable);
         ed.apply();
         if (enable != null && !enable) {
             stop();
@@ -335,7 +369,9 @@ public final class WakeController {
         try {
             JSONObject o = new JSONObject();
             o.put("ok", true);
-            o.put("enabled", prefs().getBoolean("enabled", false));
+            o.put("enabled", enabledNow());
+            o.put("default_enabled", defaultEnabled());
+            o.put("test_mode", enabledPolicy.overridden());
             o.put("mode", mode.name().toLowerCase(Locale.US));
             o.put("language", language());
             o.put("languages", new JSONArray(VoiceLanguages.allowed(languages())));
