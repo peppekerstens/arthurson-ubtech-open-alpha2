@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 import android.util.Log;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.vosk.Recognizer;
 
@@ -529,12 +530,16 @@ public final class WakeController {
         synchronized (recentWake) {
             JSONArray a = new JSONArray();
             for (WakeHit h : recentWake) {
-                JSONObject o = new JSONObject();
-                o.put("time", h.time);
-                o.put("word", h.word);
-                o.put("conf", h.conf);
-                o.put("result", h.result);
-                a.put(o);
+                try {
+                    JSONObject o = new JSONObject();
+                    o.put("time", h.time);
+                    o.put("word", h.word);
+                    o.put("conf", h.conf);
+                    o.put("result", h.result);
+                    a.put(o);
+                } catch (JSONException e) {
+                    // Skip this entry. Keep the other entries.
+                }
             }
             return a;
         }
