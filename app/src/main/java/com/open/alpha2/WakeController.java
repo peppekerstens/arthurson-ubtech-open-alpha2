@@ -41,6 +41,13 @@ import java.util.concurrent.TimeUnit;
  * match: abort to the server, playback off, back to wake mode. "stop" never moves the
  * robot. The setting stop_while_speaking=false turns this off.
  *
+ * The wake word (alpha2-brain#133): the grammar carries the wake words, a fixed list
+ * of short confusable words (Aha, ah, oh, ...) and the command phrases. The
+ * confusables give the decoder a label of their own, so a short word does not come
+ * out as a wake word. A wake word on top of that needs a word confidence of
+ * wake_conf or more (default 0.7, setting wake_conf). Thus "Aha" does not wake,
+ * "Alpha" does.
+ *
  * The setting "enabled" is false by default. wake/set?enabled=false stops all of it.
  */
 public final class WakeController {
@@ -62,6 +69,14 @@ public final class WakeController {
             + "\"volume hoger\":\"volume_up\",\"harder\":\"volume_up\","
             + "\"volume lager\":\"volume_down\",\"zachter\":\"volume_down\""
             + "}";
+    /** Short words the decoder can confuse with a wake word (alpha2-brain#133).
+     *  They sit in the grammar with a label of their own, so a short word like
+     *  "Aha" does not come out as "alpha". The wake check then rejects it. */
+    private static final String[] CONFUSABLES = {
+            "aha", "ah", "oh", "uh", "ha", "up", "out", "for", "off",
+            "no", "go", "so", "to", "do", "who", "what", "it", "is",
+            "i", "you", "the", "and", "a", "an", "in", "on", "at", "by"
+    };
     private static final String MODEL_EN = "vosk-model-small-en-us-0.15";
     private static final String MODEL_NL = "vosk-model-small-nl-0.22";
     private static final String SQUAT_FILE = "Squat-myrobot.ubx";
@@ -223,6 +238,9 @@ public final class WakeController {
     /** The lowest word confidence of "stop" while the robot speaks (echo guard). */
     private double stopConf() { return prefs().getFloat("stop_conf", 0.7f); }
 
+    /** The lowest word confidence of a wake word (alpha2-brain#133). Default 0.7. */
+    private double wakeConf() { return prefs().getFloat("wake_conf", 0.7f); }
+
     /** The phrases of the command list with the action "stop" (default: "stop"). */
     private List<String> stopPhraseList() {
         List<String> out = new ArrayList<>();
@@ -285,6 +303,11 @@ public final class WakeController {
                 if (v < 0.3f || v > 1.0f) return "stop_conf must be 0.3-1.0";
                 ed.putFloat("stop_conf", v);
             }
+            if (q.containsKey("wake_conf")) {
+                float v = Float.parseFloat(q.get("wake_conf").trim());
+                if (v < 0.5f || v > 1.0f) return "wake_conf must be 0.5-1.0";
+                ed.putFloat("wake_conf", v);
+            }
             if (q.containsKey("sleep_mode")) {
                 String stored = SleepModePolicy.toStored(q.get("sleep_mode"));
                 if (stored == null) {
@@ -322,12 +345,17 @@ public final class WakeController {
         return null;
     }
 
+    /** The wake words, the short confusables (alpha2-brain#133), the command
+     *  phrases and [unk], without duplicates. */
     private String grammarJson() {
-        JSONArray g = new JSONArray();
-        for (String w : wakeWords()) g.put(w);
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        for (String w : wakeWords()) seen.add(w);
+        for (String c : CONFUSABLES) seen.add(c);
         Iterator<String> it = commandMap().keys();
-        while (it.hasNext()) g.put(it.next().toLowerCase(Locale.US));
-        g.put("[unk]");
+        while (it.hasNext()) seen.add(it.next().toLowerCase(Locale.US));
+        seen.add("[unk]");
+        JSONArray g = new JSONArray();
+        for (String s : seen) g.put(s);
         return g.toString();
     }
 
@@ -349,6 +377,7 @@ public final class WakeController {
             o.put("speech_rms", speechRms());
             o.put("stop_while_speaking", stopWhileSpeaking());
             o.put("stop_conf", Math.round(stopConf() * 100) / 100.0);
+            o.put("wake_conf", Math.round(wakeConf() * 100) / 100.0);
             o.put("commands", commandMap());
             o.put("sleeping", sleeping);
             o.put("last_heard", lastHeard);
@@ -591,11 +620,13 @@ public final class WakeController {
         String text;
         String raw;
         double conf;
+        JSONArray result;
         try {
             JSONObject o = new JSONObject(json);
             raw = o.optString("text", "").replaceAll("\\s+", " ").trim().toLowerCase(Locale.US);
             text = clean(raw);
-            conf = avgConf(o.optJSONArray("result"));
+            result = o.optJSONArray("result");
+            conf = avgConf(result);
         } catch (Exception e) {
             return;
         }
@@ -611,6 +642,16 @@ public final class WakeController {
         List<String> words = wakeWords();
         String command = WakeCommandMatch.command(raw, words, phraseMap(cmds));
         boolean wake = WakeCommandMatch.hasWakeWord(text, words);
+        if (wake) {
+            // alpha2-brain#133: a short word (Aha, ah, ...) that the decoder
+            // still labels as the wake word must not pass the word confidence.
+            // -1 = no word conf known (old library): fail-open, as before.
+            double wc = wakeWordConf(result, words);
+            if (wc >= 0 && wc < wakeConf()) {
+                Log.i(TAG, "wake word conf " + wc + " below " + wakeConf() + ": ignored");
+                wake = false;
+            }
+        }
         long now = System.currentTimeMillis();
         // "stop" also inside a sentence (stopping is safe), but without the wake word
         // only while an action or speech runs.
@@ -641,6 +682,22 @@ public final class WakeController {
             VoiceTiming.get().wake();
             beginTurn();
         }
+    }
+
+    /** The highest word confidence of a wake word in the result array of Vosk
+     *  (-1: none, or no conf known). The word check is in WakeCommandMatch. */
+    private static double wakeWordConf(JSONArray arr, List<String> words) {
+        if (arr == null) return -1;
+        List<String> tokens = new ArrayList<>();
+        List<Double> confs = new ArrayList<>();
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject w = arr.optJSONObject(i);
+            if (w == null) continue;
+            tokens.add(w.optString("word", ""));
+            double c = w.optDouble("conf", -1);
+            confs.add(c < 0 ? null : c);
+        }
+        return WakeCommandMatch.wakeConf(tokens, confs, words);
     }
 
     /** The command phrases as a map (phrase to command). */
