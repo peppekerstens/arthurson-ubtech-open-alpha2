@@ -268,6 +268,8 @@ def main() -> int:
         ("com.open.alpha2.PlayRefusalTest",
          [src / "MotionGate.java", hw / "ChestSafety.java", src / "PlayRefusal.java",
           testdir / "PlayRefusalTest.java"]),
+        ("com.open.alpha2.WakeEnabledPolicyTest",
+         [src / "WakeEnabledPolicy.java", testdir / "WakeEnabledPolicyTest.java"]),
         ("com.open.alpha2.VoiceLanguagesTest",
          [src / "VoiceLanguages.java", testdir / "VoiceLanguagesTest.java"]),
         ("com.ubtechinc.alpha.hardware.DirectChestControllerTest",

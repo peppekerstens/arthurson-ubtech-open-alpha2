@@ -409,7 +409,7 @@ public class MainActivity extends Activity implements XiaozhiBridge.HostState, G
                 cameraApi, audioCenter, ringtoneCenter, micCenter, robot, grammarCenter,
                 ubxPlayer, musicController, localServices, sonarCenter, actionsPackController,
                 apkDownloadController, gamepadCenter, walkCenter);
-        // Wake word and local commands (alpha2-brain#16). Off until wake/set?enabled=true.
+        // Wake word and local commands (alpha2-brain#16). On at each start, unless default_enabled=false is stored (alpha2-brain#136).
         WakeController.init(this, xiaozhiBridge, vosk, apiDispatcher);
 
         // 播歌指示燈（disco 開住播歌）同「小智已連線」燈共用胸口同一盞 mute 燈，

@@ -7435,7 +7435,13 @@ paths:
         required: false
         schema:
           type: boolean
-        description: true starts wake mode (one microphone for Vosk and Xiaozhi), false stops it
+        description: "true starts wake mode (one microphone for Vosk and Xiaozhi), false stops it. This is a test mode that lives in memory only: a restart of the app clears it, and the wake word is on again (unless default_enabled=false is stored)."
+      - name: default_enabled
+        in: query
+        required: false
+        schema:
+          type: boolean
+        description: The stored default of the wake word after a restart (default true). This value stays over a restart.
       - name: words
         in: query
         required: false
