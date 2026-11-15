@@ -99,7 +99,10 @@ adb -s <serial> forward tcp:8888 tcp:8888
   20 軸 pose。轉動作時新動作唔控制嘅軸會保持目前值（直接轉移閂、先回
   企姿嗰段亦只郁新動作嘅軸），雙手唔會跌落。
   開機安全：企姿同 START 握手完成之前，API 會拒絕會令
-  舵機郁嘅指令（回 `ok:false, "booting"`）；握手後會再送企姿；面板未有用家
+  舵機郁嘅指令（回 `ok:false, "booting"`）；握手後，淨係當儲存設定
+  `boot_standup_enabled` 係 true 先會送企姿，預設係 false，所以用預設值時開機
+  唔會送出企姿；讀取設定用 `/api/system/boot_standup/get`，更改用
+  `/api/system/boot_standup/set?enabled=true|false`；面板未有用家
   真正拖過之前，會忽略瀏覽器還原表單 slider 值嘅事件；WebSocket 斷線或
   `servo/all` 超過 2 秒冇回應，IK 會即刻停。咁樣死機／reboot 後，機械人
   唔會自己重播上一次 IK pose。

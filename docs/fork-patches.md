@@ -53,7 +53,8 @@ A conflict in a comment only takes the upstream comment (D-216).
 | `scripts/test-apivalidator.py` | Both lists: `ChestSafety.java` (fork) and `IkPose.java` with `IkTransition.java` (upstream). `HardwareVersion.java` added to the `DirectChestControllerTest` file list, because upstream `DirectChestController` needs it. |
 
 Known risk: upstream `officialBootStandup` calls `setAllServos` directly. This call does not pass the fork motion gate
-and not `moveBetweenCycles`. Review this with the owner (the call runs at the app start only).
+and not `moveBetweenCycles`. The owner decision D-217 resolves this risk with the stored setting
+`boot_standup_enabled`. The app sends the boot stand-up pose only when this setting is true. The default is false.
 
 ### OpenAPI, web panel, spec copies
 

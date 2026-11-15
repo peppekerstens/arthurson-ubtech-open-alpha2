@@ -118,8 +118,12 @@ Bilingual (EN/Traditional Chinese), 10 tabs, live updates over WebSocket, no ref
   values (the off-mode return to boot only moves the new action's axes), so the
   arms do not drop.
   Boot safety: until the stand-up pose and START handshake finish, the API
-  rejects motion commands (`ok:false, "booting"`), the stand-up is re-sent
-  after the handshake, the panel ignores browser-restored slider values until
+  rejects motion commands (`ok:false, "booting"`). After the handshake, the
+  app sends the stand-up pose only when the stored setting
+  `boot_standup_enabled` is true. The default is false, so with the default
+  no stand-up pose goes out at boot. Read the setting with
+  `/api/system/boot_standup/get`. Change it with
+  `/api/system/boot_standup/set?enabled=true|false`. The panel ignores browser-restored slider values until
   the user actually drags them, and IK stops on WebSocket loss or a 2 s
   `servo/all` timeout. A crash/reboot therefore cannot make the robot replay
   the last IK pose by itself.
