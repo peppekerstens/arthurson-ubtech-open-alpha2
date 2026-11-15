@@ -6086,7 +6086,7 @@ paths:
     get:
       tags:
       - gamepad
-      summary: Change one key mapping (one key, many actions: action can hold several lines, run in order; or reset = 1 to restore that side default)
+      summary: "Change one key mapping (one key, many actions: action can hold several lines, run in order; or reset = 1 to restore that side default)"
       parameters:
       - name: side
         in: query

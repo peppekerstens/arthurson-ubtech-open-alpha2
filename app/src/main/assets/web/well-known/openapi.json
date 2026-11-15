@@ -73,7 +73,7 @@
     },
     {
       "name": "walk",
-      "description": "按住向前行／向後行（步態＝.ubx，後行＝前行步態時間反轉；放手即收步企定；速度 1.0–2.0x，步態 300ms 下限令實際最快約 1.33x；租約守護）"
+      "description": "Hold to walk forward / backward (gait = .ubx, backward = the forward gait in reverse time; release = the walk ends and the robot stands; speed 1.0–2.0x, the 300 ms gait floor makes the real top about 1.33x; lease guard)"
     },
     {
       "name": "gamepad",
