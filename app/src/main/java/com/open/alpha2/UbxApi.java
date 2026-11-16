@@ -189,6 +189,11 @@ public final class UbxApi {
     public HttpServer.ApiResponse servoOneResponse(Map<String, String> query) {
         HttpServer.ApiResponse boot = bootServoBlocked();
         if (boot != null) return boot;
+        // Motion gate (alpha2-brain#122): refuse before the trim write. The trim write (cmd 12)
+        // is a servo frame, and it ran before the check inside servoSendOneCode.
+        String gateWhy = actionDirect.servoRefusal(ApiValidator.requireIntRange(query, "id",
+                ApiValidator.SERVO_ID_MIN, ApiValidator.SERVO_ID_MAX));
+        if (gateWhy != null) return refusedResponse(gateWhy);
         // pure-direct: 單舵機經 cmd05 直發。
         // 可選 trim 參數——有帶就**先**經 cmd12 寫入 chest EEPROM，再送 cmd05。
         // 官方 PC tuner 係 trim 先、movement 後；掉轉會令新 trim 未 apply 就
@@ -410,6 +415,10 @@ public final class UbxApi {
     public HttpServer.ApiResponse servoAngleResponse(Map<String, String> query) {
         HttpServer.ApiResponse boot = bootServoBlocked();
         if (boot != null) return boot;
+        // Motion gate (alpha2-brain#122): cmd 6 releases the servo, so it counts as a servo move.
+        int gateId = ApiValidator.requireIntRange(query, "id", ApiValidator.SERVO_ID_MIN, ApiValidator.SERVO_ID_MAX);
+        String gateWhy = actionDirect.servoRefusal(gateId);
+        if (gateWhy != null) return refusedResponse(gateWhy);
         // 單舵機絕對角度實際讀取 (cmd 6)。同 servo/one 同單位，
         // 跟位實測誤差約 1°——注意不是 servo/read 那個 trim/偏差。
         // 讀不到（超時）如實報 ok:false，不編 0。
