@@ -378,6 +378,18 @@ public final class MotionGateTest {
             }
             check(new MotionGate().refusalForSerialSend("head", fw) == null, "head port, " + nm + " not checked");
         }
+        // alpha2-brain#132: a call that ends with a lone F8, then a call that starts with 8F plus a firmware command.
+        for (int on = 0; on < 2; on++) {
+            gate = new MotionGate();
+            gate.setMotionEnabled(on == 1);
+            String m = on == 1 ? "gate on, " : "gate off, ";
+            check(MotionGate.SERVO_FIRMWARE_REFUSAL.equals(gate.refusalForSerialSend("chest", new byte[]{(byte) 0xF8})),
+                    m + "a lone F8 call refused");
+            check(MotionGate.SERVO_FIRMWARE_REFUSAL.equals(gate.refusalForSerialSend("chest",
+                    concat(fRead, new byte[]{(byte) 0xF8}))), m + "a whole frame plus a lone F8 refused");
+            check(gate.refusalForSerialSend("head", new byte[]{(byte) 0xF8}) == null, m + "head port, lone F8 not checked");
+        }
+        check(MotionGate.refusalWithoutGate("chest", new byte[]{(byte) 0xF8}) != null, "no gate, a lone F8 refused");
         check(MotionGate.SERVO_FIRMWARE_REFUSAL.startsWith("Motion is refused:"), "firmware text starts like the gate text");
         // Short-form firmware frame, gate on.
         gate = new MotionGate();
