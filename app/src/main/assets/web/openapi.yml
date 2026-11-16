@@ -744,12 +744,13 @@ paths:
       - direct
       summary: Chest cmd 0x19. on=0 is NOT a servo power off, it starts the stock "Sit down" move.
       description: 'Firmware analysis in Renode (chest V142 and V352, alpha2-brain#24) shows
-        that cmd 0x19 [00] starts the stock "Sit down" move: the chest sends a move to
-        all 20 servos. A standing robot can fall. When the charger flag of the chest is
-        set, it does nothing. cmd 0x19 [01] sets the power on, which is already on from
-        boot. The app refuses on=0 with a 400 unless allow_sit_down=true. To release the
-        servos, squat and read each servo angle (cmd 6, /api/servo/angle). To hold them
-        again, send a move.'
+        that cmd 0x19 [00] is not a servo power off. It starts the stock "Sit down" move:
+        the chest moves all 20 servos to the sit pose and keeps them under power. The
+        chest skips the command when its charger flag is set. Nobody tested the move on
+        the real robot. cmd 0x19 [01] sets the power on, which is already on from boot.
+        The app refuses on=0 with a 400 unless allow_sit_down=true. To release the
+        servos, play the squat first, then send cmd 6 to each servo (/api/servo/angle).
+        To hold them again, send a move.'
       parameters:
       - name: on
         in: query
@@ -786,9 +787,10 @@ paths:
       tags:
       - direct
       summary: Chest power save (cmd 0x40, two bytes [enter, servo power off]). enter=1 can start "Sit down".
-      description: 'On chest V142, cmd 0x40 [01 ..] runs the stock "Sit down" move
-        (alpha2-brain#24). The app refuses enter=1 with a 400 unless allow_sit_down=true.
-        Squat and release the servos with cmd 6 first. enter=0 needs no flag.'
+      description: 'On firmware V142, cmd 0x40 [01] (power save, enter) also starts the stock
+        "Sit down" move (alpha2-brain#24). The app refuses enter=1 with a 400 unless
+        allow_sit_down=true. To release the servos, play the squat first, then send cmd 6
+        to each servo. enter=0 needs no flag.'
       parameters:
       - name: enter
         in: query
@@ -8407,9 +8409,10 @@ components:
       schema:
         type: boolean
         default: false
-      description: 'Opt-in for the stock "Sit down" move of the chest (chest cmd 0x19 [00]
-        or cmd 0x40 [01 ..], alpha2-brain#24). Without it the app refuses these frames
-        with a 400. Squat first: a standing robot can fall.'
+      description: 'Opt-in for the stock "Sit down" move (cmd 0x19 [00] or cmd 0x40 [01 ..],
+        alpha2-brain#24). Without it the app refuses these frames
+        with a 400. On the robot, the move needs the approval of the owner, the same as
+        each move.'
     PanelToken:
       name: panel_token
       in: query

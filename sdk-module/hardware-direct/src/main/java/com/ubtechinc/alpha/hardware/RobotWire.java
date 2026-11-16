@@ -62,7 +62,7 @@ public final class RobotWire {
     /** 舵機韌體升級結果上行碼 134 [status][id]（status 0 = 成功）。 */
     public static final int CHEST_EVENT_MOTOR_UPGRADE = 134;
     public static final byte CHEST_READ_SID_EEPROM = 55;
-    /** cmd 0x40 power save. [01 ..] (enter) can start "Sit down" on V142 (alpha2-brain#24). See ChestSafety. */
+    /** cmd 0x40 power save. [01 ..] (enter) also starts the stock "Sit down" move on V142 (alpha2-brain#24). See ChestSafety. */
     public static final byte CHEST_POWER_SAVE = 64;
     /** cmd 0x19 (UBTECH SetPowerStateOp). [01] = power on (already on from boot).
      *  [00] is NOT a power off: it starts the stock "Sit down" move (alpha2-brain#24). See ChestSafety. */
