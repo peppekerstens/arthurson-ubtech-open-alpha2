@@ -30,6 +30,7 @@ MotionGateTest (alpha2-brain#113): the motion gate of the direct servo routes.
 alpha2-brain#130 adds the chest move commands of debug/serial/send (MotionGate + ChestSafety).
 PlayRefusalTest (alpha2-brain#144): the refusal choice of the MCP play tools.
 WakeTurnEndTest (alpha2-brain#153): the turn end of a local command (abort or plain).
+VolumeToolArgsTest (alpha2-brain#123): the argument check of the MCP tool volume_set.
 
 Usage: python scripts/test-apivalidator.py
 """
@@ -272,6 +273,8 @@ def main() -> int:
           testdir / "PlayRefusalTest.java"]),
         ("com.open.alpha2.WakeTurnEndTest",
          [src / "WakeTurnEnd.java", testdir / "WakeTurnEndTest.java"]),
+        ("com.open.alpha2.VolumeToolArgsTest",
+         [src / "VolumeToolArgs.java", testdir / "VolumeToolArgsTest.java"]),
         ("com.open.alpha2.WakeEnabledPolicyTest",
          [src / "WakeEnabledPolicy.java", testdir / "WakeEnabledPolicyTest.java"]),
         ("com.open.alpha2.VoiceLanguagesTest",

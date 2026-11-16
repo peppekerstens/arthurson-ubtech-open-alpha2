@@ -297,7 +297,7 @@ handler families: `handleApi`/`handleSystemApi`/`handleDirectApi`/
 `scripts/check-api-client-routes.py` verifies each wrapper's caller prefix
 matches the backend route; `scripts/check-spec-copies.py` keeps the web
 mirrors in sync (`--fix` re-copies the yml files). The MCP tool table
-(`McpToolsGenerated.java`, 22 tools) is generated from
+(`McpToolsGenerated.java`, 23 tools) is generated from
 `openapi/mcp-openapi-sync.yml` via `scripts/generate-mcp-tools.py`.
 
 ## Xiaozhi AI bridge + MCP
@@ -305,9 +305,9 @@ mirrors in sync (`--fix` re-copies the yml files). The MCP tool table
 The app can connect the robot to a Xiaozhi AI backend for open-ended voice
 chat (pairing code, connect/disconnect, mic start/stop, typed `send_text`,
 custom OTA/WebSocket server override, TTS output as Xiaozhi opus or local
-Android TTS). Over MCP it exposes 22 tools the model can call:
+Android TTS). Over MCP it exposes 23 tools the model can call:
 `self.robot.*` (list/play/stop/random actions, single/all servos,
-head/eye/mouth LEDs, speak), `self.sensors.*` (PIR/sonar get + configure),
+head/eye/mouth LEDs, speak, volume up/down/level), `self.sensors.*` (PIR/sonar get + configure),
 `self.camera.*` (take photo, image Q&A) and `self.media.*` (local
 music/radio search-play-stop). Per-tool enable/disable is in the Xiaozhi
 tab; boot auto-connect is the Experiment tab's boot-voice mode.
