@@ -1843,6 +1843,42 @@ public final class AudioCenter {
         }
     }
 
+    /** self.robot.volume_set body (XiaozhiBridge calls it, alpha2-brain#123).
+     *  Argument: direction "up"/"down" (one step, same rule as the local commands
+     *  volume_up/volume_down) or level 0 to 100. Audio stream: STREAM_MUSIC, the same
+     *  as the local commands. The tool moves nothing, so it has no motion gate.
+     *  The argument check and the number conversions are in VolumeToolArgs (host test). */
+    public SonarCenter.McpResult mcpVolumeSet(org.json.JSONObject arguments) {
+        String direction = arguments.isNull("direction") ? null : arguments.optString("direction", null);
+        Object levelRaw = arguments.isNull("level") ? null : arguments.opt("level");
+        VolumeToolArgs args = VolumeToolArgs.parse(direction, levelRaw);
+        if (!args.ok) {
+            return SonarCenter.McpResult.err(args.error);
+        }
+        AudioManager audioManager =
+                (AudioManager) appContext.getSystemService(Context.AUDIO_SERVICE);
+        if (audioManager == null) {
+            return SonarCenter.McpResult.err("AudioManager not available");
+        }
+        try {
+            int max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            int target;
+            if (args.byDirection) {
+                int cur = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+                target = VolumeToolArgs.directionTarget(cur, max, args.up);
+            } else {
+                target = VolumeToolArgs.levelToStep(args.level, max);
+            }
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0);
+            int now = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+            return SonarCenter.McpResult.ok(
+                    VolumeToolArgs.resultText(VolumeToolArgs.stepToLevel(now, max)));
+        } catch (Exception e) {
+            Log.w(TAG, "mcpVolumeSet failed", e);
+            return SonarCenter.McpResult.err("volume change failed: " + e.getMessage());
+        }
+    }
+
     /** GamepadCenter 共用：本地音樂隨機一首。無歌回 null，有歌即播並回檔名。
      *  任意線程可調（內已 synchronized）。 */
     public synchronized String playRandomLocalMusic() {

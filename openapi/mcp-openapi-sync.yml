@@ -318,3 +318,25 @@ mappings:
     description: Stop whatever radio station is currently playing.
     params: []
     exclude: [panel_token]
+
+  - mcp: self.robot.volume_set
+    openapi: null
+    description: >-
+      Change the speaker volume. Use it when the user says "lower the volume",
+      "quieter", "louder", "turn it up" or "set the volume to 50". Give direction
+      "up" or "down" for one step (louder or quieter), or give level 0 to 100 to
+      set the volume to that percent. Give only one of the two. Returns the new
+      level, for example "The volume is 40 %.". It does not move the robot.
+    params:
+      - mcp: direction
+        type: string
+        required: false
+        enum: [up, down]
+        desc: '"up" is one step louder, "down" is one step quieter. Do not use it with level.'
+      - mcp: level
+        type: integer
+        required: false
+        minimum: 0
+        maximum: 100
+        desc: Volume in percent, 0 to 100. Do not use it with direction.
+    note: no HTTP counterpart (audio/volume/set uses the raw steps of the stream); the body is AudioCenter.mcpVolumeSet, the argument check is VolumeToolArgs; the stream is STREAM_MUSIC like the local commands volume_up and volume_down

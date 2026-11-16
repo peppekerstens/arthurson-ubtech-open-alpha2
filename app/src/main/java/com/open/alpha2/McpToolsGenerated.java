@@ -23,7 +23,7 @@ import org.json.JSONObject;
 public final class McpToolsGenerated {
     private McpToolsGenerated() {}
 
-    public static final int TOOL_COUNT = 22;
+    public static final int TOOL_COUNT = 23;
 
     public static JSONArray buildTools() throws JSONException {
         JSONArray tools = new JSONArray();
@@ -479,6 +479,34 @@ public final class McpToolsGenerated {
             JSONObject s = new JSONObject();
             s.put("type", "object");
             JSONObject props = new JSONObject();
+            s.put("properties", props);
+            t.put("inputSchema", s);
+            tools.put(t);
+        }
+
+        // 23. self.robot.volume_set (no HTTP mapping)
+        {
+            JSONObject t = new JSONObject();
+            t.put("name", "self.robot.volume_set");
+            t.put("description", "Change the speaker volume. Use it when the user says \"lower the volume\", \"quieter\", \"louder\", \"turn it up\" or \"set the volume to 50\". Give direction \"up\" or \"down\" for one step (louder or quieter), or give level 0 to 100 to set the volume to that percent. Give only one of the two. Returns the new level, for example \"The volume is 40 %.\". It does not move the robot.");
+            JSONObject s = new JSONObject();
+            s.put("type", "object");
+            JSONObject props = new JSONObject();
+            {
+                JSONObject p = new JSONObject();
+                p.put("type", "string");
+                p.put("description", "\"up\" is one step louder, \"down\" is one step quieter. Do not use it with level.");
+                p.put("enum", new org.json.JSONArray().put("up").put("down"));
+                props.put("direction", p);
+            }
+            {
+                JSONObject p = new JSONObject();
+                p.put("type", "integer");
+                p.put("description", "Volume in percent, 0 to 100. Do not use it with direction.");
+                p.put("minimum", 0);
+                p.put("maximum", 100);
+                props.put("level", p);
+            }
             s.put("properties", props);
             t.put("inputSchema", s);
             tools.put(t);

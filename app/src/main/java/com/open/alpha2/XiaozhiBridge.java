@@ -2452,6 +2452,10 @@ public final class XiaozhiBridge {
                         case "self.media.stop_radio":
                             r = audioCenter.mcpStopRadio();
                             break;
+                        // The volume tool moves nothing: no motion gate (alpha2-brain#123).
+                        case "self.robot.volume_set":
+                            r = audioCenter.mcpVolumeSet(arguments);
+                            break;
                         default:
                             isError = true;
                             resultText = "unknown tool: " + name;
