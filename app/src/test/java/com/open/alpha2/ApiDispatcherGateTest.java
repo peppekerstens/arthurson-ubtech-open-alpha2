@@ -70,6 +70,17 @@ public class ApiDispatcherGateTest {
         }
     }
 
+    /** Status of a direct call to the servoOneResponse helper (bypassing the dispatcher guard,
+     *  which would refuse the body servo first), or -1 when it threw (the method-level gate call
+     *  is missing and the trim write / send ran on the empty helper). */
+    private static int callServoOne(UbxApi ubxApi, Map<String, String> query) {
+        try {
+            return ubxApi.servoOneResponse(query).status;
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         Field uf = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
         uf.setAccessible(true);
@@ -97,6 +108,10 @@ public class ApiDispatcherGateTest {
         ApiDispatcher d = (ApiDispatcher) ctor.newInstance(a);
         MotionGate gate = d.motionGate();
         check(!gate.isMotionEnabled() && !gate.isHeadOnlyEnabled(), "a new dispatcher has both switches off");
+        // The method-level refusal calls (servo/angle, the servo/one trim write) read the helper's
+        // own gate. Point it at the dispatcher's real gate, or refusalForServoMove(null, ...) would
+        // refuse every servo and the "head only, servo 19 passes" check below could not pass.
+        set(actionDirect, "motionGate", gate);
 
         String move = "f88f0800000" + "3" + "01" + "0c" + "ed"; // not a valid sum: only the scan of the command matters
         String moveAll = "f88f0800000" + "5" + "01" + "0e" + "ed";
@@ -119,6 +134,31 @@ public class ApiDispatcherGateTest {
         // Head only allows servo 19: the dispatcher lets the call reach the helper (here it throws: the helper is empty).
         check(status(d, false, "servo/one", q("id", "19", "angle", "100")) != 403, "head only, servo/one servo 19 passes the gate");
         gate.setHeadOnlyEnabled(false);
+
+        // servo/angle has no dispatcher guard, and the servo/one trim write is gated inside the
+        // helper. Both are reached only when bootServoBlocked() returns null, so the boot flag is
+        // on for this block; off, the route answers "booting" before the gate and the checks would
+        // not prove the gate. Restored to off afterwards (the ubx/speed checks run with it off).
+        Field bootField = MainActivity.class.getDeclaredField("bootServoReady");
+        bootField.setAccessible(true);
+        bootField.setBoolean(null, true);
+        try {
+            // alpha2-brain#122 blocker 1: the route servo/angle (cmd 6, read with release) is gated
+            // only by the method-level call in servoAngleResponse.
+            check(status(d, false, "servo/angle", q("id", "5")) == 403, "gate off, servo/angle servo 5 is 403");
+            gate.setHeadOnlyEnabled(true);
+            check(status(d, false, "servo/angle", q("id", "19")) != 403, "head only, servo/angle servo 19 passes the gate");
+            check(status(d, false, "servo/angle", q("id", "5")) == 403, "head only, servo/angle servo 5 is 403");
+            gate.setHeadOnlyEnabled(false);
+            // alpha2-brain#122 finding 1: the method-level gate of servoOneResponse, before the trim
+            // write (cmd 12). Called directly (the dispatcher guard would refuse servo 5 first), so
+            // removing the gate call is detected: with it, servo 5 is refused (403) before the trim
+            // write; without it, the trim write and the send run and the status is not 403.
+            check(callServoOne(ubxApi, q("id", "5", "angle", "100", "trim", "10")) == 403,
+                    "servo/one trim write: the gate refuses servo 5 before the trim write (alpha2-brain#122)");
+        } finally {
+            bootField.setBoolean(null, false);
+        }
         // alpha2-brain#132: with the gate ON, a lone F8 is still refused (the firmware scan has no switch).
         gate.setMotionEnabled(true);
         check(status(d, false, "debug/serial/send", q("port", "chest", "hex", "f8", "allow_sit_down", "true")) == 403,
