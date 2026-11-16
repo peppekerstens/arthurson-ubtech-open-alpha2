@@ -479,11 +479,53 @@ public class ServoStreamCoreTest {
         m.clock.runLoop();
         eq(1, mWrites.get(), "settle.moveWritten");
         eq(0L, m.core.moveWaits(), "settle.noMoveWait");
-        eq(1L, m.core.pausedCycles(), "settle.pausedNotMissed");
+        eq(1L, m.core.settlePauses(), "settle.pausedNotMissed");
+        eq(0L, m.core.pausedCycles(), "settle.notBusyPause");
         eq(0L, m.core.missedReads(), "settle.noMissed");
         eq(20L, m.core.cycles(), "settle.cyclesSent");
         eq(20L, m.core.completeCycles(), "settle.allComplete");
         eq(20, m.readEventsWithAngle(), "settle.nextCycleGivesReplies");
+
+        // alpha2-brain#141: a write that throws still sets the settle time, and the paused
+        // cycle sleeps until that time ends (10 ms), not a full period (50 ms). Two moves in
+        // a row: each one pauses one cycle.
+        final SimEnv t = new SimEnv();
+        t.replyDelayMs = 5;
+        t.core = new ServoStreamCore(t, t.clock, new int[]{2, 3}, 20, 400);
+        t.core.start(new int[]{2, 3}, 20, 400, false);
+        final AtomicInteger tThrown = new AtomicInteger();
+        for (long at : new long[]{70_000_000L, 200_000_000L}) {
+            t.clock.at(t.clock.ns + at, new Runnable() {
+                @Override public void run() {
+                    try {
+                        t.core.writeBetweenCycles(60, new ServoStreamCore.Write<Boolean>() {
+                            @Override public Boolean run() {
+                                t.clock.sleepMs(25); // the move write takes 25 ms, then it fails
+                                throw new IllegalStateException("write failed");
+                            }
+                        });
+                    } catch (IllegalStateException ex) {
+                        tThrown.incrementAndGet();
+                    }
+                }
+            });
+        }
+        t.clock.runLoop();
+        eq(2, tThrown.get(), "settle.throwPropagates");
+        eq(2L, t.core.settlePauses(), "settle.twoMovesTwoPauses");
+        eq(0L, t.core.missedReads(), "settle.throwNoMissed");
+        // A cycle paused for the settle time does not cost a full period: the gap between two
+        // servo_reads events is at most period + write + settle (50 + 25 + 10 ms). With the old
+        // full-period sleep it is 100 ms.
+        long maxGap = 0, prevT = -1;
+        for (String ev : t.events) {
+            if (!ev.startsWith("servo_reads")) continue;
+            int i = ev.indexOf("\"t_ms\":") + 7;
+            long tm = Long.parseLong(ev.substring(i, ev.indexOf(',', i)));
+            if (prevT >= 0) maxGap = Math.max(maxGap, tm - prevT);
+            prevT = tm;
+        }
+        eq(true, maxGap <= 85, "settle.gapUnder85ms(max=" + maxGap + ")");
 
         // -- status JSON --
         String st = e.core.statusJson();
