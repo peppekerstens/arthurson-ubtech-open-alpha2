@@ -754,9 +754,11 @@ public final class WakeController {
         }
         // Other local commands: with the wake word in the same phrase, or in the
         // command window after it. This removes the false alarms of normal talk.
+        // In a turn the command ends it with an abort (alpha2-brain#153): the
+        // server gets no listen stop, drops the buffered audio, gives no answer.
         if (commandWindow.runs(command, wake, now)) {
             commandWindow.onCommand(now);
-            if (mode != Mode.WAKE) endTurn();
+            if (mode != Mode.WAKE) endTurn(WakeTurnEnd.abortFor(command));
             runCommand(command);
             return;
         }
@@ -869,9 +871,18 @@ public final class WakeController {
     }
 
     private void endTurn() {
+        endTurn(false);
+    }
+
+    /** Ends the turn. abort=true: an abort to the server instead of a listen
+     *  stop, so it drops the buffered audio and gives no answer
+     *  (alpha2-brain#153). The choice is in WakeTurnEnd (unit test
+     *  WakeTurnEndTest). */
+    private void endTurn(boolean abort) {
         commandWindow.onTurnEnd(System.currentTimeMillis());
         VoiceTiming.get().end();
-        bridge.wakeTurnEnd();
+        if (abort) bridge.wakeAbort();
+        else bridge.wakeTurnEnd();
         if (mode != Mode.OFF) mode = Mode.WAKE;
         publish();
     }
