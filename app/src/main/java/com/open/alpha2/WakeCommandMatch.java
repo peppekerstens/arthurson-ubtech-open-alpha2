@@ -27,10 +27,17 @@ final class WakeCommandMatch {
         return raw.replaceAll("\\s+", " ").trim().toLowerCase(Locale.US);
     }
 
-    /** Removes [unk] and extra spaces. */
+    /** Removes [unk] and punctuation, extra spaces to one (alpha2-brain#133:
+     *  the check must not see a period, "Alpha." is the wake word). */
     static String clean(String text) {
         if (text == null) return "";
-        return norm(text.replace("[unk]", " "));
+        String t = text.replace("[unk]", " ");
+        StringBuilder sb = new StringBuilder(t.length());
+        for (int i = 0; i < t.length(); i++) {
+            char c = t.charAt(i);
+            sb.append(Character.isLetterOrDigit(c) ? c : ' ');
+        }
+        return norm(sb.toString());
     }
 
     /** The command of the whole utterance (raw text with [unk]), or null. */
@@ -45,13 +52,47 @@ final class WakeCommandMatch {
         return null;
     }
 
-    /** True when the clean text holds a wake word as a whole word. */
-    static boolean hasWakeWord(String text, List<String> wakeWords) {
+    /** The first configured wake word in the text as a whole word, or null
+     *  (alpha2-brain#133). Case and punctuation do not matter, [unk] is a word
+     *  boundary: "alpha" and "Alpha." count, "Aha", "ah", "alfa" not (not the
+     *  exact word). */
+    static String wakeWord(String text, List<String> wakeWords) {
         String t = " " + clean(text) + " ";
         for (String w : wakeWords) {
-            if (t.contains(" " + w + " ")) return true;
+            if (t.contains(" " + w + " ")) return w;
         }
-        return false;
+        return null;
+    }
+
+    /** True when the clean text holds a configured wake word as a whole word. */
+    static boolean hasWakeWord(String text, List<String> wakeWords) {
+        return wakeWord(text, wakeWords) != null;
+    }
+
+    /** The highest word confidence of a wake word in the tokens
+     *  (alpha2-brain#133). Returns -1 when no token is a wake word or no conf
+     *  is known (the caller then lets the wake word through, fail-open like the
+     *  old libraries without word confs). */
+    static double wakeConf(List<String> tokens, List<Double> confs, List<String> wakeWords) {
+        if (tokens == null || confs == null) return -1;
+        double best = -1;
+        int n = Math.min(tokens.size(), confs.size());
+        for (int i = 0; i < n; i++) {
+            Double c = confs.get(i);
+            if (c == null || c < 0) continue;
+            String t = clean(tokens.get(i));
+            for (String w : wakeWords) {
+                if (t.equals(w) && c > best) best = c;
+            }
+        }
+        return best;
+    }
+
+    /** True when the conf is outside [min, max]. NaN is outside: the old check
+     *  (v &lt; min || v &gt; max) let Float.parseFloat("NaN") through, because every
+     *  comparison with NaN is false (alpha2-brain#133). */
+    static boolean confOutOfRange(double v, double min, double max) {
+        return !(v >= min && v <= max);
     }
 
     /** True when the clean text holds "stop" as a whole word. */

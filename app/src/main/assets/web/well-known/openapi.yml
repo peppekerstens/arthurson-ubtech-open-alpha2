@@ -7438,6 +7438,9 @@ paths:
                       stop_conf:
                         type: number
                         description: The minimum word confidence of the stop phrase
+                      wake_conf:
+                        type: number
+                        description: The lowest word confidence of a wake word (default 0.7)
                       commands:
                         type: object
                         description: The local command phrases and their actions
@@ -7447,6 +7450,11 @@ paths:
                       last_heard:
                         type: string
                         description: The last text that the recognizer heard
+                      recent_wake_confs:
+                        type: array
+                        items:
+                          type: object
+                        description: The last 50 wake word hits with their confidence (memory only)
                       error:
                         type: string
                         nullable: true
@@ -7527,6 +7535,9 @@ paths:
                       stop_conf:
                         type: number
                         description: The minimum word confidence of the stop phrase
+                      wake_conf:
+                        type: number
+                        description: The lowest word confidence of a wake word (default 0.7)
                       commands:
                         type: object
                         description: The local command phrases and their actions
@@ -7536,6 +7547,11 @@ paths:
                       last_heard:
                         type: string
                         description: The last text that the recognizer heard
+                      recent_wake_confs:
+                        type: array
+                        items:
+                          type: object
+                        description: The last 50 wake word hits with their confidence (memory only)
                       error:
                         type: string
                         nullable: true
@@ -7610,6 +7626,12 @@ paths:
         schema:
           type: number
         description: Lowest word confidence of "stop" while the robot speaks, 0.3-1.0 (default 0.7). A higher value gives fewer false stops from the echo of the robot voice
+      - name: wake_conf
+        in: query
+        required: false
+        schema:
+          type: number
+        description: Lowest word confidence of a wake word, 0.5-1.0 (default 0.7). A short word like "Aha" that the decoder still labels as the wake word must reach this confidence, else it does not wake (alpha2-brain#133)
       - name: language
         in: query
         required: false
@@ -7722,6 +7744,9 @@ paths:
                       stop_conf:
                         type: number
                         description: The minimum word confidence of the stop phrase
+                      wake_conf:
+                        type: number
+                        description: The lowest word confidence of a wake word (default 0.7)
                       commands:
                         type: object
                         description: The local command phrases and their actions
@@ -7731,6 +7756,11 @@ paths:
                       last_heard:
                         type: string
                         description: The last text that the recognizer heard
+                      recent_wake_confs:
+                        type: array
+                        items:
+                          type: object
+                        description: The last 50 wake word hits with their confidence (memory only)
                       error:
                         type: string
                         nullable: true

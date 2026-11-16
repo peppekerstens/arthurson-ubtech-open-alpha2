@@ -22,7 +22,8 @@ DirectChestControllerTest (alpha2-brain#30, pure java.* with stubs in scripts/te
 ChestReplyMatchTest (alpha2-board-sim#12): the chest VERSION reply match.
 VoiceTimingTest (voice turn time log, queue item 6).
 HeadKeyClickTest (head key click codes 0x3c01/0x3d01) and WakeCommandMatchTest (local
-command after the wake word), robot session 2026-11-01.
+command after the wake word), robot session 2026-11-01. alpha2-brain#133 adds the
+wake word check (the exact word, the word confidence) to that suite.
 StopEchoGuardTest (alpha2-brain#52): the stop echo guard time windows.
 VoiceLanguagesTest (alpha2-brain#88): English only by default, one setting for Dutch.
 MotionGateTest (alpha2-brain#113): the motion gate of the direct servo routes.
