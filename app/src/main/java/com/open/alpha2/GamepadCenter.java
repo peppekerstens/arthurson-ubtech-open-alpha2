@@ -2709,7 +2709,7 @@ public final class GamepadCenter {
                     + "mouth:breathing:<speedMs>/mouth:off/led_off/"
                     + "camera_photo/face_toggle/color_toggle/video_toggle/"
                     + "sonar_toggle/pir_toggle/accel_toggle/"
-                    + "xiaozhi_toggle/vosk_toggle/vosk:<id>/eq:<preset>/radio:<uuid或名>/"
+                    + "xiaozhi_toggle/vosk_toggle/vosk:<id>/eq:<preset>/radio:<uuid or name>/"
                     + "servo1-22+/servo1-22-/ik:squatlean+/ik:squatlean-/"
                     + "ik:squatsplit+/ik:squatsplit-/ik:kick+/ik:kick-/"
                     + "ik:sirius+/ik:sirius-/ik:hulu+/ik:hulu-/"
