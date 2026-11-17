@@ -226,7 +226,7 @@ async function refreshSupportedSizes() {
   try {
     const res = await Alpha2Api.cameraSupportedSizes();
     if (!res.ok) { if (hint) hint.textContent = t("cam_read_fail", { msg: res.error || "" }); return; }
-    if (hint) hint.textContent = "Preview: " + (res.preview||[]).join(", ") + " | Picture: " + (res.picture||[]).join(", ") + " | FPS range: " + (res.fpsRanges||[]).join(", ") + " | 當前: " + res.current;
+    if (hint) hint.textContent = "Preview: " + (res.preview||[]).join(", ") + " | Picture: " + (res.picture||[]).join(", ") + " | FPS range: " + (res.fpsRanges||[]).join(", ") + (uiLang === "en" ? " | Current: " : " | 當前: ") + res.current;
     if (res.preview && res.preview.length && sel) {
       const cur = sel.value;
       // Filter out the cancelled low resolutions
