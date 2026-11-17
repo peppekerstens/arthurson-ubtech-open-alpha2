@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Alpha2 手臂 IK 試玩（XYZ → 舵機）</title>
+<title>Alpha2 Arm IK Demo (XYZ → servos)</title>
 <style>
   body{font-family:system-ui,"Microsoft JhengHei",sans-serif;max-width:760px;margin:0 auto;padding:12px;background:#f6f6f8;color:#222}
   h1{font-size:20px} h2{font-size:16px;margin:18px 0 6px}
@@ -23,42 +23,42 @@
 </style>
 </head>
 <body>
-<h1>🦾 Alpha2 手臂 IK 試玩 <small style="font-size:12px" id="modeTag"></small></h1>
-<p>拖 XYZ slider → 即計 IK → <b>送出</b>經 HTTP 鬱 <code>/api/servo/one</code> 落部機。只郁一隻手，腳唔郁。部機要坐定／企定。</p>
+<h1>🦾 Alpha2 Arm IK Demo <small style="font-size:12px" id="modeTag"></small></h1>
+<p>Drag the XYZ sliders → the IK is solved → <b>send</b> over HTTP to <code>/api/servo/one</code>. Only one arm moves, the legs do not. The robot must sit or stand still.</p>
 
 <div class="card" id="connCard">
-<h2>1. 連線</h2>
+<h2>1. Connection</h2>
 <div class="row">
-<div><label>機械人 IP（同 Wi-Fi；上機模式唔使填）</label><input type="text" id="ip" placeholder="192.168.1.123"></div>
-<div><label>面板 token（無開就唔填）</label><input type="text" id="token" placeholder=""></div>
+<div><label>Robot IP (same Wi-Fi; empty in on-robot mode)</label><input type="text" id="ip" placeholder="192.168.1.123"></div>
+<div><label>Panel token (empty when auth is off)</label><input type="text" id="token" placeholder=""></div>
 </div>
-<button onclick="testConn()">🔗 測試連線</button>
+<button onclick="testConn()">🔗 Test connection</button>
 <span id="connStat"></span>
 </div>
 
 <div class="card">
-<h2>2. 目標（base_link 座標，cm；x 前、y 左、z 上）</h2>
+<h2>2. Target (base_link coords, cm; x forward, y left, z up)</h2>
 <div>
-<button onclick="setArm('R')" id="btnR" class="primary">右手</button><button onclick="setArm('L')" id="btnL">左手</button>
+<button onclick="setArm('R')" id="btnR" class="primary">Right hand</button><button onclick="setArm('L')" id="btnL">Left hand</button>
 </div>
-<label>X 前後：<span id="xv" class="mono"></span> cm</label><input type="range" id="tx" min="-5" max="15" step="0.5" value="12">
-<label>Y 左右：<span id="yv" class="mono"></span> cm</label><input type="range" id="ty" min="-15" max="15" step="0.5" value="-10">
-<label>Z 上下：<span id="zv" class="mono"></span> cm</label><input type="range" id="tz" min="-15" max="10" step="0.5" value="0">
-<label>郁嘅時間：<span id="tv" class="mono"></span> ms</label><input type="range" id="tt" min="200" max="2000" step="100" value="800">
+<label>X fore/aft: <span id="xv" class="mono"></span> cm</label><input type="range" id="tx" min="-5" max="15" step="0.5" value="12">
+<label>Y left/right: <span id="yv" class="mono"></span> cm</label><input type="range" id="ty" min="-15" max="15" step="0.5" value="-10">
+<label>Z up/down: <span id="zv" class="mono"></span> cm</label><input type="range" id="tz" min="-15" max="10" step="0.5" value="0">
+<label>Move time: <span id="tv" class="mono"></span> ms</label><input type="range" id="tt" min="200" max="2000" step="100" value="800">
 <div id="ikStat" class="mono"></div>
 <canvas id="cv" width="700" height="260"></canvas>
 </div>
 
 <div class="card">
-<h2>3. 落機（即時跟隨，唔使撳掣）</h2>
-<button class="primary" id="liveBtn" onclick="toggleLive()">⏸ 停跟隨</button>
-<button onclick="goHome()">🏠 回中</button>
-<button onclick="readBack()">📥 讀返角度</button>
+<h2>3. To the robot (live follow, no button press)</h2>
+<button class="primary" id="liveBtn" onclick="toggleLive()">⏸ Stop follow</button>
+<button onclick="goHome()">🏠 Center</button>
+<button onclick="readBack()">📥 Read angles</button>
 <div id="svStat" class="mono"></div>
 </div>
 
 <div class="card"><h2>Log</h2><div id="log"></div></div>
-<p><a href="index.html">← 返控制面板</a>（呢頁 rebuild 後會喺 <code>/ik-demo.html</code> 一齊上機）</p>
+<p><a href="index.html">← Back to the control panel</a> (after a rebuild this page ships on the robot at <code>/ik-demo.html</code>)</p>
 
 <script>
 // ---- 參數：由 alpha2_description URDF + config/servo_map.yaml 抄出嚟 ----
@@ -218,18 +218,18 @@ function update(){
     servo=lastGood.servo;
   }else{ lastSafe=false; }
   var qd=(safe?r.q:curQ).map(function(v){return (v*180/Math.PI).toFixed(1);});
-  var h='<span class="'+(safe?'ok':'bad')+'">'+(safe?'✅ 安全，即送':'⛔ 去唔到，已彈返安全位（差 '+(lastErr*1000).toFixed(1)+'mm'+(elbowBad?'＋手肘入身':'')+'）')+'</span> '
-    +'q=['+qd.join(', ')+']° 舵機['+servo.join(', ')+']#'+P.ids.join('/');
+  var h='<span class="'+(safe?'ok':'bad')+'">'+(safe?'✅ Safe, sending':'⛔ Unreachable, back to the safe position (off '+(lastErr*1000).toFixed(1)+'mm'+(elbowBad?', elbow in torso':'')+')')+'</span> '
+    +'q=['+qd.join(', ')+']° servo['+servo.join(', ')+']#'+P.ids.join('/');
   $('ikStat').innerHTML=h;
-  $('svStat').textContent=(safe?'已送/待送：':'安全位：')+P.ids.map(function(id,i){return id+'號='+servo[i];}).join('  ')+'  time='+$('tt').value+'ms';
+  $('svStat').textContent=(safe?'sent/queued: ':'safe pos: ')+P.ids.map(function(id,i){return id+'#'+servo[i];}).join('  ')+'  time='+$('tt').value+'ms';
   draw(P,t);
 }
 // ---- 即時跟隨：拖 slider 部機即郁（300ms 節流，唔 hammer 胸板）----
 var liveOn=true, lastSendMs=0, holdUntil=0; var LIVE_MS=300;
 function toggleLive(){liveOn=!liveOn;
-  $('liveBtn').textContent=liveOn?'⏸ 停跟隨':'▶ 即時跟隨';
+  $('liveBtn').textContent=liveOn?'⏸ Stop follow':'▶ Live follow';
   $('liveBtn').className=liveOn?'primary':'';
-  log(liveOn?'即時跟隨開':'即時跟隨停（部機唔再跟，只預覽）');}
+  log(liveOn?'live follow on':'live follow off (the robot no longer follows, preview only)');}
 function liveSend(force){
   if(!liveOn||!lastSafe||!lastGood) return;
   var now=Date.now();
@@ -239,11 +239,11 @@ function liveSend(force){
   var P=ARMS[arm],s=lastGood.servo;
   var time=Math.max(100,Math.min(1000,parseInt($('tt').value,10)||300));
   var qs='/api/servo/one?id=';
-  get(qs+P.ids[0]+'&angle='+s[0]+'&time='+time).catch(function(e){log('送失敗：'+e);});
-  get(qs+P.ids[1]+'&angle='+s[1]+'&time='+time).catch(function(e){log('送失敗：'+e);});
-  get(qs+P.ids[2]+'&angle='+s[2]+'&time='+time).catch(function(e){log('送失敗：'+e);});
+  get(qs+P.ids[0]+'&angle='+s[0]+'&time='+time).catch(function(e){log('send failed: '+e);});
+  get(qs+P.ids[1]+'&angle='+s[1]+'&time='+time).catch(function(e){log('send failed: '+e);});
+  get(qs+P.ids[2]+'&angle='+s[2]+'&time='+time).catch(function(e){log('send failed: '+e);});
   var d=new Date();
-  $('svStat').textContent='已送 '+d.toTimeString().slice(0,8)+'：'+P.ids.map(function(id,i){return id+'號='+s[i];}).join('  ');
+  $('svStat').textContent='sent '+d.toTimeString().slice(0,8)+': '+P.ids.map(function(id,i){return id+'#'+s[i];}).join('  ');
 }
 function maybeSend(){liveSend(false);}
 function draw(P,t){
@@ -252,7 +252,7 @@ function draw(P,t){
   function side(p){return [20+(p[0]+0.08)*2600, 130-(p[2]-0.0)*2600];}
   function top(p){return [380+(p[0]+0.08)*2600, 130-(p[1])*2600];}
   g.strokeStyle='#ccc';g.strokeRect(0,0,350,260);g.strokeRect(350,0,350,260);
-  g.fillStyle='#000';g.fillText('側視 X-Z',8,14);g.fillText('頂視 X-Y',358,14);
+  g.fillStyle='#000';g.fillText('side X-Z',8,14);g.fillText('top X-Y',358,14);
   var pts=[[S,elb,tip]];
   var a=side(S),b=side(elb),c=side(tip),d=side(t);
   g.strokeStyle='#2563eb';g.lineWidth=3;g.beginPath();g.moveTo(a[0],a[1]);g.lineTo(b[0],b[1]);g.lineTo(c[0],c[1]);g.stroke();
@@ -269,7 +269,7 @@ function draw(P,t){
 var SAME_ORIGIN = (location.protocol.indexOf('http') === 0 && !!location.hostname);
 function base(){
   if(SAME_ORIGIN) return location.origin; // http://<robot-ip>:8888/ik-demo.html 直打，唔經出面連線
-  var ip=$('ip').value.trim();if(!ip){log('⛔ 先填機械人 IP');return null;}save();return 'http://'+ip+':8888';
+  var ip=$('ip').value.trim();if(!ip){log('⛔ Enter the robot IP first');return null;}save();return 'http://'+ip+':8888';
 }
 function tok(){var t=$('token').value.trim();return t?('&panel_token='+encodeURIComponent(t)):'';}
 function get(path){
@@ -277,8 +277,8 @@ function get(path){
   return fetch(b+path+tok()).then(function(r){return r.json();});
 }
 function testConn(){
-  get('/api/accelerometer/get').then(function(j){$('connStat').textContent=JSON.stringify(j);log('連線：'+JSON.stringify(j));})
-    .catch(function(e){$('connStat').textContent='失敗：'+e;log('連線失敗：'+e+'（同 Wi-Fi？IP 啱？）');});
+  get('/api/accelerometer/get').then(function(j){$('connStat').textContent=JSON.stringify(j);log('connection: '+JSON.stringify(j));})
+    .catch(function(e){$('connStat').textContent='failed: '+e;log('connection failed: '+e+' (same Wi-Fi? right IP?)');});
 }
 function sendOne(id,angle,time){
   return get('/api/servo/one?id='+id+'&angle='+angle+'&time='+time).then(function(j){log('#'+id+'→'+angle+': '+JSON.stringify(j));return j;});
@@ -288,24 +288,24 @@ function goHome(){
   curQ=P.seed.map(function(d){return d*Math.PI/180;}); // seed 即 home 附近
   lastGood=null; lastSafe=false;
   holdUntil=Date.now()+time+200; // 回中有排郁，呢段時間唔跟 slider，唔打架
-  log('回中：'+P.ids.join('/')+'=120');
+  log('center: '+P.ids.join('/')+'=120');
   sendOne(P.ids[0],120,time).then(function(){return sendOne(P.ids[1],120,time);})
     .then(function(){return sendOne(P.ids[2],120,time);}).then(update);
 }
 function readBack(){
   get('/api/servo/back-angle-all').then(function(j){
-    log('讀返：'+JSON.stringify(j).slice(0,300));
+    log('read back: '+JSON.stringify(j).slice(0,300));
     if(j && j.angles){var P=ARMS[arm];
       var a=j.angles;
-      $('svStat').textContent='實測：'+P.ids.map(function(id){return id+'號='+(a[id-1]===null?'null':a[id-1]);}).join('  ');}
-  }).catch(function(e){log('讀返失敗：'+e);});
+      $('svStat').textContent='measured: '+P.ids.map(function(id){return id+'#'+(a[id-1]===null?'null':a[id-1]);}).join('  ');}
+  }).catch(function(e){log('read back failed: '+e);});
 }
 ['tx','ty','tz','tt'].forEach(function(id){$(id).addEventListener('input',update);});
 ['tx','ty','tz'].forEach(function(id){$(id).addEventListener('change',function(){liveSend(true);});}); // 放手即送準數
 load();setArm('R');
-if(SAME_ORIGIN){$('modeTag').textContent='（上機模式：直打，唔使填 IP）';$('connCard').style.display='none';}
-else{$('modeTag').textContent='（直開呢個檔就得，唔使重裝 APK）';}
-log('就緒。'+(SAME_ORIGIN?'上機模式：一拖即郁。':'先填 IP → 測試連線 → 一拖即郁。')+'去唔到嘅位會自動彈返，17/18手指鎖120唔郁。');
+if(SAME_ORIGIN){$('modeTag').textContent='(on-robot mode: direct, no IP needed)';$('connCard').style.display='none';}
+else{$('modeTag').textContent='(open this file directly, no APK reinstall)';}
+log('Ready. '+(SAME_ORIGIN?'On-robot mode: drag to move. ':'Enter the IP → test the connection → drag to move. ')+'Unreachable positions spring back. Finger servos 17/18 stay locked at 120.');
 </script>
 </body>
 </html>

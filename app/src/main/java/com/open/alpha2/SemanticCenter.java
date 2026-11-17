@@ -356,111 +356,11 @@ public final class SemanticCenter {
         return null;
     }
 
-    /** FUNCTION 失敗/動態提示多語言（key 見上；musicNow 的 name 係去副檔名歌名）。
-     *  未知語言兜底英文。 */
+    /** FUNCTION 失敗/動態提示多語言（key 見 SemanticFunctionTexts.KEYS；
+     *  musicNow 的 name 係去副檔名歌名）。未知語言兜底英文。表同文字揀法
+     *  移去 SemanticFunctionTexts (pure Java, host test, alpha2-brain#95)。 */
     private static String functionText(String lang, String key, String name) {
-        if ("es".equals(lang)) {
-            if ("btOnFail".equals(key)) return "Lo siento, no pude activar el Bluetooth.";
-            if ("btOffFail".equals(key)) return "Lo siento, no pude desactivar el Bluetooth.";
-            if ("wifiOnFail".equals(key)) return "Lo siento, no pude activar la red Wi-Fi.";
-            if ("wifiOffFail".equals(key)) return "Lo siento, no pude desactivar la red Wi-Fi.";
-            if ("camNotReady".equals(key)) return "Lo siento, la cámara no está lista.";
-            if ("camFail".equals(key)) return "Lo siento, no pude tomar la foto.";
-            if ("musicNotReady".equals(key)) return "Lo siento, la música no está lista.";
-            if ("musicEmpty".equals(key)) return "No hay canciones en la carpeta de música.";
-            if ("musicNow".equals(key)) return "De acuerdo, reproduciendo " + name + ".";
-        } else if ("fr".equals(lang)) {
-            if ("btOnFail".equals(key)) return "Désolé, impossible d'activer le Bluetooth.";
-            if ("btOffFail".equals(key)) return "Désolé, impossible de désactiver le Bluetooth.";
-            if ("wifiOnFail".equals(key)) return "Désolé, impossible d'activer le Wi-Fi.";
-            if ("wifiOffFail".equals(key)) return "Désolé, impossible de désactiver le Wi-Fi.";
-            if ("camNotReady".equals(key)) return "Désolé, l'appareil photo n'est pas prêt.";
-            if ("camFail".equals(key)) return "Désolé, la photo a échoué.";
-            if ("musicNotReady".equals(key)) return "Désolé, la musique n'est pas prête.";
-            if ("musicEmpty".equals(key)) return "Il n'y a aucune chanson dans le dossier de musique.";
-            if ("musicNow".equals(key)) return "D'accord, je joue " + name + ".";
-        } else if ("ja".equals(lang)) {
-            if ("btOnFail".equals(key)) return "すみません、Bluetoothをオンにできませんでした。";
-            if ("btOffFail".equals(key)) return "すみません、Bluetoothをオフにできませんでした。";
-            if ("wifiOnFail".equals(key)) return "すみません、Wi-Fiをオンにできませんでした。";
-            if ("wifiOffFail".equals(key)) return "すみません、Wi-Fiをオフにできませんでした。";
-            if ("camNotReady".equals(key)) return "すみません、カメラの準備ができていません。";
-            if ("camFail".equals(key)) return "すみません、撮影に失敗しました。";
-            if ("musicNotReady".equals(key)) return "すみません、音楽の準備ができていません。";
-            if ("musicEmpty".equals(key)) return "音楽フォルダに曲がありません。";
-            if ("musicNow".equals(key)) return "わかりました、「" + name + "」を再生します。";
-        } else if ("de".equals(lang)) {
-            if ("btOnFail".equals(key)) return "Leider konnte ich Bluetooth nicht einschalten.";
-            if ("btOffFail".equals(key)) return "Leider konnte ich Bluetooth nicht ausschalten.";
-            if ("wifiOnFail".equals(key)) return "Leider konnte ich WLAN nicht einschalten.";
-            if ("wifiOffFail".equals(key)) return "Leider konnte ich WLAN nicht ausschalten.";
-            if ("camNotReady".equals(key)) return "Leider ist die Kamera nicht bereit.";
-            if ("camFail".equals(key)) return "Leider hat das Foto nicht geklappt.";
-            if ("musicNotReady".equals(key)) return "Leider ist die Musik nicht bereit.";
-            if ("musicEmpty".equals(key)) return "Im Musikordner sind keine Lieder.";
-            if ("musicNow".equals(key)) return "Verstanden, ich spiele jetzt " + name + ".";
-        } else if ("it".equals(lang)) {
-            if ("btOnFail".equals(key)) return "Mi dispiace, non riesco ad attivare il Bluetooth.";
-            if ("btOffFail".equals(key)) return "Mi dispiace, non riesco a disattivare il Bluetooth.";
-            if ("wifiOnFail".equals(key)) return "Mi dispiace, non riesco ad attivare il Wi-Fi.";
-            if ("wifiOffFail".equals(key)) return "Mi dispiace, non riesco a disattivare il Wi-Fi.";
-            if ("camNotReady".equals(key)) return "Mi dispiace, la fotocamera non è pronta.";
-            if ("camFail".equals(key)) return "Mi dispiace, la foto non è riuscita.";
-            if ("musicNotReady".equals(key)) return "Mi dispiace, la musica non è pronta.";
-            if ("musicEmpty".equals(key)) return "Non ci sono canzoni nella cartella della musica.";
-            if ("musicNow".equals(key)) return "Va bene, riproduco " + name + ".";
-        } else if ("pt".equals(lang)) {
-            if ("btOnFail".equals(key)) return "Desculpe, não consegui ativar o Bluetooth.";
-            if ("btOffFail".equals(key)) return "Desculpe, não consegui desativar o Bluetooth.";
-            if ("wifiOnFail".equals(key)) return "Desculpe, não consegui ativar o Wi-Fi.";
-            if ("wifiOffFail".equals(key)) return "Desculpe, não consegui desativar o Wi-Fi.";
-            if ("camNotReady".equals(key)) return "Desculpe, a câmera não está pronta.";
-            if ("camFail".equals(key)) return "Desculpe, não consegui tirar a foto.";
-            if ("musicNotReady".equals(key)) return "Desculpe, a música não está pronta.";
-            if ("musicEmpty".equals(key)) return "Não há músicas na pasta de música.";
-            if ("musicNow".equals(key)) return "Está bem, tocando " + name + ".";
-        } else if ("ko".equals(lang)) {
-            if ("btOnFail".equals(key)) return "죄송합니다, 블루투스를 켤 수 없습니다.";
-            if ("btOffFail".equals(key)) return "죄송합니다, 블루투스를 끌 수 없습니다.";
-            if ("wifiOnFail".equals(key)) return "죄송합니다, 와이파이를 켤 수 없습니다.";
-            if ("wifiOffFail".equals(key)) return "죄송합니다, 와이파이를 끌 수 없습니다.";
-            if ("camNotReady".equals(key)) return "죄송합니다, 카메라가 준비되지 않았습니다.";
-            if ("camFail".equals(key)) return "죄송합니다, 사진 촬영에 실패했습니다.";
-            if ("musicNotReady".equals(key)) return "죄송합니다, 음악이 준비되지 않았습니다.";
-            if ("musicEmpty".equals(key)) return "음악 폴더에 노래가 없습니다.";
-            if ("musicNow".equals(key)) return "알겠습니다, " + name + " 재생합니다.";
-        } else if ("ru".equals(lang)) {
-            if ("btOnFail".equals(key)) return "Извините, не получается включить Bluetooth.";
-            if ("btOffFail".equals(key)) return "Извините, не получается выключить Bluetooth.";
-            if ("wifiOnFail".equals(key)) return "Извините, не получается включить Wi-Fi.";
-            if ("wifiOffFail".equals(key)) return "Извините, не получается выключить Wi-Fi.";
-            if ("camNotReady".equals(key)) return "Извините, камера не готова.";
-            if ("camFail".equals(key)) return "Извините, не получилось сделать снимок.";
-            if ("musicNotReady".equals(key)) return "Извините, музыка не готова.";
-            if ("musicEmpty".equals(key)) return "В папке с музыкой нет песен.";
-            if ("musicNow".equals(key)) return "Хорошо, сейчас играет " + name + ".";
-        } else if ("zh".equals(lang)) {
-            if ("btOnFail".equals(key)) return "抱歉，無法打開藍牙。";
-            if ("btOffFail".equals(key)) return "抱歉，無法關閉藍牙。";
-            if ("wifiOnFail".equals(key)) return "抱歉，無法打開無線網路。";
-            if ("wifiOffFail".equals(key)) return "抱歉，無法關閉無線網路。";
-            if ("camNotReady".equals(key)) return "抱歉，相機尚未準備就緒。";
-            if ("camFail".equals(key)) return "抱歉，照片拍攝失敗。";
-            if ("musicNotReady".equals(key)) return "抱歉，音樂尚未準備就緒。";
-            if ("musicEmpty".equals(key)) return "音樂資料夾中沒有歌曲。";
-            if ("musicNow".equals(key)) return "好的，正在播放" + name + "。";
-        }
-        // en + 兜底
-        if ("btOnFail".equals(key)) return "Sorry, I couldn't turn on Bluetooth.";
-        if ("btOffFail".equals(key)) return "Sorry, I couldn't turn off Bluetooth.";
-        if ("wifiOnFail".equals(key)) return "Sorry, I couldn't turn on Wi-Fi.";
-        if ("wifiOffFail".equals(key)) return "Sorry, I couldn't turn off Wi-Fi.";
-        if ("camNotReady".equals(key)) return "Sorry, the camera isn't ready.";
-        if ("camFail".equals(key)) return "Sorry, I couldn't take the picture.";
-        if ("musicNotReady".equals(key)) return "Sorry, the music player isn't ready.";
-        if ("musicEmpty".equals(key)) return "There are no songs in the music folder.";
-        if ("musicNow".equals(key)) return "Okay, now playing " + name + ".";
-        return null;
+        return SemanticFunctionTexts.text(lang, key, name);
     }
 
     // "打字當作自己說了這句" - 直接把輸入文字當成語音引擎

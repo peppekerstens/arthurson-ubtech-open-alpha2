@@ -3404,7 +3404,9 @@ function gamepadSyncFsBtns() {
     var on = gamepadIsFullscreen(pairs[i][0]);
     var key = on ? "gamepad_exit_fullscreen_btn" : "gamepad_fullscreen_btn";
     try { btn.textContent = t(key); } catch (e) {
-      btn.textContent = on ? "✕ 退出全屏" : "⛶ 全屏";
+      // The i18n keys are missing: fall back by panel language, not a fixed Chinese.
+      btn.textContent = on ? (uiLang === "en" ? "✕ Exit fullscreen" : "✕ 退出全屏")
+                           : (uiLang === "en" ? "⛶ Fullscreen" : "⛶ 全屏");
     }
     // data-i18n 唔跟全屏態（兩態唔同 key），轉語言嗰陣唔好俾 applyUiLanguage 寫返轉頭。
     try { btn.removeAttribute("data-i18n"); } catch (e2) {}

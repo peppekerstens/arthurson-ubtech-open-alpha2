@@ -33,7 +33,7 @@ let lastEyePreset = "long";
 // The three dual-mode picks (the real device outputs these three dual pairs): blue-green = p1 blue, red-green = p1 yellow, red-blue = p1 purple.
 // Why not all 7 colors: every other p1 value also comes out as blue-green, so there is no variety; showing them would only take up space.
 const DUAL_COLORS = [
-  { code: 3, name: "藍綠", hex: "linear-gradient(135deg, #3b6bff 50%, #3bff5c 50%)" },
+  { code: 3, name: uiLang === "en" ? "Blue-Green" : "藍綠", hex: "linear-gradient(135deg, #3b6bff 50%, #3bff5c 50%)" },
   { code: 4, name: uiLang === "en" ? "Red-Green" : "紅綠", hex: "linear-gradient(135deg, #ff3b3b 50%, #3bff5c 50%)" },
   { code: 5, name: uiLang === "en" ? "Red-Blue" : "紅藍", hex: "linear-gradient(135deg, #ff3b3b 50%, #3b6bff 50%)" },
 ];
