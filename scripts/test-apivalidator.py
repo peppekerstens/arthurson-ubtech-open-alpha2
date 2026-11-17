@@ -31,6 +31,8 @@ alpha2-brain#130 adds the chest move commands of debug/serial/send (MotionGate +
 PlayRefusalTest (alpha2-brain#144): the refusal choice of the MCP play tools.
 WakeTurnEndTest (alpha2-brain#153): the turn end of a local command (abort or plain).
 VolumeToolArgsTest (alpha2-brain#123): the argument check of the MCP tool volume_set.
+SemanticFunctionTextsTest (alpha2-brain#95): the spoken FUNCTION reply texts are
+English on the English dialogue path and keep Chinese on the Chinese path.
 
 Usage: python scripts/test-apivalidator.py
 """
@@ -279,6 +281,8 @@ def main() -> int:
          [src / "WakeEnabledPolicy.java", testdir / "WakeEnabledPolicyTest.java"]),
         ("com.open.alpha2.VoiceLanguagesTest",
          [src / "VoiceLanguages.java", testdir / "VoiceLanguagesTest.java"]),
+        ("com.open.alpha2.SemanticFunctionTextsTest",
+         [src / "SemanticFunctionTexts.java", testdir / "SemanticFunctionTextsTest.java"]),
         ("com.ubtechinc.alpha.hardware.DirectChestControllerTest",
          [hw / "DirectChestController.java", hw / "DirectSerialPort.java", hw / "DirectSerialConfig.java",
           hw / "RobotWire.java", hw / "SerialFrameCodec.java", hw / "ChestSafety.java",
