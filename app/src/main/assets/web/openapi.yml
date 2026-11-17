@@ -2786,6 +2786,9 @@ paths:
                     paused_cycles:
                       type: integer
                       description: Cycles skipped during a firmware upgrade or while the chest port is closed
+                    settle_pauses:
+                      type: integer
+                      description: Cycles paused in the settle time (10 ms) after a move write, so the reads are not missed (alpha2-rl#217)
                     late_cycles:
                       type: integer
                     last_read_ms:
@@ -2848,6 +2851,9 @@ paths:
                     paused_cycles:
                       type: integer
                       description: Cycles skipped during a firmware upgrade or while the chest port is closed
+                    settle_pauses:
+                      type: integer
+                      description: Cycles paused in the settle time (10 ms) after a move write, so the reads are not missed (alpha2-rl#217)
                     late_cycles:
                       type: integer
                     last_read_ms:
@@ -2909,6 +2915,9 @@ paths:
                     paused_cycles:
                       type: integer
                       description: Cycles skipped during a firmware upgrade or while the chest port is closed
+                    settle_pauses:
+                      type: integer
+                      description: Cycles paused in the settle time (10 ms) after a move write, so the reads are not missed (alpha2-rl#217)
                     late_cycles:
                       type: integer
                     last_read_ms:

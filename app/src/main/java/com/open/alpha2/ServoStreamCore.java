@@ -26,7 +26,7 @@ import java.util.Arrays;
  *       {@link #EXTERNAL_WINDOW_MS} ms ({@link #noteExternalRead}, alpha2-brain#29).</li>
  *   <li>The servo bus is busy with the move frame and its replies after a move write
  *       (alpha2-rl#217): a read cycle that starts in the settle time
- *       ({@link #MOVE_SETTLE_MS}) after the move write is paused (paused_cycles) and sends
+ *       ({@link #MOVE_SETTLE_MS}) after the move write is paused (settle_pauses) and sends
  *       no frame, so its reads are not missed. The next cycle starts only after that time.</li>
  * </ul>
  */
@@ -85,7 +85,7 @@ final class ServoStreamCore {
     /**
      * alpha2-rl#217: after a move write, the servo bus is still busy with the move frame and
      * its replies. A read cycle that starts in this time after the move write is paused
-     * (paused_cycles), not missed (ms).
+     * (settle_pauses), not missed (ms).
      */
     static final long MOVE_SETTLE_MS = 10;
     /** A reply for an id that another requester asked for in this time goes out as chest_rcv. */
@@ -233,7 +233,7 @@ final class ServoStreamCore {
     private Cycle current;          // guarded by lock
     private final long[] externalReadAt = new long[256]; // guarded by lock
 
-    private volatile long seq, cycles, completeCycles, missedReads, pausedCycles, lateCycles, lateReplies;
+    private volatile long seq, cycles, completeCycles, missedReads, pausedCycles, settlePauses, lateCycles, lateReplies;
     /** Moves that waited for a cycle (move_waits) and moves that went out after the limit (move_forced). */
     private volatile long moveWaits, moveForced;
     /** The time when the next read cycle may start after a move write (Clock.nanoTime). */
@@ -260,6 +260,8 @@ final class ServoStreamCore {
     long missedReads() { return missedReads; }
 
     long pausedCycles() { return pausedCycles; }
+
+    long settlePauses() { return settlePauses; }
 
     long cycles() { return cycles; }
 
@@ -320,12 +322,16 @@ final class ServoStreamCore {
             // wraps the whole method body.
             if (waited) moveWaits++;
             if (forced) moveForced++;
-            T r = w.run();
-            // alpha2-rl#217: the next read cycle starts only after the settle time after the
-            // move write. Set before the gate is released, so the cycle that takes the gate
-            // next sees the time and pauses while the bus is busy with the move frame.
-            moveSettleUntilNs = clock.nanoTime() + MOVE_SETTLE_MS * 1_000_000L;
-            return r;
+            try {
+                return w.run();
+            } finally {
+                // alpha2-rl#217: the next read cycle starts only after the settle time after the
+                // move write. Set before the gate is released, so the cycle that takes the gate
+                // next sees the time and pauses while the bus is busy with the move frame. A
+                // throwing write may have sent a part of the frame: set the time also then
+                // (alpha2-brain#141).
+                moveSettleUntilNs = clock.nanoTime() + MOVE_SETTLE_MS * 1_000_000L;
+            }
         }
     }
 
@@ -456,6 +462,7 @@ final class ServoStreamCore {
                 .append(",\"complete_cycles\":").append(completeCycles)
                 .append(",\"missed_reads\":").append(missedReads)
                 .append(",\"paused_cycles\":").append(pausedCycles)
+                .append(",\"settle_pauses\":").append(settlePauses)
                 .append(",\"late_cycles\":").append(lateCycles)
                 .append(",\"late_replies\":").append(lateReplies)
                 .append(",\"move_waits\":").append(moveWaits)
@@ -483,7 +490,15 @@ final class ServoStreamCore {
                     return;
                 }
                 int period = 1000 / Math.max(1, hz);
-                cycle(gen, period);
+                long settleLeftNs = cycle(gen, period);
+                if (settleLeftNs > 0) {
+                    // alpha2-brain#141: a cycle paused for the settle time sleeps only until that
+                    // time ends, not a full period. Else a move at each tick leaves old reads.
+                    long settleMs = Math.max(1, (settleLeftNs + 999_999L) / 1_000_000L);
+                    clock.sleepMs(settleMs);
+                    next = env.nowMs();
+                    continue;
+                }
                 next += period;
                 long wait = next - env.nowMs();
                 if (wait < 0) {
@@ -502,7 +517,8 @@ final class ServoStreamCore {
         }
     }
 
-    private void cycle(int gen, int periodMs) throws InterruptedException {
+    /** Runs one cycle. Returns the time left of the settle time (ns) when the cycle paused for it, else 0. */
+    private long cycle(int gen, int periodMs) throws InterruptedException {
         // alpha2-brain#45: the reply wait counts from here, not from the send.
         long startNs = clock.nanoTime();
         int[] want = ids;
@@ -513,20 +529,21 @@ final class ServoStreamCore {
         long t0;
         synchronized (gate) {
             // alpha2-brain#26: check right before the write, in one step with the write.
-            if (!alive(gen)) return;
+            if (!alive(gen)) return 0;
             if (env.busy() || !env.portAvailable()) {
                 pausedCycles++;
-                return;
+                return 0;
             }
             // alpha2-rl#217: the servo bus is still busy with the move frame and its replies
             // after a move write. Pause this cycle (no frame, no missed reads) until after
             // the settle time. The next cycle starts only after that time.
-            if (clock.nanoTime() < moveSettleUntilNs) {
-                pausedCycles++;
-                return;
+            long settleLeftNs = moveSettleUntilNs - clock.nanoTime();
+            if (settleLeftNs > 0) {
+                settlePauses++;
+                return settleLeftNs;
             }
             synchronized (lock) {
-                if (!alive(gen)) return;
+                if (!alive(gen)) return 0;
                 t0 = clock.nanoTime();
                 current = c;
             }
@@ -558,7 +575,7 @@ final class ServoStreamCore {
                 current = null;
                 lock.notifyAll(); // a move waits for this (writeBetweenCycles)
             }
-            if (!alive(gen)) return;
+            if (!alive(gen)) return 0;
         }
         cycles++;
         int missing = 0;
@@ -586,5 +603,6 @@ final class ServoStreamCore {
         }
         sb.append(']').append(env.accelJson()).append('}');
         env.publish("servo_reads", sb.toString());
+        return 0;
     }
 }
