@@ -455,7 +455,7 @@ public class ServoStreamCoreTest {
 
         // -- alpha2-rl#217: the read cycle right after a move write waits the settle time --
         // A move write takes 45 ms and ends 35 ms into the next 50 ms period. The cycle that
-        // would read then is paused (paused_cycles), the next cycle starts only after the
+        // would read then is paused (settle_pauses), the next cycle starts only after the
         // settle time and gives all its replies. missed_reads stays 0.
         final SimEnv m = new SimEnv();
         m.sendDelayMs = 0;
@@ -488,14 +488,18 @@ public class ServoStreamCoreTest {
 
         // alpha2-brain#141: a write that throws still sets the settle time, and the paused
         // cycle sleeps until that time ends (10 ms), not a full period (50 ms). Two moves in
-        // a row: each one pauses one cycle.
+        // a row: each one pauses one cycle. After each throw the test records settle_pauses
+        // at the throw, and 15 ms later it checks that the value went up by 1: the next
+        // cycle paused for the settle time of the finally in writeBetweenCycles.
         final SimEnv t = new SimEnv();
         t.replyDelayMs = 5;
         t.core = new ServoStreamCore(t, t.clock, new int[]{2, 3}, 20, 400);
         t.core.start(new int[]{2, 3}, 20, 400, false);
         final AtomicInteger tThrown = new AtomicInteger();
-        for (long at : new long[]{70_000_000L, 200_000_000L}) {
-            t.clock.at(t.clock.ns + at, new Runnable() {
+        final long[] pausesAtThrow = new long[2];
+        final AtomicInteger pauseChecks = new AtomicInteger();
+        for (final int i : new int[]{0, 1}) {
+            t.clock.at(t.clock.ns + (i == 0 ? 70_000_000L : 200_000_000L), new Runnable() {
                 @Override public void run() {
                     try {
                         t.core.writeBetweenCycles(60, new ServoStreamCore.Write<Boolean>() {
@@ -506,12 +510,24 @@ public class ServoStreamCoreTest {
                         });
                     } catch (IllegalStateException ex) {
                         tThrown.incrementAndGet();
+                        // alpha2-brain#141: the exception reached the caller. The settle time
+                        // is set in the finally of writeBetweenCycles, so the next cycle
+                        // pauses for it: settle_pauses goes up by 1.
+                        pausesAtThrow[i] = t.core.settlePauses();
+                        t.clock.at(t.clock.ns + 15_000_000L, new Runnable() {
+                            @Override public void run() {
+                                eq(pausesAtThrow[i] + 1, t.core.settlePauses(),
+                                        "settle.throw" + (i + 1) + "PausesNextCycle");
+                                pauseChecks.incrementAndGet();
+                            }
+                        });
                     }
                 }
             });
         }
         t.clock.runLoop();
         eq(2, tThrown.get(), "settle.throwPropagates");
+        eq(2, pauseChecks.get(), "settle.throwChecksRan");
         eq(2L, t.core.settlePauses(), "settle.twoMovesTwoPauses");
         eq(0L, t.core.missedReads(), "settle.throwNoMissed");
         // A cycle paused for the settle time does not cost a full period: the gap between two
