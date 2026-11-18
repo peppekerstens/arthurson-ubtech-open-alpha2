@@ -1678,6 +1678,11 @@ public final class XiaozhiBridge {
             xiaozhiClient.setDisconnectListener(new XiaozhiClient.DisconnectListener() {
                 @Override
                 public void onUnexpectedDisconnect() {
+                    // alpha2-brain#92: the socket is gone, so the answer no longer
+                    // plays. Clear the stop word guard: a lost tts stop, a disconnect
+                    // or a reconnect must not leave the guard open and ignore a stop
+                    // of the owner with no end (review round 1 of fork PR 56).
+                    WakeController.onXiaozhiLinkChange();
                     // mute 鍵 LED = 小智連線指示燈，斷線就關燈。
                     setChestMuteLed(false);
                     // Push-to-talk (alpha2-brain#16): the socket is gone, so an
@@ -1703,6 +1708,10 @@ public final class XiaozhiBridge {
             });
             xiaozhiClient.connect(wsUrl, wsToken);
             xiaozhiActivationStatus.set(XiaozhiActivationStatus.connected(xiaozhiClient.getSessionId()));
+            // alpha2-brain#92: a new session is live (a reconnect). Clear the stop
+            // word guard so a stop of the owner works at once, not after the first
+            // tts start (review round 1 of fork PR 56).
+            WakeController.onXiaozhiLinkChange();
             // mute 鍵 LED = 小智連線指示燈，真正連上才亮 (按鍵當下只是即時反應，
             // 這裡才是權威狀態)。
             setChestMuteLed(true);

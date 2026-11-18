@@ -70,16 +70,23 @@ public final class StopEchoGuardTest {
         check(!g.blocks(t0 + 2000), "92 owner: the guard is off");
         check(robotStops(g, t0 + 2000, stop), "92 owner: the robot stops");
 
-        // 3. The real story: it holds "stopped", so the whole sentence is guarded.
+        // 3. The real story: it holds "stopped", so the sentence is guarded. It is a
+        // long sentence, so its window ends at its cap (the audio lag plus the max
+        // sentence length cap), not at the next sentence_start.
         g = new StopEchoGuard();
         g.onSentence(STORY, stop, t0);
         check(g.windowCount() == 1, "story: one window for the sentence");
         check(g.blocks(t0 + 5000), "story: guarded in the sentence");
-        check(g.blocks(t0 + 28000), "story: guarded late in the sentence");
+        check(g.blocks(t0 + StopEchoGuard.AUDIO_LAG_MS + StopEchoGuard.MAX_CAP_MS),
+                "story: guarded until its cap");
+        check(!g.blocks(t0 + StopEchoGuard.AUDIO_LAG_MS + StopEchoGuard.MAX_CAP_MS + 1),
+                "story: free after the cap");
         // The next sentence cuts the old window: the audio ends soon after it starts.
-        g.onSentence("The end of the story was a happy one.", stop, t0 + 31000);
-        check(g.blocks(t0 + 31000), "story cut: still guarded at the next start");
-        check(!g.blocks(t0 + 31000 + StopEchoGuard.AUDIO_LAG_MS + 1), "story cut: free after the lag");
+        g = new StopEchoGuard();
+        g.onSentence("stop", stop, t0);
+        g.onSentence("The end of the story was a happy one.", stop, t0 + 1000);
+        check(g.blocks(t0 + 1000), "story cut: still guarded at the next start");
+        check(!g.blocks(t0 + 1000 + StopEchoGuard.AUDIO_LAG_MS + 1), "story cut: free after the lag");
 
         // 4. Word forms that hold "stop": one window for the whole sentence.
         g = new StopEchoGuard();
@@ -99,8 +106,9 @@ public final class StopEchoGuardTest {
         check(!g.blocks(t0 + 2000 + StopEchoGuard.AUDIO_LAG_MS + 1), "Stop. cut: free after the lag");
 
         // 6. A long sentence with "stop" only at the end: the whole sentence is
-        // guarded, so it is blocked early and late (the robot may say the word
-        // anywhere, and the TTS audio can lag).
+        // guarded until its cap (the robot may say the word anywhere, and the TTS
+        // audio can lag). It is far longer than the max cap, so the window ends at
+        // the max cap.
         String filler = "Once upon a time there was a small robot who liked very long stories "
                 + "about trains and rivers and green hills. ";
         StringBuilder sb = new StringBuilder();
@@ -111,7 +119,10 @@ public final class StopEchoGuardTest {
         g.onSentence(longText, stop, t0);
         check(g.windowCount() == 1, "long: one window for the sentence");
         check(g.blocks(t0 + 3000), "long: guarded early in the sentence");
-        check(g.blocks(t0 + 30000), "long: guarded late in the sentence");
+        check(g.blocks(t0 + StopEchoGuard.AUDIO_LAG_MS + StopEchoGuard.MAX_CAP_MS),
+                "long: guarded until the max cap");
+        check(!g.blocks(t0 + StopEchoGuard.AUDIO_LAG_MS + StopEchoGuard.MAX_CAP_MS + 1),
+                "long: free after the max cap");
 
         // 7. The next sentence cuts the old window: audio of the old sentence ends soon.
         g = new StopEchoGuard();
@@ -130,6 +141,45 @@ public final class StopEchoGuardTest {
         check(g.windowCount() == 0, "null text: no window");
         g.onSentence("", stop, t0);
         check(g.windowCount() == 0, "empty text: no window");
+
+        // 9. alpha2-brain#92, review round 1: a lost tts stop. No next sentence_start
+        // and no reset come (the tts stop message is lost). The window still ends at
+        // its cap: the audio lag plus the play time of the sentence (the per-word
+        // estimate, below the max cap). A stop of the owner works again after it.
+        g = new StopEchoGuard();
+        g.onSentence("It cannot be stopped or overcome.", stop, t0); // 6 words
+        check(g.windowCount() == 1, "92 lost stop: one window");
+        check(g.blocks(t0 + 4000), "92 lost stop: guarded while it plays");
+        long lostEnd = t0 + StopEchoGuard.AUDIO_LAG_MS + 6L * StopEchoGuard.PER_WORD_MS;
+        check(g.blocks(lostEnd), "92 lost stop: guarded until its end");
+        check(!g.blocks(lostEnd + 1), "92 lost stop: free after the cap");
+
+        // 10. alpha2-brain#92, review round 1: a disconnect or a reconnect clears the
+        // guard. The guard is reset when the xiaozhi link changes (a disconnect, or a
+        // reconnect). A stop of the owner works at once, not after the first tts start.
+        g = new StopEchoGuard();
+        g.onSentence("It cannot be stopped or overcome.", stop, t0);
+        check(g.blocks(t0 + 1000), "92 link: guarded before the link change");
+        g.reset(); // the disconnect or the reconnect
+        check(g.windowCount() == 0, "92 link: the link change clears the window");
+        check(!g.blocks(t0 + 1000), "92 link: free after the link change");
+
+        // 11. alpha2-brain#92, review round 1: a long sentence keeps the guard until
+        // its cap. The sentence is far longer than the max cap, so the window holds
+        // until the max cap (the audio lag plus MAX_CAP_MS), and no longer. This is
+        // the last-sentence case: no following sentence_start, no tts stop.
+        String longCap =
+                "This is a very long answer sentence that goes on for many and many "
+                + "words so that its play time is far longer than the max cap of the "
+                + "guard, and it says the word stop near the end of the sentence here.";
+        g = new StopEchoGuard();
+        g.onSentence(longCap, stop, t0);
+        check(g.windowCount() == 1, "92 long cap: one window");
+        check(g.blocks(t0 + 10000), "92 long cap: guarded deep in the sentence");
+        check(g.blocks(t0 + StopEchoGuard.AUDIO_LAG_MS + StopEchoGuard.MAX_CAP_MS),
+                "92 long cap: guarded until the max cap");
+        check(!g.blocks(t0 + StopEchoGuard.AUDIO_LAG_MS + StopEchoGuard.MAX_CAP_MS + 1),
+                "92 long cap: free after the max cap");
 
         System.out.println("StopEchoGuardTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
