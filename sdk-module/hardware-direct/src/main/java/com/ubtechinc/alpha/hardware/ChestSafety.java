@@ -149,11 +149,15 @@ public final class ChestSafety {
      * looks at the byte of the long form (index 5) and of the short form (index 3). A header
      * that ends before the long-form command byte gives 0x100: the data may be the first
      * part of a frame that the chest joins with the next call. So a split frame or junk
-     * bytes cannot hide a firmware write.
+     * bytes cannot hide a firmware write. A call that ends with a lone F8 gives 0x100 too: the
+     * chest can join it with a next call that starts with 8F and a firmware command.
      */
     public static int findServoFirmwareCommand(byte[] data) {
         if (data == null) return -1;
         int n = data.length;
+        // A lone F8 at the end can join 8F and a command of the next call (alpha2-brain#132).
+        // A real frame ends with ED, so no allowed call ends with F8.
+        if (n > 0 && (data[n - 1] & 0xFF) == HEAD0) return 0x100;
         for (int i = 0; i + 1 < n; i++) {
             if ((data[i] & 0xFF) != HEAD0 || (data[i + 1] & 0xFF) != HEAD1) continue;
             if (i + 5 >= n) return 0x100;

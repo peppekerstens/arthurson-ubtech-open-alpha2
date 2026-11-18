@@ -308,6 +308,43 @@ def main() -> int:
             shutil.rmtree(tmp, ignore_errors=True)
             print("FAIL")
             return r.returncode
+    # Suite: ApiDispatcherGateTest (alpha2-brain#122). It builds the real ApiDispatcher with empty
+    # helper objects, so it compiles the app sources. It needs android.jar (compile only) and the
+    # classes.jar of the Vosk and JNA aar files in app/libs. The test Log stub comes first.
+    import zipfile
+    libs = ROOT / "app" / "libs"
+    jars = []
+    for aar in ("vosk-android-0.3.75-armeabi-v7a.aar", "jna-5.13.0-armeabi-v7a.aar"):
+        jar_dir = tmp / ("aar-" + aar)
+        jar_dir.mkdir()
+        with zipfile.ZipFile(libs / aar) as z:
+            z.extract("classes.jar", str(jar_dir))
+        jars.append(str(jar_dir / "classes.jar"))
+    gate_out = tmp / "ApiDispatcherGateTest"
+    gate_out.mkdir()
+    gate_cp = os.pathsep.join([str(jar)] + jars)
+    r = subprocess.run(
+        [javac, "-encoding", "UTF-8", "-nowarn", "-Xprefer:source", "-cp", gate_cp,
+         "-sourcepath", os.pathsep.join([str(src.parent.parent.parent), str(hw.parent.parent.parent.parent), str(stubs)]),
+         "-d", str(gate_out), str(stubs / "android" / "util" / "Log.java"),
+         str(testdir / "ApiDispatcherGateTest.java")],
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        print(r.stdout)
+        print(r.stderr)
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise SystemExit("compile failed (ApiDispatcherGateTest)")
+    r = subprocess.run([java, "-cp", str(gate_out) + os.pathsep + gate_cp,
+                        "com.open.alpha2.ApiDispatcherGateTest"],
+                       capture_output=True, text=True, cwd=str(ROOT))
+    print(r.stdout, end="")
+    if r.stderr:
+        print(r.stderr, end="", file=sys.stderr)
+    if r.returncode != 0:
+        shutil.rmtree(tmp, ignore_errors=True)
+        print("FAIL")
+        return r.returncode
+
     shutil.rmtree(tmp, ignore_errors=True)
     print("PASS")
     return 0
