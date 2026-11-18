@@ -47,12 +47,6 @@ The physical position of each mic on the head is not known yet (slice M2).
 - The slot phase changes at each open. `MultiMicController` finds it again in 128 ms: on channel 1, only the aux slot has a smooth signal (mean absolute step 0.6 against 3 or more for a mic). The two reference slots on channel 0 must then be smooth too (`cross_check`). The lock is checked again each second. After an overrun the lock starts again.
 - The capture uses a different sound card. Thus it runs at the same time as wake mode and Xiaozhi, and it does not pause them.
 
-## Tests (2026-11-01)
-
-- 5 opens in a row: the rotation was 1, 2, 2, 3, 0. Each time the lock gave the same channel map (`cross_check` true, no relock).
-- 440 Hz test tone on the speaker: m1 to m5 show 4200 to 5300, ref1 and ref2 show 1430, aux shows 0.
-- Capture of card 0 and `/stream/mic` (card 3) at the same time: both work.
-
 ## Limits
 
 - Sample alignment between the slots is not proved. A 4-frame group starts at slot 0, which is an assumption. For the speaker tone the lag between the mics was 0.0 samples.
