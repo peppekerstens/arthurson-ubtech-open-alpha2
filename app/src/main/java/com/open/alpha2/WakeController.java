@@ -915,6 +915,9 @@ public final class WakeController {
             if (halfDuplex()) bridge.wakeUplink(false);
         } else if ("stop".equals(state)) {
             VoiceTiming.get().ttsStop();
+            // alpha2-brain#92: the stop word guard holds until the next sentence_start
+            // or the tts stop: close it here.
+            stopEcho.reset();
             bridge.wakeListenAgain();
             VoiceTiming.get().followUp();
             lastSpeechMs = 0;

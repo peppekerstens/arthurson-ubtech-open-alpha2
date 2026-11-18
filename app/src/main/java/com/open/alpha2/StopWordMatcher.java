@@ -113,11 +113,12 @@ public final class StopWordMatcher {
     }
 
     /**
-     * The start index of each stop word in an answer sentence, as a whole word only
-     * (alpha2-brain#52). A one-word phrase matches a text word equal to it, or equal
-     * to it plus "s" ("stops", because the laptop test of 2026-10-31 found that "the
-     * bus stops" sounds like stop). A phrase of more words matches only as whole
-     * adjacent words. "stopped", "stopping", "nonstop" and "stopwatch" do not match.
+     * The start index of each stop word form in an answer sentence (alpha2-brain#52,
+     * #92). A one-word phrase matches a text word that holds the phrase as a part
+     * ("stop", "stops", "stopped", "stopping", "unstoppable"): the robot says the
+     * word and the microphone hears "stop" from it (robot test 2026-11-14: the answer
+     * to "What does unstoppable mean?" holds "stopped", and the echo of that word
+     * stopped the robot). A phrase of more words matches only as whole adjacent words.
      * Returns an empty list for null or empty text. The index is a character offset
      * in the original sentence.
      */
@@ -138,8 +139,9 @@ public final class StopWordMatcher {
             if (ph.size() == 1) {
                 String first = ph.get(0);
                 for (int i = 0; i < said.size(); i++) {
-                    String w = said.get(i);
-                    if (w.equals(first) || w.equals(first + "s")) out.add(start.get(i));
+                    // A word with the phrase in it ("stopped", "unstoppable", ...):
+                    // the robot says it and the microphone hears "stop" from it.
+                    if (said.get(i).contains(first)) out.add(start.get(i));
                 }
             } else {
                 // More words: whole adjacent words only. Same rule as containsPhrase.
@@ -153,10 +155,10 @@ public final class StopWordMatcher {
 
     /**
      * true when an answer sentence (text of the tts sentence_start message) holds a
-     * stop phrase as a whole word ("stop", "stops", "Stop."). Then the robot says the
-     * word itself, and the microphone hears it (laptop test 2026-10-31: all false
-     * stops in 55 s of Piper speech were words like "the bus stops"). alpha2-brain#52:
-     * a word that only starts with "stop" ("stopped") is no match.
+     * stop word form ("stop", "stops", "stopped", "stopping", "unstoppable"). Then the
+     * robot says the word itself, and the microphone hears "stop" from it (laptop test
+     * 2026-10-31: all false stops were words like "the bus stops"; robot test
+     * 2026-11-14: the echo of "stopped" stopped the robot, alpha2-brain#92).
      */
     public static boolean textHasStopWord(String sentence, Collection<String> phrases) {
         return !stopWordOffsets(sentence, phrases).isEmpty();
