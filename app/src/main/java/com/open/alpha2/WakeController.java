@@ -193,11 +193,13 @@ public final class WakeController {
         if (w != null) w.handleStt(text);
     }
 
-    /** XiaozhiBridge: a disconnect of the xiaozhi client, or a new session after a
-     *  reconnect. The stop word guard is cleared: the audio no longer plays (a
-     *  disconnect) or a new session starts (a reconnect). Without this, a lost tts
-     *  stop, a disconnect or a reconnect left the guard open and ignored a stop of
-     *  the owner with no end (alpha2-brain#92, review round 1 of fork PR 56). */
+    /** XiaozhiBridge: the xiaozhi link changed. Every close path (an unexpected
+     *  drop, an explicit disconnect, a teardown, onDestroy) and a new session
+     *  after a reconnect call this. The stop word guard is cleared: the audio no
+     *  longer plays (a close) or a new session starts (a reconnect). Without
+     *  this, a lost tts stop, a close or a reconnect left the guard open and
+     *  ignored a stop of the owner with no end (alpha2-brain#92, review round 1
+     *  and 2 of fork PR 56). */
     public static void onXiaozhiLinkChange() {
         WakeController w = instance;
         if (w != null) w.stopEcho.reset();

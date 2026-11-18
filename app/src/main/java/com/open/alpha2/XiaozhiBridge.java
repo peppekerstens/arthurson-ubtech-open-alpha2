@@ -112,7 +112,11 @@ public final class XiaozhiBridge {
             new Thread(new Runnable() {
                 @Override
                 public void run() {
+                    // alpha2-brain#92: onDestroy closes the connection too. The
+                    // reset runs after the close: a late frame of the reader
+                    // thread can still add a guard window after the close.
                     clientToClose.disconnect();
+                    resetStopEchoGuard();
                 }
             }, "xiaozhi-destroy-disconnect").start();
         }
@@ -359,7 +363,20 @@ public final class XiaozhiBridge {
         pushToTalk.disconnect();
         stopXiaozhiMic();
         LedCenter.stopMouthLedForTts();
-        if (disconnectSocket) xiaozhiClient.disconnect();
+        if (disconnectSocket) {
+            xiaozhiClient.disconnect();
+            resetStopEchoGuard();
+        }
+    }
+
+    /** alpha2-brain#92: clear the stop word guard. One helper so every close
+     *  path of the connection (an explicit disconnect, a teardown, an
+     *  unexpected drop, a reconnect) calls the same reset. The socket is gone,
+     *  so the answer no longer plays: a lost tts stop, a disconnect or a
+     *  reconnect must not leave the guard open and ignore a stop of the owner
+     *  with no end (review round 2 of fork PR 56). */
+    private void resetStopEchoGuard() {
+        WakeController.onXiaozhiLinkChange();
     }
 
     /** activation gate 已搶到之後的尾段：設 checking、取 deviceId、背景起 flow。
@@ -1682,7 +1699,7 @@ public final class XiaozhiBridge {
                     // plays. Clear the stop word guard: a lost tts stop, a disconnect
                     // or a reconnect must not leave the guard open and ignore a stop
                     // of the owner with no end (review round 1 of fork PR 56).
-                    WakeController.onXiaozhiLinkChange();
+                    resetStopEchoGuard();
                     // mute 鍵 LED = 小智連線指示燈，斷線就關燈。
                     setChestMuteLed(false);
                     // Push-to-talk (alpha2-brain#16): the socket is gone, so an
@@ -1711,7 +1728,7 @@ public final class XiaozhiBridge {
             // alpha2-brain#92: a new session is live (a reconnect). Clear the stop
             // word guard so a stop of the owner works at once, not after the first
             // tts start (review round 1 of fork PR 56).
-            WakeController.onXiaozhiLinkChange();
+            resetStopEchoGuard();
             // mute 鍵 LED = 小智連線指示燈，真正連上才亮 (按鍵當下只是即時反應，
             // 這裡才是權威狀態)。
             setChestMuteLed(true);
