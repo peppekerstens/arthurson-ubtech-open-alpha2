@@ -62,7 +62,7 @@ and not `moveBetweenCycles`. The owner decision D-217 resolves this risk with th
 |------|--------|
 | `openapi/open-alpha2-openapi.yml` | Fork English descriptions with the upstream content: tag `walk` (English text), 22 axes, `ubx/speed` range 0.5 to 2.0, gamepad action list with the `ik:` actions, `'on'` quoted. |
 | `app/src/main/assets/web/openapi.yml`, `.well-known/openapi.yml`, `well-known/openapi.yml` | Copy of the source file (same as `check-spec-copies.py --fix`). |
-| `.well-known/openapi.json`, `well-known/openapi.json` | Same choices by hand: English text, version `beta 8.1`. The check script was not run (see the test notes). |
+| `.well-known/openapi.json`, `well-known/openapi.json` | Same choices by hand: English text, version `beta 8.1`. The check script was not run. |
 | `api-client.js` | `assertRange` for `ubx/speed` (upstream). English summary comments (the generator takes them from the spec). |
 | `app-*.js` with `t("key")` (actions, camera, chest, log, mic, radio, speech, status) | Upstream `t()` call. The dictionary in `app-core.js` has an English text for each key. |
 | `app-gamepad.js` | Upstream multi-action mapping, IK and walk kinds, fullscreen and campad code. Fork `uiLang` ternaries that upstream replaced are gone. |

@@ -270,9 +270,7 @@ brackets):
   `/api/servo/stream/status`. The ids 2, 3, 5, 6 and 17 to 20 give an
   angle. The app also accepts 21 and 22 (`READABLE_IDS`), but these servos
   are not on the owner's robot (`UbxApi.java`: "21/22 unknown (absent)").
-  The 20 kg servos 1, 4 and 7 to 16 give 400. See alpha2-rl#3. The spec
-  text of `ids` says this since branch `robot-build-20261105`. Older builds
-  serve a spec that says "17 to 22".
+  The 20 kg servos 1, 4 and 7 to 16 give 400. See alpha2-rl#3.
 
 Self-describing endpoints on the robot (same port):
 
