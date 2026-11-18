@@ -193,6 +193,18 @@ public final class WakeController {
         if (w != null) w.handleStt(text);
     }
 
+    /** XiaozhiBridge: the xiaozhi link changed. Every close path (an unexpected
+     *  drop, an explicit disconnect, a teardown, onDestroy) and a new session
+     *  after a reconnect call this. The stop word guard is cleared: the audio no
+     *  longer plays (a close) or a new session starts (a reconnect). Without
+     *  this, a lost tts stop, a close or a reconnect left the guard open and
+     *  ignored a stop of the owner with no end (alpha2-brain#92, review round 1
+     *  and 2 of fork PR 56). */
+    public static void onXiaozhiLinkChange() {
+        WakeController w = instance;
+        if (w != null) w.stopEcho.reset();
+    }
+
     public static HttpServer.ApiResponse api(String path, Map<String, String> query) {
         WakeController w = instance;
         if (w == null) return HttpServer.ApiResponse.error("wake word needs Vosk (Android 5.0+)");
@@ -915,6 +927,9 @@ public final class WakeController {
             if (halfDuplex()) bridge.wakeUplink(false);
         } else if ("stop".equals(state)) {
             VoiceTiming.get().ttsStop();
+            // alpha2-brain#92: the stop word guard holds until the next sentence_start
+            // or the tts stop: close it here.
+            stopEcho.reset();
             bridge.wakeListenAgain();
             VoiceTiming.get().followUp();
             lastSpeechMs = 0;
