@@ -240,16 +240,17 @@ Bilingual (EN/Traditional Chinese), 10 tabs, live updates over WebSocket, no ref
 
 ## HTTP API
 
-Single source of truth: `openapi/open-alpha2-openapi.yml` (**223 paths**,
+Single source of truth: `openapi/open-alpha2-openapi.yml` (**238 paths**,
 one operation each). Namespaces as spelled in the spec (`/api/*` count in
 brackets):
 
-- `/api/*` — main robot API, 213 paths: `accelerometer` (2), `action` (6),
-  `apk` (3), `audio` (33), `battery` (1), `bt` (1), `camera` (12), `chest`
+- `/api/*` — main robot API, 228 paths: `accelerometer` (2), `action` (6),
+  `apk` (3), `audio` (33), `battery` (2), `bt` (1), `camera` (12), `chest`
   (6), `color` (4), `debug` (2), `face` (5), `gamepad` (12), `head` (1),
-  `led` (9), `mic` (1), `misc` (2), `pir` (3), `servo` (22), `speech` (20),
-  `status` (1), `ubx` (5), `vosk` (11), `wake` (3), `wifi` (1) — plus the
-  passthrough families `direct` (14), `system` (13) and `xiaozhi` (20). The browser client calls
+  `led` (9), `mic` (2), `misc` (2), `motion` (2), `pir` (3), `servo` (23),
+  `speech` (20), `status` (1), `ubx` (5), `vosk` (11), `walk` (4), `wake`
+  (3), `wifi` (1) — plus the passthrough families `direct` (14), `system`
+  (15) and `xiaozhi` (24). The browser client calls
   these under the **`/api/alpha2/*`** prefix (`api()` in `app-core.js`;
   `sysApi()`/`directApi()`/`xiaozhiApi()` for the other three families);
   all spellings reach the same dispatcher (`handleApi`), and the bare
@@ -281,7 +282,7 @@ Self-describing endpoints on the robot (same port):
 - `/apis.yml` — apis.json-style directory entry; `/llms.txt` — short LLM
   pointer.
 
-The JS client (`assets/web/api-client.js`, `Alpha2Api.*`, **213 typed
+The JS client (`assets/web/api-client.js`, `Alpha2Api.*`, **228 typed
 wrappers**) is generated from the spec — never hand-edit it:
 
 ```bash
@@ -361,7 +362,7 @@ open-alpha2/
 │   │   SemanticCenter + 10 matchers, Vosk/TTS/Ringtone, XiaozhiBridge/
 │   │   Client/OTA/MCP, PanelAuth, EventBus, WebSocketServer, HttpServer, …
 │   ├── src/main/assets/web/        ← control panel (10 tabs) + Blockly +
-│   │                                  generated api-client.js (213 wrappers)
+│   │                                  generated api-client.js (228 wrappers)
 │   │                                  (CI strips web comments before build)
 │   ├── src/main/assets/semantic/   ← 10 intent libraries (299 groups each:
 │   │                                  86 action + 13 function + 200 chat)
@@ -374,7 +375,7 @@ open-alpha2/
 ├── sdk-module/hardware-direct/     ← serial ports (/dev/ttyS1+S3), LED/pad JNI,
 │                                      wire protocol, .ubx parse/play/speed-shifted music
 │   └── src/test/java/…             ← SerialFrameCodecTest (scripts/test-serialcodec.py)
-├── openapi/                        ← open-alpha2-openapi.yml (223 paths) /
+├── openapi/                        ← open-alpha2-openapi.yml (238 paths) /
 │                                      asyncapi.yml / mcp-openapi-sync.yml + README
 ├── scripts/                        ← generators, drift/route/copy checks, unit-test
 │                                      runners, ubx_* offline analysis tools
